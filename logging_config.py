@@ -1,0 +1,78 @@
+"""
+Structured logging configuration using *structlog*.
+
+Call :func:`setup_logging` once at application startup.  In production the
+output is newline-delimited JSON; during development it uses a coloured
+console renderer for readability.
+"""
+
+from __future__ import annotations
+
+import logging
+import sys
+
+import structlog
+
+
+def setup_logging(log_level: str = "INFO") -> None:
+    """Initialise structured logging for the entire application.
+
+    Args:
+        log_level: Root log level as a string (e.g. ``"DEBUG"``, ``"INFO"``).
+            Parsed case-insensitively.
+
+    The function configures both :mod:`structlog` and the stdlib
+    :mod:`logging` module so that third-party libraries (``ib_insync``,
+    ``httpx``, etc.) also route through the same pipeline.
+    """
+    numeric_level = getattr(logging, log_level.upper(), logging.INFO)
+    is_development = sys.stderr.isatty()
+
+    # Shared processors applied to every log event.
+    shared_processors: list[structlog.types.Processor] = [
+        structlog.contextvars.merge_contextvars,
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.add_logger_name,
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.UnicodeDecoder(),
+    ]
+
+    if is_development:
+        # Pretty, coloured output for local development.
+        renderer: structlog.types.Processor = structlog.dev.ConsoleRenderer(
+            colors=True,
+        )
+    else:
+        # Machine-readable JSON for production / log aggregation.
+        renderer = structlog.processors.JSONRenderer()
+
+    structlog.configure(
+        processors=[
+            *shared_processors,
+            structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
+        ],
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        wrapper_class=structlog.stdlib.BoundLogger,
+        cache_logger_on_first_use=True,
+    )
+
+    formatter = structlog.stdlib.ProcessorFormatter(
+        processors=[
+            structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+            renderer,
+        ],
+        foreign_pre_chain=shared_processors,
+    )
+
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(formatter)
+
+    root_logger = logging.getLogger()
+    root_logger.handlers.clear()
+    root_logger.addHandler(handler)
+    root_logger.setLevel(numeric_level)
+
+    # Quieten noisy third-party loggers.
+    for noisy in ("ib_insync", "asyncio", "urllib3", "httpx", "httpcore"):
+        logging.getLogger(noisy).setLevel(max(numeric_level, logging.WARNING))
