@@ -386,18 +386,51 @@ class PolygonProvider:
 
         log = self._log.bind(symbol=symbol)
         url = f"{self._BASE}/v2/last/trade/{symbol}"
-        resp = httpx.get(url, params={"apiKey": self._key}, timeout=15.0)
-        resp.raise_for_status()
-        body = resp.json()
-        # Newer schema: {"results": {"p": price}}; older: {"last": {"price": ...}}
-        results = body.get("results") or {}
-        price = results.get("p")
-        if price is None:
-            price = (body.get("last") or {}).get("price")
-        if price is None or float(price) <= 0:
+        try:
+            resp = httpx.get(url, params={"apiKey": self._key}, timeout=15.0)
+            resp.raise_for_status()
+            body = resp.json()
+            # Newer schema: {"results": {"p": price}}; older: {"last": {"price": ...}}
+            results = body.get("results") or {}
+            price = results.get("p")
+            if price is None:
+                price = (body.get("last") or {}).get("price")
+            if price is not None and float(price) > 0:
+                return float(price)
             log.warning("provider.price_unavailable", symbol=symbol)
-            return None
-        return float(price)
+        except httpx.HTTPStatusError as exc:
+            # The real-time last-trade endpoint requires a paid Polygon plan and
+            # returns 403 on the free tier.  Fall back to the most recent daily
+            # close (served by the free aggregates plan) so daily-bar strategies
+            # still get a usable price instead of failing every freshness check.
+            if exc.response.status_code != 403:
+                log.warning("provider.last_trade_failed",
+                            status=exc.response.status_code)
+        except Exception:  # noqa: BLE001
+            log.warning("provider.last_trade_error")
+
+        return self._previous_close(symbol, log)
+
+    def _previous_close(self, symbol: str, log) -> Optional[float]:
+        """Return the prior session's close as a delayed price fallback."""
+        import httpx
+
+        url = f"{self._BASE}/v2/aggs/ticker/{symbol}/prev"
+        try:
+            resp = httpx.get(
+                url, params={"adjusted": "true", "apiKey": self._key},
+                timeout=15.0,
+            )
+            resp.raise_for_status()
+            results = resp.json().get("results") or []
+            close = results[0].get("c") if results else None
+            if close is not None and float(close) > 0:
+                log.info("provider.price_from_prev_close", price=float(close))
+                return float(close)
+        except Exception:  # noqa: BLE001
+            log.warning("provider.prev_close_failed", symbol=symbol)
+        log.warning("provider.price_unavailable", symbol=symbol)
+        return None
 
     def supports_streaming(self) -> bool:
         return False

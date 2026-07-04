@@ -1356,6 +1356,33 @@
       btn.disabled = false;
     }
   }
+
+  // ── Live auto-refresh ─────────────────────────────────────────────────────
+  // The dashboard renders server-side snapshots of engine state (positions,
+  // P&L, journal), so reload periodically to surface fresh data. Pause while
+  // the user is mid-interaction — typing in a field or with a modal open — so
+  // a reload never wipes an in-progress action.
+  (function () {
+    var REFRESH_MS = 60000;
+    function busy() {
+      var el = document.activeElement;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" ||
+                 el.tagName === "SELECT")) {
+        return true;
+      }
+      // Any visible modal overlay counts as an active interaction.
+      var modals = document.querySelectorAll(".modal-overlay, [class*='modal']");
+      for (var i = 0; i < modals.length; i++) {
+        var s = window.getComputedStyle(modals[i]);
+        if (s.display !== "none" && s.visibility !== "hidden") return true;
+      }
+      return false;
+    }
+    setInterval(function () {
+      if (document.hidden || busy()) return;
+      window.location.reload();
+    }, REFRESH_MS);
+  })();
 </script>
 </body>
 </html>
