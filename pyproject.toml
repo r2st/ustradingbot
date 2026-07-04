@@ -32,6 +32,11 @@ dependencies = [
 live = [
     "ib_insync>=0.9.86",
 ]
+# Alpaca market-data provider with websocket streaming (MARKET_DATA_PROVIDER=alpaca).
+# The default yfinance provider needs none of this, so it is kept optional.
+alpaca = [
+    "alpaca-py>=0.20",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
@@ -55,4 +60,6 @@ include = [
     "agent*",
     "tools*",
     "dashboard*",
+    "analytics*",
+    "backtest*",
 ]

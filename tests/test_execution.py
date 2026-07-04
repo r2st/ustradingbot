@@ -44,7 +44,11 @@ def test_paper_broker_place_and_track(settings: Settings) -> None:
     broker = PaperBroker(settings)
     assert broker.connect() is True
     res = broker.place_bracket_order("AAPL", 10, 100.0, 95.0, 115.0)
-    assert res.accepted and res.fill_price == 100.0
+    # Entry fills above the requested price by PAPER_SLIPPAGE_BPS (5 bp default)
+    # and is charged a per-share commission.
+    assert res.accepted
+    assert res.fill_price == pytest.approx(100.0 * 1.0005)
+    assert res.commission == pytest.approx(10 * 0.005)
     assert broker.get_positions() == {"AAPL": 10}
 
 
@@ -76,7 +80,9 @@ def test_paper_broker_force_close(settings: Settings, monkeypatch) -> None:
     ev = broker.force_close("AAPL", ExitReason.TIME_EXIT_FLAT)
     assert ev is not None
     assert ev.exit_price == 110.0
-    assert ev.pnl_gross == pytest.approx((110.0 - 100.0) * 10)
+    # Entry filled at 100.05 (5 bp slippage), so gross P&L is off that basis.
+    assert ev.pnl_gross == pytest.approx((110.0 - 100.05) * 10)
+    assert ev.fill_details["commission"] == pytest.approx(10 * 0.005)
     assert broker.get_positions() == {}
 
 

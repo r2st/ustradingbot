@@ -145,6 +145,61 @@ class Settings(BaseSettings):
     # ib_insync (requires a running TWS/Gateway on IBKR_HOST:IBKR_PORT).
     BROKER: str = "paper"
 
+    # ── Paper-broker fill realism (slippage + commission) ───────────────────
+    # The paper broker (and the backtester, which shares its fill maths)
+    # models two real-world frictions so simulated P&L is not optimistic:
+    #
+    #   * Slippage — entries fill *above* the requested price and stop exits
+    #     fill *below* the stop by PAPER_SLIPPAGE_BPS basis points
+    #     (1 bp = 0.01%).  A gap that opens straight through a stop fills at
+    #     the (worse) bar open instead of the stop price.
+    #   * Commission — a per-share charge on both the entry and the exit;
+    #     paper P&L is reported net of the round-trip commission.
+    PAPER_SLIPPAGE_BPS: float = 5.0
+    PAPER_COMMISSION_PER_SHARE: float = 0.005
+
+    # ── Market-data provider selection ──────────────────────────────────────
+    # "yfinance" uses the free Yahoo Finance backend (default, no key needed).
+    # "alpaca" uses Alpaca's market-data API with optional websocket streaming
+    # for low-latency exits (requires alpaca-py + API keys below).
+    MARKET_DATA_PROVIDER: str = "yfinance"
+    ALPACA_API_KEY: str = ""
+    ALPACA_API_SECRET: str = ""
+    ALPACA_DATA_FEED: str = "iex"  # "iex" (free) or "sip" (paid)
+
+    # ── Data cache TTLs (seconds) ───────────────────────────────────────────
+    # Fetched data is memoised in a thread-safe TTL cache to eliminate the
+    # ~160 redundant Yahoo calls per scan cycle.  Current price is cached
+    # briefly; OHLCV history (daily bars) is stable for far longer.
+    PRICE_CACHE_TTL_SECONDS: float = 300.0  # 5 minutes
+    OHLCV_CACHE_TTL_SECONDS: float = 3600.0  # 1 hour
+    DATA_CACHE_ENABLED: bool = True
+
+    # ── Fetch retry (exponential backoff) ───────────────────────────────────
+    # Transient Yahoo/Alpaca failures are retried with exponential backoff:
+    # delay = BASE * 2**(attempt-1), capped at MAX_DELAY.
+    FETCH_MAX_RETRIES: int = 3
+    FETCH_RETRY_BASE_DELAY_SECONDS: float = 0.5
+    FETCH_RETRY_MAX_DELAY_SECONDS: float = 8.0
+
+    # ── Realtime exit polling ───────────────────────────────────────────────
+    # When a realtime-capable provider (e.g. alpaca) is active, the engine can
+    # poll exits far more frequently than the SCAN_INTERVAL_MINUTES entry
+    # cadence.  Between full scan cycles it wakes every
+    # REALTIME_EXIT_POLL_SECONDS to run exit management only.  Ignored for the
+    # yfinance provider (daily bars make sub-minute polling pointless).
+    REALTIME_EXIT_POLL_SECONDS: float = 30.0
+    ENABLE_REALTIME_EXITS: bool = True
+
+    def is_realtime_provider(self) -> bool:
+        """Return whether the active data provider supports realtime streaming.
+
+        Only providers with an intraday/streaming feed benefit from the
+        faster exit-poll loop; the default yfinance (daily-bar) provider does
+        not.
+        """
+        return self.MARKET_DATA_PROVIDER.lower() in ("alpaca",)
+
     # ── Logging ─────────────────────────────────────────────────────────────
     LOG_LEVEL: str = "INFO"
 

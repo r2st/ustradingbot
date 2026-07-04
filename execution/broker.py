@@ -57,6 +57,52 @@ class BracketResult:
     reason: str = ""
 
 
+# ---------------------------------------------------------------------------
+# Fill-simulation helpers (shared by PaperBroker and the backtester)
+# ---------------------------------------------------------------------------
+#
+# These are pure functions so the paper broker and the backtest engine model
+# slippage, gap-through stops, and commission identically -- a backtest and a
+# live paper run of the same signal produce the same fills.
+
+
+def apply_entry_slippage(entry_price: float, slippage_bps: float) -> float:
+    """Return the entry fill price after adverse slippage.
+
+    A buy fills *above* the requested price by ``slippage_bps`` basis points
+    (1 bp = 0.01%).
+    """
+    return round(entry_price * (1.0 + slippage_bps / 10_000.0), 4)
+
+
+def stop_exit_fill(stop_price: float, bar_open: float, slippage_bps: float) -> float:
+    """Return the fill price for a stop that triggered on this bar.
+
+    If the bar *gapped open below the stop*, the resting stop becomes a market
+    order and fills at the (worse) open price.  Otherwise it fills at the stop
+    price minus ``slippage_bps`` of adverse slippage.
+    """
+    if bar_open < stop_price:
+        return round(bar_open, 4)
+    return round(stop_price * (1.0 - slippage_bps / 10_000.0), 4)
+
+
+def target_exit_fill(target_price: float, bar_open: float) -> float:
+    """Return the fill price for a take-profit target that triggered.
+
+    A resting limit sell fills at the target, or *better* if the bar gapped
+    open above it (favourable slippage, so no penalty is applied).
+    """
+    if bar_open > target_price:
+        return round(bar_open, 4)
+    return round(target_price, 4)
+
+
+def commission_for(quantity: int, per_share: float) -> float:
+    """Return the commission charged for *quantity* shares at *per_share*."""
+    return round(abs(int(quantity)) * per_share, 4)
+
+
 class Broker(Protocol):
     """Minimal broker interface the engine depends on."""
 
@@ -139,12 +185,18 @@ class _PaperPosition:
 class PaperBroker:
     """Simulated broker with persistent state.
 
-    Bracket orders fill immediately at the requested entry price.  On each
-    :meth:`poll_exits` call the broker fetches the latest daily bar for every
-    open position and closes any position whose bar low pierced the stop
-    (``STOP_HIT``) or whose bar high reached the target (``TARGET_HIT``).  When
-    both are touched in the same bar, the stop is assumed to fill first (the
-    conservative assumption).
+    Bracket orders fill immediately, at the requested entry price plus adverse
+    slippage (``PAPER_SLIPPAGE_BPS``); a per-share commission
+    (``PAPER_COMMISSION_PER_SHARE``) is charged on entry and again on exit.  On
+    each :meth:`poll_exits` call the broker fetches the latest daily bar for
+    every open position and closes any position whose bar low pierced the stop
+    (``STOP_HIT``) or whose bar high reached the target (``TARGET_HIT``).  Stop
+    fills model gap-through (a bar that opens below the stop fills at the open,
+    not the stop).  When both stop and target are touched in the same bar, the
+    stop is assumed to fill first (the conservative assumption).
+
+    Reported P&L is gross; each :class:`ExitEvent` carries the exit commission
+    in ``fill_details["commission"]`` so the journal can compute a net figure.
 
     State is persisted to ``paper_broker.json`` under ``settings.DATA_DIR`` so
     positions survive restarts.
@@ -192,18 +244,30 @@ class PaperBroker:
         target_price: float,
         currency: str = "USD",
     ) -> BracketResult:
-        """Simulate a bracket order that fills at *entry_price* immediately."""
+        """Simulate a bracket order filling immediately with slippage + commission.
+
+        The entry fills at *entry_price* plus ``PAPER_SLIPPAGE_BPS`` of adverse
+        slippage, and a per-share commission is charged and returned on the
+        :class:`BracketResult`.
+        """
         if quantity <= 0:
             return BracketResult(False, reason="zero_quantity")
         if symbol in self._positions:
             return BracketResult(False, reason="already_open")
+
+        fill_price = apply_entry_slippage(
+            entry_price, self._settings.PAPER_SLIPPAGE_BPS
+        )
+        commission = commission_for(
+            quantity, self._settings.PAPER_COMMISSION_PER_SHARE
+        )
 
         self._order_seq += 1
         order_id = f"PAPER-{self._order_seq:06d}"
         self._positions[symbol] = _PaperPosition(
             symbol=symbol,
             quantity=quantity,
-            entry_price=round(entry_price, 4),
+            entry_price=fill_price,
             stop_price=round(stop_price, 4),
             target_price=round(target_price, 4),
             currency=currency,
@@ -215,14 +279,16 @@ class PaperBroker:
             "paper_broker.filled",
             symbol=symbol,
             quantity=quantity,
-            entry_price=entry_price,
+            entry_price=fill_price,
+            slippage_bps=self._settings.PAPER_SLIPPAGE_BPS,
+            commission=commission,
             order_id=order_id,
         )
         return BracketResult(
             accepted=True,
-            fill_price=round(entry_price, 4),
+            fill_price=fill_price,
             order_id=order_id,
-            commission=0.0,
+            commission=commission,
             reason="filled",
         )
 
@@ -245,33 +311,43 @@ class PaperBroker:
         """Return an :class:`ExitEvent` if *pos* hit its stop or target."""
         df = fetch_ohlcv(pos.symbol, period="5d")
         if df is None or df.empty:
-            # Fall back to the current price as both high and low.
+            # Fall back to the current price as open/high/low.
             price = fetch_current_price(pos.symbol)
             if price is None:
                 return None
-            bar_low = bar_high = price
+            bar_open = bar_low = bar_high = price
         else:
             last = df.iloc[-1]
+            bar_open = float(last["Open"])
             bar_low = float(last["Low"])
             bar_high = float(last["High"])
 
+        slippage_bps = self._settings.PAPER_SLIPPAGE_BPS
+
         # Stop assumed to fill first when both are touched (conservative).
+        # A gap-through open fills at the (worse) open price, not the stop.
         if bar_low <= pos.stop_price:
-            return self._build_exit(pos, pos.stop_price, ExitReason.STOP_HIT)
+            fill = stop_exit_fill(pos.stop_price, bar_open, slippage_bps)
+            return self._build_exit(pos, fill, ExitReason.STOP_HIT)
         if bar_high >= pos.target_price:
-            return self._build_exit(pos, pos.target_price, ExitReason.TARGET_HIT)
+            fill = target_exit_fill(pos.target_price, bar_open)
+            return self._build_exit(pos, fill, ExitReason.TARGET_HIT)
         return None
 
     def _build_exit(
         self, pos: _PaperPosition, exit_price: float, reason: ExitReason
     ) -> ExitEvent:
         pnl = (exit_price - pos.entry_price) * pos.quantity
+        commission = commission_for(
+            pos.quantity, self._settings.PAPER_COMMISSION_PER_SHARE
+        )
         self._log.info(
             "paper_broker.exit",
             symbol=pos.symbol,
             reason=reason.value,
             exit_price=exit_price,
             pnl_gross=round(pnl, 2),
+            commission=commission,
         )
         return ExitEvent(
             symbol=pos.symbol,
@@ -279,7 +355,11 @@ class PaperBroker:
             exit_reason=reason,
             exit_date=datetime.now(),
             pnl_gross=round(pnl, 2),
-            fill_details={"order_id": pos.order_id, "quantity": pos.quantity},
+            fill_details={
+                "order_id": pos.order_id,
+                "quantity": pos.quantity,
+                "commission": commission,
+            },
         )
 
     # --------------------------------------------------- manual / forced exit

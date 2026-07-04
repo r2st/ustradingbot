@@ -33,6 +33,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
+from analytics.performance import analyze_journal
 from config.settings import Settings, get_settings, momentum_weights, swing_weights
 from config.universe import ALL_SYMBOLS, CA_WATCHLIST, US_WATCHLIST
 from fastapi.templating import Jinja2Templates
@@ -385,3 +386,51 @@ async def dashboard(request: Request, _user: str = Depends(require_auth)):
 async def health():
     """Simple health-check endpoint."""
     return {"status": "ok", "timestamp": datetime.now().isoformat()}
+
+
+# ---------------------------------------------------------------------------
+# Performance analytics API
+# ---------------------------------------------------------------------------
+
+
+def _analytics_report():
+    """Build a :class:`PerformanceReport` from the live trade journal."""
+    settings = get_settings()
+    csv_path = Path(settings.DATA_DIR) / "trades.csv"
+    return analyze_journal(csv_path, settings.TOTAL_CAPITAL)
+
+
+@app.get("/api/analytics/summary")
+async def analytics_summary(_user: str = Depends(require_auth)):
+    """Portfolio-wide performance metrics (win rate, profit factor, Sharpe…)."""
+    return _analytics_report().summary
+
+
+@app.get("/api/analytics/by-strategy")
+async def analytics_by_strategy(_user: str = Depends(require_auth)):
+    """Per-strategy performance breakdown."""
+    return {"by_strategy": _analytics_report().by_strategy}
+
+
+@app.get("/api/analytics/by-symbol")
+async def analytics_by_symbol(_user: str = Depends(require_auth)):
+    """Per-symbol performance breakdown."""
+    return {"by_symbol": _analytics_report().by_symbol}
+
+
+@app.get("/api/analytics/equity-curve")
+async def analytics_equity_curve(_user: str = Depends(require_auth)):
+    """Cumulative equity curve, one point per completed trade."""
+    return {"equity_curve": _analytics_report().equity_curve}
+
+
+@app.get("/api/analytics/trades")
+async def analytics_trades(_user: str = Depends(require_auth)):
+    """Most recent completed trades."""
+    return {"trades": _analytics_report().recent_trades}
+
+
+@app.get("/api/analytics/report")
+async def analytics_report(_user: str = Depends(require_auth)):
+    """Full analytics payload (summary + breakdowns + curve + recent trades)."""
+    return _analytics_report().to_dict()

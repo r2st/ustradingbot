@@ -169,14 +169,53 @@ class TradingEngine:
             log.info(
                 "engine.sleeping",
                 sleep_minutes=self.settings.SCAN_INTERVAL_MINUTES,
+                realtime_exits=self._realtime_exits_enabled(),
             )
 
             try:
-                await asyncio.sleep(sleep_seconds)
+                await self._sleep_between_cycles(sleep_seconds)
             except asyncio.CancelledError:
                 break
 
         log.info("engine.stopped")
+
+    def _realtime_exits_enabled(self) -> bool:
+        """Return whether fast exit polling should run between scan cycles.
+
+        Enabled only when a realtime-capable data provider is active (e.g.
+        Alpaca) and ``ENABLE_REALTIME_EXITS`` is set — the default daily-bar
+        yfinance provider gains nothing from sub-minute polling.
+        """
+        return (
+            self.settings.ENABLE_REALTIME_EXITS
+            and self.settings.is_realtime_provider()
+        )
+
+    async def _sleep_between_cycles(self, sleep_seconds: float) -> None:
+        """Wait until the next scan, polling exits often on a realtime feed.
+
+        With a daily-bar provider this is a single ``asyncio.sleep``.  With a
+        realtime provider it instead wakes every ``REALTIME_EXIT_POLL_SECONDS``
+        to run exit management only (no scanning), so stops and targets are
+        acted on with low latency while entries stay on the slower
+        ``SCAN_INTERVAL_MINUTES`` cadence.
+        """
+        if not self._realtime_exits_enabled():
+            await asyncio.sleep(sleep_seconds)
+            return
+
+        poll = max(1.0, float(self.settings.REALTIME_EXIT_POLL_SECONDS))
+        elapsed = 0.0
+        while elapsed < sleep_seconds and self.running:
+            await asyncio.sleep(min(poll, sleep_seconds - elapsed))
+            elapsed += poll
+            if not self.running or not self.is_market_open():
+                continue
+            if self.broker.is_connected():
+                try:
+                    self.exit_manager.manage_exits()
+                except Exception:
+                    log.exception("engine.realtime_exit_error")
 
     # ------------------------------------------------------------------
     # Single cycle

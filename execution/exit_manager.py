@@ -210,15 +210,22 @@ class ExitManager:
     # ------------------------------------------------------------- helpers
 
     def _finalise_exit(self, event: ExitEvent) -> None:
-        """Journal an exit, drop it from the risk manager, record P&L."""
-        self._journal.log_exit(event.symbol, event)
+        """Journal an exit, drop it from the risk manager, record P&L.
+
+        The broker attaches the exit commission to ``fill_details`` so the
+        journal can compute a net P&L; the daily-loss accumulator is charged
+        the same commission so the loss limit is measured on a net basis.
+        """
+        exit_commission = float(event.fill_details.get("commission", 0.0) or 0.0)
+        self._journal.log_exit(event.symbol, event, exit_commission=exit_commission)
         self._risk.remove_position(event.symbol, event)
-        self._risk.record_daily_pnl(event.pnl_gross)
+        self._risk.record_daily_pnl(event.pnl_gross - exit_commission)
         self._log.info(
             "exit.finalised",
             symbol=event.symbol,
             reason=event.exit_reason.value,
             pnl_gross=round(event.pnl_gross, 2),
+            exit_commission=round(exit_commission, 4),
         )
 
     def _force_exit(self, symbol: str, reason: ExitReason) -> None:
