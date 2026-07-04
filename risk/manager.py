@@ -393,21 +393,63 @@ class RiskManager:
 
     # -------------------------------------------------- position management
 
-    def register_position(self, order: TradeOrder, fill_price: float) -> None:
-        """Record a newly opened position.
+    def register_position(
+        self,
+        order: TradeOrder,
+        fill_price: float,
+        quantity: Optional[int] = None,
+    ) -> None:
+        """Record a newly opened position, or average into an existing one.
+
+        When *quantity* is given it overrides ``order.quantity`` (used for a
+        scale-in tranche that fills for only part of the intended size).  If a
+        position already exists for the symbol, the new fill is averaged into
+        it (weighted-average entry, summed quantity) rather than overwriting —
+        this is how scale-in tranches accumulate into a single position.
 
         Args:
             order: The executed ``TradeOrder``.
             fill_price: Actual fill price from the broker.
+            quantity: Optional share count for this fill (defaults to the
+                order's quantity).
         """
         symbol = order.signal.symbol
+        qty = int(order.quantity if quantity is None else quantity)
+
+        existing = self._positions.get(symbol)
+        if existing is not None:
+            prev_qty = int(existing.get("quantity", 0) or 0)
+            prev_entry = float(existing.get("entry_price", 0) or 0)
+            total_qty = prev_qty + qty
+            if total_qty > 0:
+                existing["entry_price"] = round(
+                    (prev_entry * prev_qty + fill_price * qty) / total_qty, 4
+                )
+            existing["quantity"] = total_qty
+            existing["risk_amount"] = round(
+                float(existing.get("risk_amount", 0) or 0) + order.risk_amount, 2
+            )
+            self._save_positions()
+            self._log.info(
+                "position.averaged_in",
+                symbol=symbol,
+                added_qty=qty,
+                total_qty=total_qty,
+                avg_entry=existing["entry_price"],
+            )
+            return
+
         self._positions[symbol] = {
             "symbol": symbol,
             "strategy": order.signal.strategy,
             "entry_price": fill_price,
             "stop_price": order.signal.stop_price,
+            # Preserve the entry-time stop so dynamic-stop R-multiple and
+            # drawdown calculations measure risk from the original level even
+            # after the live stop has been ratcheted up.
+            "original_stop_loss": order.signal.stop_price,
             "target_price": order.signal.target_price,
-            "quantity": order.quantity,
+            "quantity": qty,
             "currency": order.currency,
             "risk_amount": order.risk_amount,
             "grade": order.signal.grade.value,
@@ -422,9 +464,30 @@ class RiskManager:
             "position.registered",
             symbol=symbol,
             fill_price=fill_price,
-            quantity=order.quantity,
+            quantity=qty,
             strategy=order.signal.strategy,
         )
+
+    def reduce_position(self, symbol: str, quantity: int) -> bool:
+        """Shrink an open position by *quantity* shares (partial profit-taking).
+
+        Used when a ``PARTIAL_TAKE`` event trims part of a position while the
+        remainder keeps running.  The position is *not* removed and no exit is
+        recorded for cooldown purposes.
+
+        Returns:
+            ``True`` if the position existed and was reduced, else ``False``.
+        """
+        pos = self._positions.get(symbol)
+        if pos is None:
+            return False
+        remaining = int(pos.get("quantity", 0) or 0) - int(quantity)
+        pos["quantity"] = max(0, remaining)
+        self._save_positions()
+        self._log.info(
+            "position.reduced", symbol=symbol, sold=quantity, remaining=pos["quantity"]
+        )
+        return True
 
     def remove_position(self, symbol: str, exit_event: ExitEvent) -> None:
         """Remove a closed position and record the exit for cooldown tracking.

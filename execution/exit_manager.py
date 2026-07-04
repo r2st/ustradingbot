@@ -21,16 +21,16 @@ removed from the risk manager, and its P&L recorded against the daily limit.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-import pandas as pd
 import structlog
 
 from config.settings import Settings
 from data.fetcher import fetch_current_price, fetch_ohlcv
 from execution.broker import Broker
+from execution.stops import compute_dynamic_stop, resolve_stop_config
 from journal.trade_logger import TradeLogger
 from risk.manager import RiskManager
 from signals.combined_filter import score_symbol
@@ -60,6 +60,8 @@ class ExitSummary:
     time_exits: int = 0
     health_exits: int = 0
     trails_updated: int = 0
+    #: Every exit/partial event finalised this sweep, for downstream alerting.
+    events: list = field(default_factory=list)
 
 
 class ExitManager:
@@ -84,27 +86,56 @@ class ExitManager:
         self._risk = risk_manager
         self._journal = trade_logger
         self._log = log.bind(component="ExitManager")
+        # Exit/partial events finalised during the current manage_exits sweep.
+        self._events: list = []
 
     # ------------------------------------------------------------- entry pt
 
     def manage_exits(self) -> ExitSummary:
         """Run all four exit checks in order and return a summary."""
+        self._events: list = []
         summary = ExitSummary()
         summary.broker_exits = self._check_broker_exits()
         summary.time_exits = self._check_time_based_exits()
         summary.health_exits = self._check_position_health()
-        summary.trails_updated = self._check_trailing_stops()
+        summary.trails_updated = self._check_dynamic_stops()
+        summary.events = list(self._events)
         return summary
 
     # --------------------------------------------------- 1. broker exits
 
     def _check_broker_exits(self) -> int:
-        """Reconcile bracket legs that filled at the broker."""
+        """Reconcile bracket legs that filled at the broker.
+
+        A ``PARTIAL_TAKE`` event trims the position (records the realised slice,
+        shrinks the open lot) without closing it; every other event finalises
+        and closes the position.
+        """
         count = 0
         for event in self._broker.poll_exits():
-            self._finalise_exit(event)
+            if event.exit_reason == ExitReason.PARTIAL_TAKE:
+                self._finalise_partial(event)
+            else:
+                self._finalise_exit(event)
             count += 1
         return count
+
+    def _finalise_partial(self, event: ExitEvent) -> None:
+        """Record a partial profit-take: journal the slice, shrink the lot."""
+        exit_commission = float(event.fill_details.get("commission", 0.0) or 0.0)
+        take_qty = int(event.fill_details.get("quantity", 0) or 0)
+        self._journal.log_partial_exit(
+            event.symbol, event, exit_commission=exit_commission
+        )
+        self._risk.reduce_position(event.symbol, take_qty)
+        self._risk.record_daily_pnl(event.pnl_gross - exit_commission)
+        self._events.append(event)
+        self._log.info(
+            "exit.partial_taken",
+            symbol=event.symbol,
+            quantity=take_qty,
+            pnl_gross=round(event.pnl_gross, 2),
+        )
 
     # --------------------------------------------------- 2. time-based exits
 
@@ -180,31 +211,37 @@ class ExitManager:
                 count += 1
         return count
 
-    # --------------------------------------------------- 4. trailing stops
+    # --------------------------------------------------- 4. dynamic stops
 
-    def _check_trailing_stops(self) -> int:
-        """Ratchet stops upward on profitable positions using 2x ATR."""
+    def _check_dynamic_stops(self) -> int:
+        """Ratchet stops upward using the dynamic-stop engine.
+
+        Evaluates the trailing, breakeven, and time-based-tightening mechanisms
+        (all volatility-adjusted via ATR) for every open position, resolving
+        per-strategy configuration overrides.  Each mechanism only ever raises
+        the stop, and the highest (most protective) candidate wins.
+        """
         if not self._settings.ENABLE_PARTIAL_TAKE_TRAIL:
             return 0
         count = 0
         for symbol, pos in list(self._risk.get_open_positions().items()):
-            entry = float(pos.get("entry_price", 0) or 0)
-            if entry <= 0:
-                continue
             df = fetch_ohlcv(symbol, period="3mo")
             if df is None or len(df) < 20:
                 continue
-            current = float(df["Close"].iloc[-1])
-            # Only trail once the trade is meaningfully in profit (> 5%).
-            if (current - entry) / entry < 0.05:
+            config = resolve_stop_config(
+                self._settings, str(pos.get("strategy", "momentum"))
+            )
+            decision = compute_dynamic_stop(pos, df, config)
+            if decision is None:
                 continue
-            atr = self._atr(df)
-            if atr <= 0:
-                continue
-            new_stop = current - 2.0 * atr
-            if new_stop > float(pos.get("stop_price", 0) or 0):
-                if self._raise_stop(symbol, new_stop):
-                    count += 1
+            if self._raise_stop(symbol, decision.new_stop):
+                count += 1
+                self._log.info(
+                    "exit.stop_raised",
+                    symbol=symbol,
+                    new_stop=decision.new_stop,
+                    mechanism=decision.reason,
+                )
         return count
 
     # ------------------------------------------------------------- helpers
@@ -220,6 +257,7 @@ class ExitManager:
         self._journal.log_exit(event.symbol, event, exit_commission=exit_commission)
         self._risk.remove_position(event.symbol, event)
         self._risk.record_daily_pnl(event.pnl_gross - exit_commission)
+        self._events.append(event)
         self._log.info(
             "exit.finalised",
             symbol=event.symbol,
@@ -267,15 +305,3 @@ class ExitManager:
         except (ValueError, TypeError):
             return None
         return (datetime.now() - entry_time).total_seconds() / 86_400.0
-
-    @staticmethod
-    def _atr(df: pd.DataFrame, period: int = 14) -> float:
-        high = df["High"].astype(float)
-        low = df["Low"].astype(float)
-        close = df["Close"].astype(float)
-        tr = pd.concat(
-            [high - low, (high - close.shift(1)).abs(), (low - close.shift(1)).abs()],
-            axis=1,
-        ).max(axis=1)
-        val = tr.rolling(window=period).mean().iloc[-1]
-        return float(val) if not pd.isna(val) else 0.0

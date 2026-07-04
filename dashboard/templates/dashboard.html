@@ -86,6 +86,67 @@
   .mode-banner.live .badge { background: var(--red); color: #fff; }
   .mode-banner .sub { color: var(--text-muted); font-weight: 400; }
 
+  /* Mode toggle button + confirmation modal */
+  .mode-toggle-btn {
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .mode-toggle-btn:hover { background: var(--accent-dim); border-color: var(--accent); }
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    width: min(460px, 92vw);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  }
+  .modal h3 { font-size: 18px; margin-bottom: 12px; }
+  .modal-warning { color: var(--orange); font-weight: 600; margin-bottom: 16px; line-height: 1.5; }
+  .modal-warning.live { color: var(--red); }
+  .modal label { display: block; font-size: 13px; color: var(--text-muted); margin-bottom: 6px; }
+  .modal input {
+    width: 100%;
+    padding: 10px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 14px;
+    margin-bottom: 8px;
+  }
+  .modal-result { font-size: 13px; margin: 8px 0; min-height: 18px; }
+  .modal-result.ok { color: var(--green); }
+  .modal-result.err { color: var(--red); }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+  .btn-secondary, .btn-danger {
+    padding: 9px 18px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid var(--border);
+  }
+  .btn-secondary { background: var(--surface-2); color: var(--text); }
+  .btn-danger { background: var(--red); color: #fff; border-color: var(--red); }
+  .btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
+
   /* Stat cards (paper account) */
   .stat-cards {
     display: grid;
@@ -172,6 +233,32 @@
   .icon-scoring { background: #5b3a8c; color: var(--purple); }
   .icon-risk { background: #7a2020; color: var(--red); }
   .section-body { padding: 20px; }
+
+  /* Generic data table (strategy comparison + risk dashboard) */
+  .data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .data-table th, .data-table td {
+    padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border);
+  }
+  .data-table th { color: var(--text-muted); font-weight: 600; font-size: 12px;
+    text-transform: uppercase; letter-spacing: 0.4px; }
+  .data-table td.pos, .data-table span.pos, .pos { color: var(--green); }
+  .data-table td.neg, .data-table span.neg, .neg { color: var(--red); }
+  .risk-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 18px;
+  }
+  .risk-grid h4 { margin-bottom: 8px; font-size: 14px; }
+  @media (max-width: 720px) { .risk-grid { grid-template-columns: 1fr; } }
+
+  /* Strategy total-P&L bar comparison */
+  .strategy-bars { margin-top: 18px; display: flex; flex-direction: column; gap: 8px; }
+  .strategy-bar-row { display: flex; align-items: center; gap: 12px; font-size: 13px; }
+  .sb-label { width: 120px; color: var(--text-muted); }
+  .sb-track { flex: 1; height: 16px; background: var(--surface-2);
+    border-radius: 4px; overflow: hidden; }
+  .sb-fill { display: block; height: 100%; border-radius: 4px; }
+  .sb-fill.pos { background: var(--green); }
+  .sb-fill.neg { background: var(--red); }
+  .sb-value { width: 70px; text-align: right; font-weight: 600; }
 
   /* KV grid */
   .kv-grid {
@@ -342,12 +429,35 @@
     <h1><span>US Trading Bot</span> Dashboard</h1>
     <div class="meta">{{ status.timestamp }}</div>
   </div>
-  <div>
+  <div style="display:flex;align-items:center;gap:14px;">
     {% if "Paper" in status.mode %}
-      <span class="mode-badge mode-paper">{{ status.mode }}</span>
+      <span class="mode-badge mode-paper" id="modeBadge">{{ status.mode }}</span>
     {% else %}
-      <span class="mode-badge mode-live">{{ status.mode }}</span>
+      <span class="mode-badge mode-live" id="modeBadge">{{ status.mode }}</span>
     {% endif %}
+    <button type="button" class="mode-toggle-btn" id="modeToggleBtn"
+            onclick="openModeDialog()">
+      {% if paper.is_live %}Switch to Paper{% else %}Switch to Live{% endif %}
+    </button>
+  </div>
+</div>
+
+<!-- ═══════════════════ MODE-SWITCH DIALOG ═══════════════════ -->
+<div class="modal-overlay" id="modeModal">
+  <div class="modal">
+    <h3 id="modeModalTitle">Switch trading mode</h3>
+    <p id="modeModalWarning" class="modal-warning"></p>
+    <div id="modePwWrap" style="display:none;">
+      <label for="modeAdminPw">Admin password</label>
+      <input type="password" id="modeAdminPw" autocomplete="off"
+             placeholder="Required to switch to LIVE">
+    </div>
+    <div id="modeResult" class="modal-result"></div>
+    <div class="modal-actions">
+      <button type="button" class="btn-secondary" onclick="closeModeDialog()">Cancel</button>
+      <button type="button" class="btn-danger" id="modeConfirmBtn"
+              onclick="confirmModeSwitch()">Confirm</button>
+    </div>
   </div>
 </div>
 
@@ -508,6 +618,164 @@
     {% endif %}
   </div>
 </div>
+
+<!-- ═══════════════════ STRATEGY PERFORMANCE COMPARISON ═══════════════════ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-icon icon-strategy">C</div>
+    <h2>Strategy Performance Comparison</h2>
+  </div>
+  <div class="section-body">
+    {% if strategy_comparison %}
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Strategy</th><th>Trades</th><th>Win Rate</th>
+          <th>Avg Win</th><th>Avg Loss</th><th>Profit Factor</th>
+          <th>Expectancy</th><th>Total P&L</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in strategy_comparison %}
+        <tr>
+          <td><strong>{{ s.strategy }}</strong></td>
+          <td>{{ s.trades }}</td>
+          <td>{{ "%.0f%%"|format((s.win_rate or 0) * 100) }}</td>
+          <td class="pos">${{ "%.2f"|format(s.avg_win or 0) }}</td>
+          <td class="neg">${{ "%.2f"|format(s.avg_loss or 0) }}</td>
+          <td>{{ "%.2f"|format(s.profit_factor) if s.profit_factor is not none else "∞" }}</td>
+          <td>${{ "%.2f"|format(s.expectancy or 0) }}</td>
+          <td class="{{ 'pos' if (s.total_pnl or 0) >= 0 else 'neg' }}">
+            ${{ "%.2f"|format(s.total_pnl or 0) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <!-- Visual: total-P&L bar comparison -->
+    <div class="strategy-bars" id="strategyBars"></div>
+    <script>
+      (function () {
+        var rows = {{ strategy_comparison|tojson }};
+        var el = document.getElementById("strategyBars");
+        if (!rows.length) return;
+        var maxAbs = Math.max.apply(null, rows.map(function (r) {
+          return Math.abs(r.total_pnl || 0); })) || 1;
+        rows.forEach(function (r) {
+          var pnl = r.total_pnl || 0;
+          var pct = Math.abs(pnl) / maxAbs * 100;
+          var bar = document.createElement("div");
+          bar.className = "strategy-bar-row";
+          bar.innerHTML =
+            '<span class="sb-label">' + r.strategy + '</span>' +
+            '<span class="sb-track"><span class="sb-fill ' +
+            (pnl >= 0 ? "pos" : "neg") + '" style="width:' + pct + '%"></span></span>' +
+            '<span class="sb-value ' + (pnl >= 0 ? "pos" : "neg") + '">$' +
+            pnl.toFixed(0) + '</span>';
+          el.appendChild(bar);
+        });
+      })();
+    </script>
+    {% else %}
+    <div class="empty-note">No closed trades yet — strategy comparison will populate as trades complete.</div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ═══════════════════ RISK DASHBOARD ═══════════════════ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-icon icon-risk">R</div>
+    <h2>Risk Dashboard</h2>
+  </div>
+  <div class="section-body">
+    <div class="stat-cards" id="riskStatCards">
+      <div class="stat-card"><div class="label">Gross Exposure</div>
+        <div class="value" id="riskGrossExposure">—</div></div>
+      <div class="stat-card"><div class="label">Current Drawdown</div>
+        <div class="value" id="riskCurrentDD">—</div></div>
+      <div class="stat-card"><div class="label">Max Drawdown</div>
+        <div class="value" id="riskMaxDD">—</div></div>
+      <div class="stat-card"><div class="label">Top Correlation</div>
+        <div class="value" id="riskTopCorr">—</div></div>
+    </div>
+    <div class="risk-grid">
+      <div>
+        <h4>Sector Concentration</h4>
+        <table class="data-table"><tbody id="riskSectors">
+          <tr><td class="empty-note">Loading…</td></tr>
+        </tbody></table>
+      </div>
+      <div>
+        <h4>Position Correlations</h4>
+        <table class="data-table"><tbody id="riskCorr">
+          <tr><td class="empty-note">Loading…</td></tr>
+        </tbody></table>
+      </div>
+    </div>
+    <div class="risk-grid">
+      <div>
+        <h4>P&L Breakdown</h4>
+        <table class="data-table"><tbody id="riskPnl">
+          <tr><td class="empty-note">Loading…</td></tr>
+        </tbody></table>
+      </div>
+      <div>
+        <h4>Exposure by Currency</h4>
+        <table class="data-table"><tbody id="riskExposure">
+          <tr><td class="empty-note">Loading…</td></tr>
+        </tbody></table>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+  (async function loadRisk() {
+    try {
+      var resp = await fetch("/api/risk/report");
+      if (!resp.ok) return;
+      var r = await resp.json();
+      var pct = function (x) { return (x * 100).toFixed(1) + "%"; };
+      document.getElementById("riskGrossExposure").textContent =
+        pct(r.exposure.gross_exposure_pct || 0);
+      document.getElementById("riskCurrentDD").textContent =
+        pct(r.drawdown.current_drawdown_pct || 0);
+      document.getElementById("riskMaxDD").textContent =
+        pct(r.drawdown.max_drawdown_pct || 0);
+      document.getElementById("riskTopCorr").textContent = r.max_correlation
+        ? r.max_correlation.a + "/" + r.max_correlation.b + " " +
+          r.max_correlation.correlation : "—";
+
+      var sec = document.getElementById("riskSectors");
+      sec.innerHTML = (r.sector_concentration.length)
+        ? r.sector_concentration.map(function (s) {
+            return "<tr><td>" + s.sector + "</td><td>" + s.positions +
+              " pos</td><td>" + pct(s.pct) + "</td></tr>"; }).join("")
+        : '<tr><td class="empty-note">No open positions.</td></tr>';
+
+      var corr = document.getElementById("riskCorr");
+      corr.innerHTML = (r.correlations.length)
+        ? r.correlations.slice(0, 8).map(function (c) {
+            return "<tr><td>" + c.a + " / " + c.b + "</td><td>" +
+              c.correlation + "</td></tr>"; }).join("")
+        : '<tr><td class="empty-note">Need 2+ positions with history.</td></tr>';
+
+      var pnl = document.getElementById("riskPnl");
+      pnl.innerHTML =
+        '<tr><td>Today</td><td class="' + (r.pnl_breakdown.today >= 0 ? "pos" : "neg") +
+          '">$' + r.pnl_breakdown.today.toFixed(2) + "</td></tr>" +
+        '<tr><td>This Week</td><td class="' + (r.pnl_breakdown.week >= 0 ? "pos" : "neg") +
+          '">$' + r.pnl_breakdown.week.toFixed(2) + "</td></tr>" +
+        '<tr><td>This Month</td><td class="' + (r.pnl_breakdown.month >= 0 ? "pos" : "neg") +
+          '">$' + r.pnl_breakdown.month.toFixed(2) + "</td></tr>";
+
+      var exp = document.getElementById("riskExposure");
+      exp.innerHTML = r.exposure.by_currency.map(function (c) {
+        return "<tr><td>" + c.currency + "</td><td>$" + c.committed.toFixed(0) +
+          " / $" + c.allocated.toFixed(0) + "</td><td>" + pct(c.exposure_pct) +
+          "</td></tr>"; }).join("");
+    } catch (e) { /* best-effort */ }
+  })();
+</script>
 
 <!-- ═══════════════════ SYSTEM STATUS ═══════════════════ -->
 <div class="section">
@@ -713,5 +981,69 @@
 </div>
 
 </div><!-- /container -->
+
+<script>
+  // Current mode is injected server-side ("LIVE" or "PAPER").
+  var CURRENT_MODE = "{{ status.trading_mode }}";
+
+  function openModeDialog() {
+    var goingLive = CURRENT_MODE.toUpperCase() !== "LIVE";
+    var target = goingLive ? "live" : "paper";
+    document.getElementById("modeModal").dataset.target = target;
+    document.getElementById("modeModalTitle").textContent =
+      goingLive ? "Switch to LIVE trading?" : "Switch to PAPER trading?";
+    var warn = document.getElementById("modeModalWarning");
+    if (goingLive) {
+      warn.textContent = "⚠️ Are you sure? This uses REAL money. Live orders will be " +
+        "sent to your brokerage account and can incur real losses.";
+      warn.classList.add("live");
+      document.getElementById("modePwWrap").style.display = "block";
+    } else {
+      warn.textContent = "This returns the bot to simulated paper trading. No real money is used.";
+      warn.classList.remove("live");
+      document.getElementById("modePwWrap").style.display = "none";
+    }
+    document.getElementById("modeResult").textContent = "";
+    document.getElementById("modeAdminPw").value = "";
+    document.getElementById("modeConfirmBtn").disabled = false;
+    document.getElementById("modeModal").classList.add("open");
+  }
+
+  function closeModeDialog() {
+    document.getElementById("modeModal").classList.remove("open");
+  }
+
+  async function confirmModeSwitch() {
+    var modal = document.getElementById("modeModal");
+    var target = modal.dataset.target;
+    var pw = document.getElementById("modeAdminPw").value;
+    var result = document.getElementById("modeResult");
+    var btn = document.getElementById("modeConfirmBtn");
+    btn.disabled = true;
+    result.className = "modal-result";
+    result.textContent = "Switching…";
+    try {
+      var resp = await fetch("/api/mode/switch", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({target: target, admin_password: pw})
+      });
+      var data = await resp.json();
+      if (data.ok) {
+        result.className = "modal-result ok";
+        result.textContent = data.message + " Reloading…";
+        setTimeout(function () { window.location.reload(); }, 1800);
+      } else {
+        result.className = "modal-result err";
+        result.textContent = data.message || "Switch failed.";
+        btn.disabled = false;
+      }
+    } catch (e) {
+      result.className = "modal-result err";
+      result.textContent = "Request failed: " + e;
+      btn.disabled = false;
+    }
+  }
+</script>
 </body>
 </html>

@@ -536,12 +536,18 @@ async def dashboard(request: Request, _user: str = Depends(require_auth)):
             "paper": _build_paper_trading(),
             "help": _build_help(),
             "strategies": _build_strategies(),
+            "strategy_comparison": _build_strategy_comparison(),
             "scores": _build_sample_scores(),
             "risk": _build_risk_rules(),
             "watchlist_us": US_WATCHLIST,
             "watchlist_ca": CA_WATCHLIST,
         },
     )
+
+
+def _build_strategy_comparison() -> List[Dict[str, Any]]:
+    """Per-strategy performance rows (win rate, avg win/loss, profit factor)."""
+    return _analytics_report().by_strategy
 
 
 @app.get("/health")
@@ -571,6 +577,48 @@ async def api_mode():
         "is_paper": not settings.IS_LIVE_TRADING,
         "broker": settings.BROKER,
         "paper_backend": settings.paper_broker_label,
+    }
+
+
+@app.post("/api/mode/switch")
+async def api_mode_switch(request: Request, _user: str = Depends(require_auth)):
+    """Switch paper ⇄ live (admin password required to go live).
+
+    Persists the new broker to ``.env`` and requests an engine restart.  The
+    settings cache is cleared so the dashboard immediately reflects the new
+    mode, and a best-effort mode-switch alert is dispatched.
+    """
+    from dashboard.mode_control import switch_mode
+
+    try:
+        body = await request.json()
+    except (ValueError, TypeError):
+        body = {}
+    target = str(body.get("target", "")).strip()
+    admin_password = str(body.get("admin_password", ""))
+
+    settings = get_settings()
+    old_mode = settings.TRADING_MODE
+    result = switch_mode(target, admin_password, settings)
+
+    if result.ok:
+        # Reflect the new mode immediately for subsequent dashboard reads.
+        if hasattr(get_settings, "cache_clear"):
+            get_settings.cache_clear()
+        try:
+            from agent.alerts import AlertManager
+
+            await AlertManager(get_settings()).notify_mode_switch(
+                old_mode, result.mode, actor=_user
+            )
+        except Exception:  # noqa: BLE001 -- alerting must never fail the switch
+            pass
+
+    return {
+        "ok": result.ok,
+        "mode": result.mode,
+        "message": result.message,
+        "restart_requested": result.restart_requested,
     }
 
 
@@ -640,3 +688,60 @@ async def analytics_trades(_user: str = Depends(require_auth)):
 async def analytics_report(_user: str = Depends(require_auth)):
     """Full analytics payload (summary + breakdowns + curve + recent trades)."""
     return _analytics_report().to_dict()
+
+
+# ---------------------------------------------------------------------------
+# Risk dashboard API
+# ---------------------------------------------------------------------------
+
+
+def _risk_report():
+    """Build a :class:`RiskReport` from the live book and journal."""
+    from analytics.risk_dashboard import build_risk_report
+
+    settings = get_settings()
+    return build_risk_report(
+        settings.DATA_DIR,
+        dict(settings.CAPITAL_BY_CURRENCY),
+        settings.TOTAL_CAPITAL,
+    )
+
+
+@app.get("/api/risk/report")
+async def risk_report(_user: str = Depends(require_auth)):
+    """Full portfolio risk payload (exposure, sectors, correlation, drawdown, P&L)."""
+    return _risk_report().to_dict()
+
+
+@app.get("/api/risk/exposure")
+async def risk_exposure(_user: str = Depends(require_auth)):
+    """Real-time portfolio exposure per currency and overall."""
+    return _risk_report().exposure
+
+
+@app.get("/api/risk/sectors")
+async def risk_sectors(_user: str = Depends(require_auth)):
+    """Sector / industry concentration of the open book."""
+    return {"sector_concentration": _risk_report().sector_concentration}
+
+
+@app.get("/api/risk/correlations")
+async def risk_correlations(_user: str = Depends(require_auth)):
+    """Pairwise correlation between open positions."""
+    report = _risk_report()
+    return {
+        "correlations": report.correlations,
+        "max_correlation": report.max_correlation,
+    }
+
+
+@app.get("/api/risk/drawdown")
+async def risk_drawdown(_user: str = Depends(require_auth)):
+    """Current and maximum drawdown tracking."""
+    return _risk_report().drawdown
+
+
+@app.get("/api/risk/pnl-breakdown")
+async def risk_pnl_breakdown(_user: str = Depends(require_auth)):
+    """Daily / weekly / monthly realised-P&L breakdown."""
+    return _risk_report().pnl_breakdown

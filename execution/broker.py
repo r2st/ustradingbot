@@ -33,6 +33,12 @@ import structlog
 
 from config.settings import Settings
 from data.fetcher import fetch_current_price, fetch_ohlcv
+from execution.advanced_orders import (
+    expiry_at,
+    is_expired,
+    partial_take_price,
+    partial_take_split,
+)
 from signals.signal_types import ExitEvent, ExitReason
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -103,6 +109,11 @@ def commission_for(quantity: int, per_share: float) -> float:
     return round(abs(int(quantity)) * per_share, 4)
 
 
+def _fmt_gtd(placed_at: datetime, expiry_hours: float) -> str:
+    """Format an IBKR good-till-date string (``YYYYMMDD HH:MM:SS``)."""
+    return expiry_at(placed_at, expiry_hours).strftime("%Y%m%d %H:%M:%S")
+
+
 class Broker(Protocol):
     """Minimal broker interface the engine depends on."""
 
@@ -126,10 +137,58 @@ class Broker(Protocol):
         stop_price: float,
         target_price: float,
         currency: str = "USD",
+        partial_take_pct: float = 0.0,
+        partial_take_target_r: float = 0.0,
     ) -> BracketResult: ...
+
+    def place_limit_order(
+        self,
+        symbol: str,
+        quantity: int,
+        limit_price: float,
+        stop_price: float,
+        target_price: float,
+        currency: str = "USD",
+        expiry_hours: float = 4.0,
+        partial_take_pct: float = 0.0,
+        partial_take_target_r: float = 0.0,
+    ) -> BracketResult:
+        """Place a resting limit entry that expires after *expiry_hours*."""
+        ...
+
+    def place_scale_in(
+        self,
+        symbol: str,
+        tranches: List[tuple],
+        stop_price: float,
+        target_price: float,
+        currency: str = "USD",
+        expiry_hours: float = 4.0,
+        partial_take_pct: float = 0.0,
+        partial_take_target_r: float = 0.0,
+    ) -> List[BracketResult]:
+        """Place several resting limit tranches ``[(price, qty), ...]``."""
+        ...
+
+    def place_moc_order(
+        self,
+        symbol: str,
+        quantity: int,
+        stop_price: float,
+        target_price: float,
+        currency: str = "USD",
+        partial_take_pct: float = 0.0,
+        partial_take_target_r: float = 0.0,
+    ) -> BracketResult:
+        """Place a market-on-close entry that fills at the closing auction."""
+        ...
 
     def poll_exits(self) -> List[ExitEvent]:
         """Detect and return any bracket legs (stop/target) that have filled."""
+
+    def poll_pending_entries(self) -> List["PendingFill"]:
+        """Fill or expire resting entry orders; return what happened."""
+        ...
 
     def modify_stop(self, symbol: str, new_stop: float) -> bool: ...
 
@@ -145,7 +204,14 @@ class Broker(Protocol):
 
 @dataclass
 class _PaperPosition:
-    """Internal record for a simulated open position."""
+    """Internal record for a simulated open position.
+
+    ``partial_take_price``/``partial_take_pct`` configure one-shot partial
+    profit-taking: when the bar high first reaches ``partial_take_price`` the
+    broker sells ``partial_take_pct`` of the shares (emitting a ``PARTIAL_TAKE``
+    event), sets ``partial_taken``, and lets the remainder run under the
+    dynamic trailing stop.
+    """
 
     symbol: str
     quantity: int
@@ -155,6 +221,9 @@ class _PaperPosition:
     currency: str
     order_id: str
     opened_at: str
+    partial_take_price: float = 0.0
+    partial_take_pct: float = 0.0
+    partial_taken: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -166,6 +235,9 @@ class _PaperPosition:
             "currency": self.currency,
             "order_id": self.order_id,
             "opened_at": self.opened_at,
+            "partial_take_price": self.partial_take_price,
+            "partial_take_pct": self.partial_take_pct,
+            "partial_taken": self.partial_taken,
         }
 
     @classmethod
@@ -179,7 +251,89 @@ class _PaperPosition:
             currency=d.get("currency", "USD"),
             order_id=d.get("order_id", ""),
             opened_at=d.get("opened_at", datetime.now().isoformat()),
+            partial_take_price=float(d.get("partial_take_price", 0.0) or 0.0),
+            partial_take_pct=float(d.get("partial_take_pct", 0.0) or 0.0),
+            partial_taken=bool(d.get("partial_taken", False)),
         )
+
+
+@dataclass
+class _PendingOrder:
+    """A resting simulated entry order (limit / scale-in tranche / MOC).
+
+    Limit and scale-in orders fill when the market trades at or below
+    ``limit_price``; a market-on-close order fills at the next poll (modelling
+    the closing auction).  Any unfilled order is cancelled once it has been
+    resting longer than ``expiry_hours``.
+    """
+
+    symbol: str
+    quantity: int
+    limit_price: float
+    stop_price: float
+    target_price: float
+    currency: str
+    order_id: str
+    placed_at: str
+    expiry_hours: float
+    kind: str = "limit"  # "limit" | "scale_in" | "moc"
+    partial_take_pct: float = 0.0
+    partial_take_target_r: float = 0.0
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "symbol": self.symbol,
+            "quantity": self.quantity,
+            "limit_price": self.limit_price,
+            "stop_price": self.stop_price,
+            "target_price": self.target_price,
+            "currency": self.currency,
+            "order_id": self.order_id,
+            "placed_at": self.placed_at,
+            "expiry_hours": self.expiry_hours,
+            "kind": self.kind,
+            "partial_take_pct": self.partial_take_pct,
+            "partial_take_target_r": self.partial_take_target_r,
+        }
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "_PendingOrder":
+        return cls(
+            symbol=d["symbol"],
+            quantity=int(d["quantity"]),
+            limit_price=float(d["limit_price"]),
+            stop_price=float(d["stop_price"]),
+            target_price=float(d["target_price"]),
+            currency=d.get("currency", "USD"),
+            order_id=d.get("order_id", ""),
+            placed_at=d.get("placed_at", datetime.now().isoformat()),
+            expiry_hours=float(d.get("expiry_hours", 0.0) or 0.0),
+            kind=d.get("kind", "limit"),
+            partial_take_pct=float(d.get("partial_take_pct", 0.0) or 0.0),
+            partial_take_target_r=float(d.get("partial_take_target_r", 0.0) or 0.0),
+        )
+
+
+@dataclass
+class PendingFill:
+    """Outcome of a resting entry order on a :meth:`poll_pending_entries` sweep.
+
+    Exactly one of ``filled`` / ``expired`` is ``True``.  A fill carries the
+    execution details the engine needs to journal the entry and register the
+    position; an expiry simply reports the cancelled order.
+    """
+
+    symbol: str
+    order_id: str
+    filled: bool = False
+    expired: bool = False
+    fill_price: float = 0.0
+    quantity: int = 0
+    stop_price: float = 0.0
+    target_price: float = 0.0
+    currency: str = "USD"
+    commission: float = 0.0
+    kind: str = "limit"
 
 
 class PaperBroker:
@@ -207,7 +361,11 @@ class PaperBroker:
         self._data_dir = Path(settings.DATA_DIR)
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._path = self._data_dir / "paper_broker.json"
-        self._positions: Dict[str, _PaperPosition] = self._load()
+        loaded = self._load()
+        self._positions: Dict[str, _PaperPosition] = loaded[0]
+        # Resting entry orders keyed by symbol (a list, since scale-in places
+        # several tranches for one symbol).
+        self._pending: Dict[str, List[_PendingOrder]] = loaded[1]
         self._order_seq = self._max_order_seq()
         self._log = log.bind(component="PaperBroker")
 
@@ -243,12 +401,18 @@ class PaperBroker:
         stop_price: float,
         target_price: float,
         currency: str = "USD",
+        partial_take_pct: float = 0.0,
+        partial_take_target_r: float = 0.0,
     ) -> BracketResult:
         """Simulate a bracket order filling immediately with slippage + commission.
 
         The entry fills at *entry_price* plus ``PAPER_SLIPPAGE_BPS`` of adverse
         slippage, and a per-share commission is charged and returned on the
         :class:`BracketResult`.
+
+        When *partial_take_pct* is in ``(0, 1)`` the position is armed for
+        one-shot partial profit-taking at ``entry + target_r * risk`` (see
+        :meth:`poll_exits`).
         """
         if quantity <= 0:
             return BracketResult(False, reason="zero_quantity")
@@ -264,6 +428,10 @@ class PaperBroker:
 
         self._order_seq += 1
         order_id = f"PAPER-{self._order_seq:06d}"
+        pt_price = 0.0
+        if 0.0 < partial_take_pct < 1.0:
+            computed = partial_take_price(fill_price, stop_price, partial_take_target_r)
+            pt_price = computed if computed is not None else 0.0
         self._positions[symbol] = _PaperPosition(
             symbol=symbol,
             quantity=quantity,
@@ -273,6 +441,8 @@ class PaperBroker:
             currency=currency,
             order_id=order_id,
             opened_at=datetime.now().isoformat(),
+            partial_take_price=pt_price,
+            partial_take_pct=partial_take_pct if pt_price > 0 else 0.0,
         )
         self._save()
         self._log.info(
@@ -283,6 +453,7 @@ class PaperBroker:
             slippage_bps=self._settings.PAPER_SLIPPAGE_BPS,
             commission=commission,
             order_id=order_id,
+            partial_take_price=pt_price,
         )
         return BracketResult(
             accepted=True,
@@ -292,23 +463,267 @@ class PaperBroker:
             reason="filled",
         )
 
+    # ------------------------------------------------ resting entry orders
+
+    def place_limit_order(
+        self,
+        symbol: str,
+        quantity: int,
+        limit_price: float,
+        stop_price: float,
+        target_price: float,
+        currency: str = "USD",
+        expiry_hours: float = 4.0,
+        partial_take_pct: float = 0.0,
+        partial_take_target_r: float = 0.0,
+    ) -> BracketResult:
+        """Rest a limit entry that fills on a dip to *limit_price* and expires."""
+        if quantity <= 0:
+            return BracketResult(False, reason="zero_quantity")
+        self._order_seq += 1
+        order_id = f"PAPER-{self._order_seq:06d}"
+        self._pending.setdefault(symbol, []).append(
+            _PendingOrder(
+                symbol=symbol,
+                quantity=int(quantity),
+                limit_price=round(limit_price, 4),
+                stop_price=round(stop_price, 4),
+                target_price=round(target_price, 4),
+                currency=currency,
+                order_id=order_id,
+                placed_at=datetime.now().isoformat(),
+                expiry_hours=float(expiry_hours),
+                kind="limit",
+                partial_take_pct=partial_take_pct,
+                partial_take_target_r=partial_take_target_r,
+            )
+        )
+        self._save()
+        self._log.info(
+            "paper_broker.limit_placed",
+            symbol=symbol,
+            quantity=quantity,
+            limit_price=limit_price,
+            expiry_hours=expiry_hours,
+            order_id=order_id,
+        )
+        return BracketResult(True, order_id=order_id, reason="resting")
+
+    def place_scale_in(
+        self,
+        symbol: str,
+        tranches: List[tuple],
+        stop_price: float,
+        target_price: float,
+        currency: str = "USD",
+        expiry_hours: float = 4.0,
+        partial_take_pct: float = 0.0,
+        partial_take_target_r: float = 0.0,
+    ) -> List[BracketResult]:
+        """Rest each ``(limit_price, qty)`` tranche as a separate limit order."""
+        results: List[BracketResult] = []
+        for price, qty in tranches:
+            res = self.place_limit_order(
+                symbol,
+                int(qty),
+                float(price),
+                stop_price,
+                target_price,
+                currency=currency,
+                expiry_hours=expiry_hours,
+                partial_take_pct=partial_take_pct,
+                partial_take_target_r=partial_take_target_r,
+            )
+            # Tag as scale-in so persistence/inspection can distinguish it.
+            if res.accepted and symbol in self._pending:
+                self._pending[symbol][-1].kind = "scale_in"
+            results.append(res)
+        self._save()
+        return results
+
+    def place_moc_order(
+        self,
+        symbol: str,
+        quantity: int,
+        stop_price: float,
+        target_price: float,
+        currency: str = "USD",
+        partial_take_pct: float = 0.0,
+        partial_take_target_r: float = 0.0,
+    ) -> BracketResult:
+        """Rest a market-on-close entry (fills at the next pending sweep)."""
+        if quantity <= 0:
+            return BracketResult(False, reason="zero_quantity")
+        self._order_seq += 1
+        order_id = f"PAPER-{self._order_seq:06d}"
+        self._pending.setdefault(symbol, []).append(
+            _PendingOrder(
+                symbol=symbol,
+                quantity=int(quantity),
+                limit_price=0.0,  # MOC fills at market on the auction
+                stop_price=round(stop_price, 4),
+                target_price=round(target_price, 4),
+                currency=currency,
+                order_id=order_id,
+                placed_at=datetime.now().isoformat(),
+                expiry_hours=0.0,  # MOC never times out; it fills at the close
+                kind="moc",
+                partial_take_pct=partial_take_pct,
+                partial_take_target_r=partial_take_target_r,
+            )
+        )
+        self._save()
+        self._log.info(
+            "paper_broker.moc_placed", symbol=symbol, quantity=quantity, order_id=order_id
+        )
+        return BracketResult(True, order_id=order_id, reason="resting_moc")
+
+    def poll_pending_entries(self) -> List["PendingFill"]:
+        """Fill eligible resting entries and expire stale ones.
+
+        A limit / scale-in order fills when the latest price is at or below its
+        limit; an MOC order fills at the latest price.  Filled orders open (or
+        average into) a position; expired orders are dropped.
+        """
+        fills: List[PendingFill] = []
+        now = datetime.now()
+        changed = False
+        for symbol in list(self._pending.keys()):
+            remaining: List[_PendingOrder] = []
+            for order in self._pending[symbol]:
+                if is_expired(order.placed_at, order.expiry_hours, now):
+                    changed = True
+                    fills.append(
+                        PendingFill(
+                            symbol=symbol,
+                            order_id=order.order_id,
+                            expired=True,
+                            quantity=order.quantity,
+                            currency=order.currency,
+                            kind=order.kind,
+                        )
+                    )
+                    self._log.info(
+                        "paper_broker.entry_expired",
+                        symbol=symbol,
+                        order_id=order.order_id,
+                    )
+                    continue
+
+                price = fetch_current_price(symbol)
+                if price is None:
+                    remaining.append(order)
+                    continue
+
+                fillable = order.kind == "moc" or price <= order.limit_price
+                if not fillable:
+                    remaining.append(order)
+                    continue
+
+                fill = self._fill_pending(order, price)
+                fills.append(fill)
+                changed = True
+
+            if remaining:
+                self._pending[symbol] = remaining
+            else:
+                del self._pending[symbol]
+
+        if changed:
+            self._save()
+        return fills
+
+    def _fill_pending(self, order: _PendingOrder, price: float) -> "PendingFill":
+        """Fill one resting order at *price*, opening or averaging a position."""
+        fill_price = apply_entry_slippage(price, self._settings.PAPER_SLIPPAGE_BPS)
+        commission = commission_for(
+            order.quantity, self._settings.PAPER_COMMISSION_PER_SHARE
+        )
+        existing = self._positions.get(order.symbol)
+        if existing is None:
+            pt_price = 0.0
+            if 0.0 < order.partial_take_pct < 1.0:
+                computed = partial_take_price(
+                    fill_price, order.stop_price, order.partial_take_target_r
+                )
+                pt_price = computed if computed is not None else 0.0
+            self._positions[order.symbol] = _PaperPosition(
+                symbol=order.symbol,
+                quantity=order.quantity,
+                entry_price=fill_price,
+                stop_price=order.stop_price,
+                target_price=order.target_price,
+                currency=order.currency,
+                order_id=order.order_id,
+                opened_at=datetime.now().isoformat(),
+                partial_take_price=pt_price,
+                partial_take_pct=order.partial_take_pct if pt_price > 0 else 0.0,
+            )
+        else:
+            # Average the new tranche into the existing position.
+            total_qty = existing.quantity + order.quantity
+            existing.entry_price = round(
+                (existing.entry_price * existing.quantity + fill_price * order.quantity)
+                / total_qty,
+                4,
+            )
+            existing.quantity = total_qty
+        self._log.info(
+            "paper_broker.entry_filled",
+            symbol=order.symbol,
+            kind=order.kind,
+            fill_price=fill_price,
+            quantity=order.quantity,
+            order_id=order.order_id,
+        )
+        return PendingFill(
+            symbol=order.symbol,
+            order_id=order.order_id,
+            filled=True,
+            fill_price=fill_price,
+            quantity=order.quantity,
+            stop_price=order.stop_price,
+            target_price=order.target_price,
+            currency=order.currency,
+            commission=commission,
+            kind=order.kind,
+        )
+
+    def get_pending_orders(self) -> Dict[str, List[Dict[str, Any]]]:
+        """Return a serialisable view of resting entry orders (for inspection)."""
+        return {s: [o.to_dict() for o in orders] for s, orders in self._pending.items()}
+
     # ---------------------------------------------------------- poll exits
 
     def poll_exits(self) -> List[ExitEvent]:
-        """Close any positions whose stop or target was hit on the latest bar."""
+        """Close positions on stop/target and take partial profit when armed.
+
+        Returns one event per symbol per sweep.  A ``PARTIAL_TAKE`` event does
+        *not* close the position — it trims the share count and lets the
+        remainder run — so the symbol survives into later sweeps.
+        """
         events: List[ExitEvent] = []
         for symbol in list(self._positions.keys()):
             pos = self._positions[symbol]
-            event = self._check_position_exit(pos)
-            if event is not None:
-                events.append(event)
+            result = self._check_position_exit(pos)
+            if result is None:
+                continue
+            event, closed = result
+            events.append(event)
+            if closed:
                 del self._positions[symbol]
         if events:
             self._save()
         return events
 
-    def _check_position_exit(self, pos: _PaperPosition) -> Optional[ExitEvent]:
-        """Return an :class:`ExitEvent` if *pos* hit its stop or target."""
+    def _check_position_exit(
+        self, pos: _PaperPosition
+    ) -> Optional[tuple[ExitEvent, bool]]:
+        """Return ``(event, closed)`` if *pos* transitioned, else ``None``.
+
+        Priority order (at most one transition per sweep): full stop (closes),
+        then partial-take (does not close), then full target (closes).
+        """
         df = fetch_ohlcv(pos.symbol, period="5d")
         if df is None or df.empty:
             # Fall back to the current price as open/high/low.
@@ -328,24 +743,50 @@ class PaperBroker:
         # A gap-through open fills at the (worse) open price, not the stop.
         if bar_low <= pos.stop_price:
             fill = stop_exit_fill(pos.stop_price, bar_open, slippage_bps)
-            return self._build_exit(pos, fill, ExitReason.STOP_HIT)
+            return self._build_exit(pos, fill, ExitReason.STOP_HIT, pos.quantity), True
+
+        # Partial profit-taking: sell a slice at the first target, keep runner.
+        if (
+            not pos.partial_taken
+            and pos.partial_take_price > 0
+            and pos.partial_take_pct > 0
+            and bar_high >= pos.partial_take_price
+        ):
+            take_qty, runner_qty = partial_take_split(
+                pos.quantity, pos.partial_take_pct
+            )
+            if take_qty > 0 and runner_qty > 0:
+                fill = target_exit_fill(pos.partial_take_price, bar_open)
+                event = self._build_exit(
+                    pos, fill, ExitReason.PARTIAL_TAKE, take_qty
+                )
+                pos.quantity = runner_qty
+                pos.partial_taken = True
+                return event, False
+
         if bar_high >= pos.target_price:
             fill = target_exit_fill(pos.target_price, bar_open)
-            return self._build_exit(pos, fill, ExitReason.TARGET_HIT)
+            return self._build_exit(pos, fill, ExitReason.TARGET_HIT, pos.quantity), True
         return None
 
     def _build_exit(
-        self, pos: _PaperPosition, exit_price: float, reason: ExitReason
+        self,
+        pos: _PaperPosition,
+        exit_price: float,
+        reason: ExitReason,
+        quantity: Optional[int] = None,
     ) -> ExitEvent:
-        pnl = (exit_price - pos.entry_price) * pos.quantity
+        qty = pos.quantity if quantity is None else int(quantity)
+        pnl = (exit_price - pos.entry_price) * qty
         commission = commission_for(
-            pos.quantity, self._settings.PAPER_COMMISSION_PER_SHARE
+            qty, self._settings.PAPER_COMMISSION_PER_SHARE
         )
         self._log.info(
             "paper_broker.exit",
             symbol=pos.symbol,
             reason=reason.value,
             exit_price=exit_price,
+            quantity=qty,
             pnl_gross=round(pnl, 2),
             commission=commission,
         )
@@ -357,8 +798,9 @@ class PaperBroker:
             pnl_gross=round(pnl, 2),
             fill_details={
                 "order_id": pos.order_id,
-                "quantity": pos.quantity,
+                "quantity": qty,
                 "commission": commission,
+                "partial": reason == ExitReason.PARTIAL_TAKE,
             },
         )
 
@@ -391,28 +833,42 @@ class PaperBroker:
 
     def _max_order_seq(self) -> int:
         seq = 0
-        for p in self._positions.values():
+        order_ids: List[str] = [p.order_id for p in self._positions.values()]
+        for pending_list in self._pending.values():
+            order_ids.extend(o.order_id for o in pending_list)
+        for oid in order_ids:
             try:
-                seq = max(seq, int(p.order_id.split("-")[-1]))
+                seq = max(seq, int(oid.split("-")[-1]))
             except (ValueError, IndexError):
                 continue
         return seq
 
-    def _load(self) -> Dict[str, _PaperPosition]:
+    def _load(
+        self,
+    ) -> tuple[Dict[str, _PaperPosition], Dict[str, List[_PendingOrder]]]:
         if not self._path.exists():
-            return {}
+            return {}, {}
         try:
             raw = json.loads(self._path.read_text(encoding="utf-8"))
-            return {
+            positions = {
                 s: _PaperPosition.from_dict(d)
                 for s, d in raw.get("positions", {}).items()
             }
+            pending = {
+                s: [_PendingOrder.from_dict(o) for o in orders]
+                for s, orders in raw.get("pending", {}).items()
+            }
+            return positions, pending
         except (json.JSONDecodeError, OSError, KeyError, TypeError):
-            return {}
+            return {}, {}
 
     def _save(self) -> None:
         payload = {
             "positions": {s: p.to_dict() for s, p in self._positions.items()},
+            "pending": {
+                s: [o.to_dict() for o in orders]
+                for s, orders in self._pending.items()
+            },
             "saved_at": datetime.now().isoformat(),
         }
         try:
@@ -465,6 +921,8 @@ class IBKRBroker:
         self._ib = None
         # symbol -> bracket record (contract, quantity, prices, leg trades)
         self._brackets: Dict[str, Dict[str, Any]] = {}
+        # symbol -> list of resting entry records (limit / scale-in / MOC)
+        self._pending_entries: Dict[str, List[Dict[str, Any]]] = {}
         self._log = log.bind(component="IBKRBroker")
 
     def connect(self) -> bool:
@@ -518,6 +976,8 @@ class IBKRBroker:
         stop_price: float,
         target_price: float,
         currency: str = "USD",
+        partial_take_pct: float = 0.0,
+        partial_take_target_r: float = 0.0,
     ) -> BracketResult:
         if self._ib is None:
             return BracketResult(False, reason="not_connected")
@@ -545,7 +1005,13 @@ class IBKRBroker:
                 "parent_trade": trades[0],
                 "target_trade": trades[1] if len(trades) > 1 else None,
                 "stop_trade": trades[2] if len(trades) > 2 else None,
+                "partial_take_pct": 0.0,
+                "partial_taken": False,
+                "partial_trade": None,
             }
+            self._arm_partial_take(
+                symbol, entry_price, stop_price, partial_take_pct, partial_take_target_r
+            )
             return BracketResult(
                 accepted=True,
                 fill_price=entry_price,
@@ -556,26 +1022,314 @@ class IBKRBroker:
             self._log.error("ibkr.place_failed", symbol=symbol, error=str(exc))
             return BracketResult(False, reason=f"error:{exc}")
 
+    def _arm_partial_take(
+        self,
+        symbol: str,
+        entry_price: float,
+        stop_price: float,
+        partial_take_pct: float,
+        partial_take_target_r: float,
+    ) -> None:
+        """Place an extra take-profit leg for the partial-take slice, if armed."""
+        bracket = self._brackets.get(symbol)
+        if bracket is None or not (0.0 < partial_take_pct < 1.0):
+            return
+        pt_price = partial_take_price(entry_price, stop_price, partial_take_target_r)
+        if pt_price is None:
+            return
+        take_qty, _ = partial_take_split(bracket["quantity"], partial_take_pct)
+        if take_qty <= 0:
+            return
+        try:
+            from ib_insync import LimitOrder  # type: ignore
+
+            order = LimitOrder("SELL", take_qty, round(pt_price, 2))
+            trade = self._ib.placeOrder(bracket["contract"], order)
+        except Exception as exc:  # noqa: BLE001
+            self._log.warning("ibkr.partial_arm_failed", symbol=symbol, error=str(exc))
+            return
+        bracket["partial_take_pct"] = partial_take_pct
+        bracket["partial_take_price"] = round(pt_price, 2)
+        bracket["partial_take_qty"] = take_qty
+        bracket["partial_trade"] = trade
+
+    # ------------------------------------------------ resting entry orders
+
+    def place_limit_order(
+        self,
+        symbol: str,
+        quantity: int,
+        limit_price: float,
+        stop_price: float,
+        target_price: float,
+        currency: str = "USD",
+        expiry_hours: float = 4.0,
+        partial_take_pct: float = 0.0,
+        partial_take_target_r: float = 0.0,
+    ) -> BracketResult:
+        """Submit a resting GTD limit entry; the bracket is attached on fill."""
+        if self._ib is None:
+            return BracketResult(False, reason="not_connected")
+        try:
+            from ib_insync import LimitOrder, Stock  # type: ignore
+
+            contract = Stock(symbol, "SMART", currency)
+            self._ib.qualifyContracts(contract)
+            order = LimitOrder("BUY", int(quantity), round(limit_price, 2))
+            # Good-till-date time-in-force enforces the expiry broker-side.
+            order.tif = "GTD"
+            order.goodTillDate = _fmt_gtd(datetime.now(), expiry_hours)
+            trade = self._ib.placeOrder(contract, order)
+        except Exception as exc:  # noqa: BLE001
+            self._log.error("ibkr.limit_failed", symbol=symbol, error=str(exc))
+            return BracketResult(False, reason=f"error:{exc}")
+        order_id = str(getattr(order, "orderId", ""))
+        self._pending_entries.setdefault(symbol, []).append(
+            {
+                "contract": contract,
+                "entry_trade": trade,
+                "quantity": int(quantity),
+                "limit_price": round(limit_price, 2),
+                "stop_price": round(stop_price, 2),
+                "target_price": round(target_price, 2),
+                "currency": currency,
+                "order_id": order_id,
+                "placed_at": datetime.now().isoformat(),
+                "expiry_hours": float(expiry_hours),
+                "kind": "limit",
+                "partial_take_pct": partial_take_pct,
+                "partial_take_target_r": partial_take_target_r,
+            }
+        )
+        return BracketResult(True, order_id=order_id, reason="resting")
+
+    def place_scale_in(
+        self,
+        symbol: str,
+        tranches: List[tuple],
+        stop_price: float,
+        target_price: float,
+        currency: str = "USD",
+        expiry_hours: float = 4.0,
+        partial_take_pct: float = 0.0,
+        partial_take_target_r: float = 0.0,
+    ) -> List[BracketResult]:
+        results: List[BracketResult] = []
+        for price, qty in tranches:
+            res = self.place_limit_order(
+                symbol,
+                int(qty),
+                float(price),
+                stop_price,
+                target_price,
+                currency=currency,
+                expiry_hours=expiry_hours,
+                partial_take_pct=partial_take_pct,
+                partial_take_target_r=partial_take_target_r,
+            )
+            if res.accepted and symbol in self._pending_entries:
+                self._pending_entries[symbol][-1]["kind"] = "scale_in"
+            results.append(res)
+        return results
+
+    def place_moc_order(
+        self,
+        symbol: str,
+        quantity: int,
+        stop_price: float,
+        target_price: float,
+        currency: str = "USD",
+        partial_take_pct: float = 0.0,
+        partial_take_target_r: float = 0.0,
+    ) -> BracketResult:
+        """Submit a market-on-close entry; the bracket is attached on fill."""
+        if self._ib is None:
+            return BracketResult(False, reason="not_connected")
+        try:
+            from ib_insync import Order, Stock  # type: ignore
+
+            contract = Stock(symbol, "SMART", currency)
+            self._ib.qualifyContracts(contract)
+            order = Order(action="BUY", totalQuantity=int(quantity), orderType="MOC")
+            trade = self._ib.placeOrder(contract, order)
+        except Exception as exc:  # noqa: BLE001
+            self._log.error("ibkr.moc_failed", symbol=symbol, error=str(exc))
+            return BracketResult(False, reason=f"error:{exc}")
+        order_id = str(getattr(order, "orderId", ""))
+        self._pending_entries.setdefault(symbol, []).append(
+            {
+                "contract": contract,
+                "entry_trade": trade,
+                "quantity": int(quantity),
+                "limit_price": 0.0,
+                "stop_price": round(stop_price, 2),
+                "target_price": round(target_price, 2),
+                "currency": currency,
+                "order_id": order_id,
+                "placed_at": datetime.now().isoformat(),
+                "expiry_hours": 0.0,
+                "kind": "moc",
+                "partial_take_pct": partial_take_pct,
+                "partial_take_target_r": partial_take_target_r,
+            }
+        )
+        return BracketResult(True, order_id=order_id, reason="resting_moc")
+
+    def poll_pending_entries(self) -> List["PendingFill"]:
+        """Attach a bracket to each filled resting entry; expire stale ones."""
+        if self._ib is None:
+            return []
+        fills: List[PendingFill] = []
+        for symbol in list(self._pending_entries.keys()):
+            remaining: List[Dict[str, Any]] = []
+            for entry in self._pending_entries[symbol]:
+                filled, fill_price = self._leg_fill(entry.get("entry_trade"))
+                if filled:
+                    fill_price = fill_price or float(entry["limit_price"])
+                    self._attach_bracket_on_fill(symbol, entry, fill_price)
+                    fills.append(
+                        PendingFill(
+                            symbol=symbol,
+                            order_id=entry["order_id"],
+                            filled=True,
+                            fill_price=round(fill_price, 4),
+                            quantity=entry["quantity"],
+                            stop_price=entry["stop_price"],
+                            target_price=entry["target_price"],
+                            currency=entry["currency"],
+                            kind=entry["kind"],
+                        )
+                    )
+                    continue
+                if is_expired(entry["placed_at"], entry["expiry_hours"]):
+                    self._cancel_entry(entry)
+                    fills.append(
+                        PendingFill(
+                            symbol=symbol,
+                            order_id=entry["order_id"],
+                            expired=True,
+                            quantity=entry["quantity"],
+                            currency=entry["currency"],
+                            kind=entry["kind"],
+                        )
+                    )
+                    continue
+                remaining.append(entry)
+            if remaining:
+                self._pending_entries[symbol] = remaining
+            else:
+                del self._pending_entries[symbol]
+        return fills
+
+    def _attach_bracket_on_fill(
+        self, symbol: str, entry: Dict[str, Any], fill_price: float
+    ) -> None:
+        """Place stop + target legs once a resting entry fills."""
+        existing = self._brackets.get(symbol)
+        if existing is not None:
+            # Average a scale-in tranche into the existing tracked position.
+            total = existing["quantity"] + entry["quantity"]
+            existing["entry_price"] = round(
+                (existing["entry_price"] * existing["quantity"]
+                 + fill_price * entry["quantity"]) / total,
+                4,
+            )
+            existing["quantity"] = total
+            return
+        try:
+            from ib_insync import LimitOrder, StopOrder  # type: ignore
+
+            qty = entry["quantity"]
+            target = self._ib.placeOrder(
+                entry["contract"], LimitOrder("SELL", qty, entry["target_price"])
+            )
+            stop = self._ib.placeOrder(
+                entry["contract"], StopOrder("SELL", qty, entry["stop_price"])
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._log.warning("ibkr.attach_bracket_failed", symbol=symbol, error=str(exc))
+            target = stop = None
+        self._brackets[symbol] = {
+            "contract": entry["contract"],
+            "quantity": entry["quantity"],
+            "entry_price": round(fill_price, 4),
+            "stop_price": entry["stop_price"],
+            "target_price": entry["target_price"],
+            "parent_trade": entry.get("entry_trade"),
+            "target_trade": target,
+            "stop_trade": stop,
+            "partial_take_pct": 0.0,
+            "partial_taken": False,
+            "partial_trade": None,
+        }
+        self._arm_partial_take(
+            symbol,
+            fill_price,
+            entry["stop_price"],
+            entry.get("partial_take_pct", 0.0),
+            entry.get("partial_take_target_r", 0.0),
+        )
+
+    def _cancel_entry(self, entry: Dict[str, Any]) -> None:
+        trade = entry.get("entry_trade")
+        order = getattr(trade, "order", None)
+        if order is not None and self._ib is not None:
+            try:
+                self._ib.cancelOrder(order)
+            except Exception as exc:  # noqa: BLE001
+                self._log.warning("ibkr.cancel_entry_failed", error=str(exc))
+
     # ------------------------------------------------------------- poll exits
 
     def poll_exits(self) -> List[ExitEvent]:
-        """Detect bracket legs that filled and emit matching exit events.
+        """Detect bracket legs (partial / stop / target) that filled.
 
-        For every tracked bracket the stop leg is checked before the target
-        leg (the conservative assumption when both could have triggered).  A
-        filled leg produces an :class:`ExitEvent`, the sibling (OCA) leg is
-        cancelled defensively, and the bracket is dropped from tracking.
+        Overrides the base sweep to also handle a partial-take leg: when it
+        fills the position is trimmed (a ``PARTIAL_TAKE`` event is emitted) but
+        the bracket keeps running for the remainder.
         """
         if self._ib is None:
             return []
         events: List[ExitEvent] = []
         for symbol in list(self._brackets.keys()):
             bracket = self._brackets[symbol]
+            partial = self._detect_partial_fill(symbol, bracket)
+            if partial is not None:
+                events.append(partial)
+                continue
             event = self._detect_bracket_fill(symbol, bracket)
             if event is not None:
                 events.append(event)
                 del self._brackets[symbol]
         return events
+
+    def _detect_partial_fill(
+        self, symbol: str, bracket: Dict[str, Any]
+    ) -> Optional[ExitEvent]:
+        """Emit a ``PARTIAL_TAKE`` event if the partial leg just filled."""
+        if bracket.get("partial_taken") or bracket.get("partial_trade") is None:
+            return None
+        filled, fill_price = self._leg_fill(bracket.get("partial_trade"))
+        if not filled:
+            return None
+        take_qty = int(bracket.get("partial_take_qty", 0))
+        if take_qty <= 0:
+            return None
+        exit_price = fill_price or float(bracket.get("partial_take_price", 0.0))
+        entry = float(bracket["entry_price"])
+        bracket["partial_taken"] = True
+        bracket["quantity"] = max(0, int(bracket["quantity"]) - take_qty)
+        self._log.info(
+            "ibkr.partial_take", symbol=symbol, exit_price=exit_price, quantity=take_qty
+        )
+        return ExitEvent(
+            symbol=symbol,
+            exit_price=round(exit_price, 4),
+            exit_reason=ExitReason.PARTIAL_TAKE,
+            exit_date=datetime.now(),
+            pnl_gross=round((exit_price - entry) * take_qty, 2),
+            fill_details={"quantity": take_qty, "partial": True},
+        )
 
     def _detect_bracket_fill(
         self, symbol: str, bracket: Dict[str, Any]

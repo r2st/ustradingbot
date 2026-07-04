@@ -121,6 +121,7 @@ class TradeLogger:
         order: TradeOrder,
         fill_price: float,
         commission: float = 0.0,
+        quantity: Optional[int] = None,
     ) -> None:
         """Append an entry row to the trade journal.
 
@@ -128,8 +129,11 @@ class TradeLogger:
             order: The executed ``TradeOrder``.
             fill_price: Actual broker fill price.
             commission: Entry commission charged by the broker.
+            quantity: Optional share count for this fill, overriding
+                ``order.quantity`` (used for a scale-in tranche fill).
         """
         signal = order.signal
+        qty = int(order.quantity if quantity is None else quantity)
         trade_id = self._trade_counter
         self._trade_counter += 1
 
@@ -152,7 +156,7 @@ class TradeLogger:
             "ai_decision": order.ai_decision,
             "ai_reasoning": order.ai_reasoning,
             "ai_cost_usd": round(order.ai_cost_usd, 6),
-            "quantity": order.quantity,
+            "quantity": qty,
             "risk_amount": round(order.risk_amount, 2),
             "max_risk_dollars": round(order.max_risk_dollars, 2),
             "currency": order.currency,
@@ -297,6 +301,103 @@ class TradeLogger:
             pnl_net=round(pnl_net, 2),
             r_multiple=r_multiple,
             hold_hours=hold_duration_hours,
+        )
+
+    # ------------------------------------------------------ log_partial_exit
+
+    def log_partial_exit(
+        self,
+        symbol: str,
+        exit_event: ExitEvent,
+        exit_commission: float = 0.0,
+    ) -> None:
+        """Record a partial profit-take as its own closed row.
+
+        Partial-taking sells part of a position and lets the remainder run.
+        To keep the journal's one-row-per-lot accounting correct, this:
+
+        1. writes a **new, fully-closed** row for the shares sold (the P&L is
+           computed on that slice only), and
+        2. shrinks the still-open row's ``quantity`` to the runner size, so the
+           eventual final exit is priced on the remaining shares only.
+
+        The number of shares taken comes from
+        ``exit_event.fill_details["quantity"]``.
+        """
+        try:
+            df = pd.read_csv(self.csv_path, dtype=str)
+        except (FileNotFoundError, pd.errors.EmptyDataError):
+            self._log.error("log_partial_exit.csv_read_failed", symbol=symbol)
+            return
+
+        mask = (df["symbol"] == symbol) & (
+            df["exit_time"].isna() | (df["exit_time"] == "")
+        )
+        matching = df.index[mask].tolist()
+        if not matching:
+            self._log.warning("log_partial_exit.no_open_trade", symbol=symbol)
+            return
+        idx = matching[-1]
+
+        try:
+            entry_fill_price = float(df.at[idx, "entry_fill_price"])
+            open_qty = int(float(df.at[idx, "quantity"]))
+            stop_price = float(df.at[idx, "stop_price"])
+        except (ValueError, TypeError, KeyError) as exc:
+            self._log.error("log_partial_exit.parse_error", symbol=symbol, error=str(exc))
+            return
+
+        take_qty = int(exit_event.fill_details.get("quantity", 0) or 0)
+        take_qty = max(0, min(take_qty, open_qty))
+        if take_qty == 0:
+            return
+        runner_qty = open_qty - take_qty
+        exit_price = exit_event.exit_price
+        exit_time = exit_event.exit_date or datetime.now()
+
+        pnl_gross = (exit_price - entry_fill_price) * take_qty
+        pnl_net = pnl_gross - exit_commission
+        pnl_pct = (
+            (exit_price - entry_fill_price) / entry_fill_price * 100
+            if entry_fill_price > 0
+            else 0.0
+        )
+        risk_per_share = entry_fill_price - stop_price
+        r_multiple = (
+            round((exit_price - entry_fill_price) / risk_per_share, 4)
+            if risk_per_share > 0
+            else 0.0
+        )
+
+        # Shrink the still-open row to the runner size.
+        df.at[idx, "quantity"] = str(runner_qty)
+
+        # Build a closed row for the taken slice, copying signal/entry context.
+        partial_row = {col: df.at[idx, col] for col in SCHEMA_COLUMNS if col in df.columns}
+        partial_row["trade_id"] = self._trade_counter
+        self._trade_counter += 1
+        partial_row["quantity"] = str(take_qty)
+        partial_row["exit_price"] = str(round(exit_price, 4))
+        partial_row["exit_time"] = exit_time.isoformat()
+        partial_row["exit_reason"] = exit_event.exit_reason.value
+        partial_row["exit_commission"] = str(round(exit_commission, 4))
+        partial_row["entry_commission"] = "0.0"  # entry commission stays on the runner row
+        partial_row["pnl_gross"] = str(round(pnl_gross, 2))
+        partial_row["pnl_net"] = str(round(pnl_net, 2))
+        partial_row["pnl_pct"] = str(round(pnl_pct, 4))
+        partial_row["r_multiple"] = str(r_multiple)
+        partial_row["capture_ratio"] = ""
+        partial_row["hold_duration_hours"] = ""
+
+        df = pd.concat([df, pd.DataFrame([partial_row])], ignore_index=True)
+        self._write_dataframe(df)
+        self._log.info(
+            "trade.partial_exit_logged",
+            symbol=symbol,
+            take_qty=take_qty,
+            runner_qty=runner_qty,
+            exit_price=exit_price,
+            pnl_net=round(pnl_net, 2),
         )
 
     # -------------------------------------------------- query methods

@@ -34,7 +34,7 @@ from zoneinfo import ZoneInfo
 import structlog
 
 import logging_config
-from agent.notifier import TelegramNotifier
+from agent.alerts import AlertManager
 from ai.analyst import AIAnalyst
 from config.settings import Settings, get_settings
 from config.universe import ALL_SYMBOLS
@@ -45,7 +45,7 @@ from journal.btst_logger import RejectedSignalLogger
 from journal.trade_logger import TradeLogger
 from risk.manager import RiskManager
 from signals.screener import run_full_scan
-from signals.signal_types import Signal
+from signals.signal_types import Signal, TradeOrder
 
 log = structlog.get_logger(__name__)
 
@@ -103,8 +103,14 @@ class TradingEngine:
             self.settings, self.broker, self.risk_manager, self.trade_logger
         )
 
-        # Optional Telegram reporting.
-        self.notifier = TelegramNotifier(self.settings)
+        # Unified alerts (Telegram + email + threshold monitors).
+        self.notifier = AlertManager(self.settings)
+
+        # Resting entry orders (scale-in tranches / limit / MOC) awaiting a
+        # fill, keyed by the broker order id -> the built TradeOrder.  Filled
+        # tranches are journaled and registered when poll_pending_entries
+        # reports them; expired orders are dropped.
+        self._pending_orders: dict[str, TradeOrder] = {}
 
         log.info(
             "engine.init",
@@ -140,6 +146,11 @@ class TradingEngine:
         log.info("engine.started")
 
         while self.running:
+            # A dashboard mode switch drops a restart sentinel; when we see it
+            # we re-exec so the new BROKER/IBKR_PORT from .env takes effect.
+            if self._restart_requested():
+                self._restart_process()
+
             try:
                 if self.is_market_open():
                     # Guard every cycle behind a live broker connection; a
@@ -249,6 +260,13 @@ class TradingEngine:
         if self.risk_manager.maybe_reset_daily_pnl():
             log.info("engine.daily_pnl_reset", date=cycle_start.strftime("%Y-%m-%d"))
 
+        # ── Pending-entry reconciliation ──────────────────────────────
+        # Fill/expire resting entry orders (scale-in tranches, limit, MOC)
+        # placed on prior cycles before doing anything else.
+        pending_filled = await self._reconcile_pending_entries()
+        if pending_filled:
+            log.info("engine.pending_entries_filled", count=pending_filled)
+
         # ── Exit phase ────────────────────────────────────────────────
         # A single coordinator runs broker reconciliation, time-based exits,
         # position-health exits, and trailing-stop updates.
@@ -267,10 +285,18 @@ class TradingEngine:
                 trails_updated=exit_summary.trails_updated,
             )
 
+        # Alert on every finalised exit / partial-take, then evaluate the
+        # drawdown and daily-loss threshold monitors.
+        for event in exit_summary.events:
+            await self.notifier.notify_exit(event)
+        await self._check_risk_alerts()
+
         # ── Entry phase ───────────────────────────────────────────────
 
-        # Step 5: Order cutoff — skip new entries when too close to close.
-        if self._is_past_order_cutoff():
+        # Step 5: Order cutoff — skip new entries when too close to close,
+        # UNLESS market-on-close entries are enabled, in which case signals
+        # inside the cutoff window are routed to MOC orders instead of skipped.
+        if self._is_past_order_cutoff() and not self.settings.ENABLE_MOC_ENTRIES:
             log.info(
                 "engine.order_cutoff",
                 cutoff_minutes=self.settings.ORDER_CUTOFF_MINUTES_BEFORE_CLOSE,
@@ -411,7 +437,76 @@ class TradingEngine:
             )
             return False
 
-        # (h) Place the bracket order.
+        # (h) Place the entry.  The order type (immediate bracket, scale-in
+        #     tranches, or market-on-close) is selected from settings; scale-in
+        #     and MOC rest until filled and are reconciled asynchronously.
+        pending, accepted = self._place_entry(sig, order, currency, bound_log)
+        if pending:
+            return accepted  # journaling/registration happens on fill
+        if not accepted:
+            return False
+
+        await self.notifier.notify_entry(order, order.signal.entry_price)
+        return True
+
+    # ------------------------------------------------------------------
+    # Order-type selection
+    # ------------------------------------------------------------------
+
+    def _place_entry(self, sig, order, currency, bound_log):
+        """Place an entry using the configured order type.
+
+        Returns ``(pending, accepted)``.  For immediate brackets *pending* is
+        ``False`` and *accepted* reflects the fill; for resting orders
+        (scale-in / MOC) *pending* is ``True`` and *accepted* reports whether
+        the order was submitted.
+        """
+        pt_pct = (
+            self.settings.PARTIAL_TAKE_PCT if self.settings.ENABLE_PARTIAL_TAKE else 0.0
+        )
+        pt_r = self.settings.PARTIAL_TAKE_TARGET_R
+
+        # Market-on-close: used when we are inside the cutoff window.
+        if self.settings.ENABLE_MOC_ENTRIES and self._is_past_order_cutoff():
+            res = self.broker.place_moc_order(
+                sig.symbol, order.quantity, sig.stop_price, sig.target_price,
+                currency=currency, partial_take_pct=pt_pct, partial_take_target_r=pt_r,
+            )
+            if res.accepted:
+                self._pending_orders[res.order_id] = order
+                bound_log.info("engine.moc_submitted", order_id=res.order_id)
+            else:
+                self.rejected_logger.log_rejection(sig, "broker", res.reason)
+            return True, res.accepted
+
+        # Scale-in: split into tranches at successively lower limit prices.
+        if self.settings.ENABLE_SCALE_IN:
+            from execution.advanced_orders import compute_scale_in_tranches
+
+            tranches = compute_scale_in_tranches(
+                sig.entry_price,
+                order.quantity,
+                self.settings.SCALE_IN_TRANCHES,
+                self.settings.SCALE_IN_STEP_PCT,
+            )
+            results = self.broker.place_scale_in(
+                sig.symbol, tranches, sig.stop_price, sig.target_price,
+                currency=currency, expiry_hours=self.settings.LIMIT_ORDER_EXPIRY_HOURS,
+                partial_take_pct=pt_pct, partial_take_target_r=pt_r,
+            )
+            any_accepted = False
+            for res in results:
+                if res.accepted:
+                    self._pending_orders[res.order_id] = order
+                    any_accepted = True
+            bound_log.info(
+                "engine.scale_in_submitted",
+                tranches=len(tranches),
+                accepted=any_accepted,
+            )
+            return True, any_accepted
+
+        # Default: immediate bracket order.
         result = self.broker.place_bracket_order(
             symbol=sig.symbol,
             quantity=order.quantity,
@@ -419,15 +514,16 @@ class TradingEngine:
             stop_price=sig.stop_price,
             target_price=sig.target_price,
             currency=currency,
+            partial_take_pct=pt_pct,
+            partial_take_target_r=pt_r,
         )
         if not result.accepted:
             bound_log.warning(
                 "engine.order_rejected", gate="broker", reason=result.reason
             )
             self.rejected_logger.log_rejection(sig, "broker", result.reason)
-            return False
+            return False, False
 
-        # (i) Journal the entry and register the position.
         self.trade_logger.log_entry(order, result.fill_price, result.commission)
         self.risk_manager.register_position(order, result.fill_price)
         bound_log.info(
@@ -437,10 +533,63 @@ class TradingEngine:
             stop_price=sig.stop_price,
             target_price=sig.target_price,
             order_id=result.order_id,
-            ai_cost_usd=decision.cost_usd,
         )
-        await self.notifier.notify_entry(order, result.fill_price)
-        return True
+        return False, True
+
+    async def _check_risk_alerts(self) -> None:
+        """Feed the alert manager's drawdown + daily-loss threshold monitors."""
+        from pathlib import Path
+
+        from analytics.performance import analyze_journal
+
+        report = analyze_journal(
+            Path(self.settings.DATA_DIR) / "trades.csv", self.settings.TOTAL_CAPITAL
+        )
+        curve = report.equity_curve
+        if curve:
+            equities = [self.settings.TOTAL_CAPITAL] + [p["equity"] for p in curve]
+            peak = max(equities)
+            current = equities[-1]
+            drawdown = (peak - current) / peak if peak > 0 else 0.0
+            await self.notifier.check_drawdown(drawdown)
+
+        today = datetime.now(tz=ET).date().isoformat()
+        await self.notifier.check_daily_loss(
+            self.risk_manager.daily_pnl, self.settings.TOTAL_CAPITAL, day=today
+        )
+
+    async def _reconcile_pending_entries(self) -> int:
+        """Journal + register filled resting entries; drop expired ones.
+
+        Called at the start of each cycle.  A fill looks up its originating
+        :class:`TradeOrder` (stored when the order was placed) and registers the
+        position at the actual fill price and quantity; scale-in tranches are
+        averaged into one position by the risk manager.
+        """
+        fills = self.broker.poll_pending_entries()
+        registered = 0
+        for fill in fills:
+            order = self._pending_orders.get(fill.order_id)
+            if fill.expired:
+                self._pending_orders.pop(fill.order_id, None)
+                log.info("engine.entry_expired", order_id=fill.order_id,
+                         symbol=fill.symbol)
+                await self.notifier.send(
+                    f"⌛ Entry order for {fill.symbol} expired unfilled."
+                )
+                continue
+            if not fill.filled or order is None:
+                continue
+            self._pending_orders.pop(fill.order_id, None)
+            self.trade_logger.log_entry(order, fill.fill_price, fill.commission,
+                                        quantity=fill.quantity)
+            self.risk_manager.register_position(order, fill.fill_price,
+                                                quantity=fill.quantity)
+            registered += 1
+            log.info("engine.pending_entry_filled", symbol=fill.symbol,
+                     quantity=fill.quantity, fill_price=fill.fill_price)
+            await self.notifier.notify_entry(order, fill.fill_price)
+        return registered
 
     # ------------------------------------------------------------------
     # Broker connection management
@@ -643,6 +792,32 @@ class TradingEngine:
     # ------------------------------------------------------------------
     # Shutdown
     # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # Mode-switch restart
+    # ------------------------------------------------------------------
+
+    def _restart_requested(self) -> bool:
+        """Return whether the dashboard requested a restart (mode switch)."""
+        from dashboard.mode_control import consume_restart_request
+
+        return consume_restart_request(self.settings.DATA_DIR)
+
+    def _restart_process(self) -> None:
+        """Re-exec the engine so the new ``.env`` broker settings take effect."""
+        import os
+
+        log.info("engine.restarting_for_mode_switch")
+        try:
+            self.broker.disconnect()
+        except Exception:  # noqa: BLE001
+            pass
+        # Drop the cached settings singleton so the new process reads fresh .env.
+        try:
+            get_settings.cache_clear()
+        except Exception:  # noqa: BLE001
+            pass
+        os.execv(sys.executable, [sys.executable] + sys.argv)
 
     def shutdown(self) -> None:
         """Request a graceful shutdown of the trading loop.

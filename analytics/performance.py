@@ -355,13 +355,19 @@ def breakdown_by(
     for key, group in trades.groupby(column):
         pnl = _clean(group["pnl_net"])
         r = _clean(group["r_multiple"]) if "r_multiple" in group.columns else np.array([])
+        wins = pnl[pnl > 0]
+        losses = pnl[pnl < 0]
         rows.append(
             {
                 column: str(key),
                 "trades": int(pnl.size),
+                "wins": int(wins.size),
+                "losses": int(losses.size),
                 "win_rate": round(win_rate(pnl), 4),
                 "profit_factor": _finite(profit_factor(pnl)),
                 "expectancy": round(expectancy(pnl), 2),
+                "avg_win": round(float(wins.mean()), 2) if wins.size else 0.0,
+                "avg_loss": round(float(losses.mean()), 2) if losses.size else 0.0,
                 "total_pnl": round(float(pnl.sum()), 2),
                 "avg_r_multiple": round(avg_r_multiple(r), 3),
             }

@@ -26,6 +26,7 @@ import structlog
 from config.settings import get_settings
 from data.fetcher import fetch_ohlcv
 from signals.combined_filter import score_symbol
+from signals.multi_timeframe import weekly_confirms
 from signals.mean_reversion_signal import detect as detect_mean_reversion
 from signals.pead_signal import detect as detect_pead
 from signals.signal_types import Grade, Signal
@@ -117,6 +118,16 @@ def _scan_symbol(
             continue
 
         if _grade_meets_minimum(signal.grade, min_grade):
+            # Multi-timeframe confirmation: only take the daily signal if it
+            # aligns with the weekly trend (no-op when the feature is off).
+            if not weekly_confirms(df, settings, signal.direction):
+                log.debug(
+                    "scan_symbol.weekly_veto",
+                    symbol=symbol,
+                    strategy=strategy,
+                    grade=signal.grade.value,
+                )
+                continue
             log.debug(
                 "scan_symbol.hit",
                 symbol=symbol,

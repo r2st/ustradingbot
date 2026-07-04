@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import functools
 from pathlib import Path
-from typing import ClassVar, Dict
+from typing import Any, ClassVar, Dict
 
 from pydantic import Field, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -226,6 +226,102 @@ class Settings(BaseSettings):
         not.
         """
         return self.MARKET_DATA_PROVIDER.lower() in ("alpaca",)
+
+    # ── Dynamic stop-loss configuration ─────────────────────────────────────
+    # Four complementary stop mechanisms, each independently toggleable and
+    # overridable per strategy (see STOP_OVERRIDES_BY_STRATEGY).  All of them
+    # only ever *ratchet the stop up* — a computed stop below the current stop
+    # is ignored, so protection never loosens.
+    #
+    #   * Trailing stop — trail price by TRAIL_ATR_MULTIPLIER x ATR once the
+    #     trade is at least TRAIL_ACTIVATION_PROFIT_PCT in profit.
+    #   * Breakeven stop — move the stop to entry (+ a small buffer) once the
+    #     trade has earned BREAKEVEN_TRIGGER_R times its initial risk (1R).
+    #   * Time-based tightening — if a trade has been open at least
+    #     TIME_STOP_TIGHTEN_DAYS days and gone nowhere (unrealised move below
+    #     TIME_STOP_STAGNANT_PROFIT_PCT), tighten the trail to
+    #     TIME_STOP_TIGHTEN_ATR_MULTIPLIER x ATR to free the capital sooner.
+    #   * Volatility-adjusted — the trail distance is a multiple of ATR rather
+    #     than a fixed percentage, so it widens in volatile names and tightens
+    #     in quiet ones automatically.
+    ENABLE_TRAILING_STOP: bool = True
+    TRAIL_ATR_MULTIPLIER: float = 2.0
+    TRAIL_ACTIVATION_PROFIT_PCT: float = 0.05
+    ENABLE_BREAKEVEN_STOP: bool = True
+    BREAKEVEN_TRIGGER_R: float = 1.0
+    BREAKEVEN_BUFFER_PCT: float = 0.001
+    ENABLE_TIME_STOP_TIGHTENING: bool = True
+    TIME_STOP_TIGHTEN_DAYS: int = 5
+    TIME_STOP_TIGHTEN_ATR_MULTIPLIER: float = 1.0
+    TIME_STOP_STAGNANT_PROFIT_PCT: float = 0.02
+    ENABLE_VOLATILITY_STOPS: bool = True
+    STOP_ATR_PERIOD: int = 14
+    # Per-strategy overrides for any of the dynamic-stop settings above.  Keys
+    # are strategy names (lowercase); values are dicts of {setting_name: value}
+    # applied on top of the global defaults.  Example::
+    #     {"mean_reversion": {"TRAIL_ATR_MULTIPLIER": 1.5,
+    #                         "ENABLE_TIME_STOP_TIGHTENING": True,
+    #                         "TIME_STOP_TIGHTEN_DAYS": 3}}
+    STOP_OVERRIDES_BY_STRATEGY: dict[str, dict[str, Any]] = Field(default_factory=dict)
+
+    # ── Advanced order execution ────────────────────────────────────────────
+    # These enrich the basic bracket order and are honoured by both the
+    # PaperBroker and the IBKRBroker.
+    #
+    #   * Limit-order expiry — a resting entry that only fills when the market
+    #     trades at or below the limit, and is auto-cancelled after
+    #     LIMIT_ORDER_EXPIRY_HOURS if still unfilled.
+    #   * Scale-in — split an entry into SCALE_IN_TRANCHES tranches spaced
+    #     SCALE_IN_STEP_PCT apart, so the average fill improves on a pullback.
+    #   * Partial profit-taking — sell PARTIAL_TAKE_PCT of the position at a
+    #     first target (PARTIAL_TAKE_TARGET_R times risk) and let the remainder
+    #     run under the dynamic trailing stop.
+    #   * Market-on-close — submit the entry as a MOC order so it fills at the
+    #     closing auction, avoiding intraday noise for end-of-day setups.
+    LIMIT_ORDER_EXPIRY_HOURS: float = 4.0
+    ENABLE_SCALE_IN: bool = False
+    SCALE_IN_TRANCHES: int = 3
+    SCALE_IN_STEP_PCT: float = 0.01
+    ENABLE_PARTIAL_TAKE: bool = True
+    PARTIAL_TAKE_PCT: float = 0.5
+    PARTIAL_TAKE_TARGET_R: float = 1.0
+    # When enabled, signals that arrive inside the order-cutoff window (too
+    # close to the close for a clean intraday entry) are submitted as
+    # market-on-close orders instead of being skipped.
+    ENABLE_MOC_ENTRIES: bool = False
+
+    # ── Mode switching (paper ⇄ live) ───────────────────────────────────────
+    # The dashboard can flip BROKER/IBKR_PORT and ask the engine to restart.
+    # Switching *to live* requires the admin password (DASHBOARD_PASSWORD).
+    ALLOW_MODE_SWITCH: bool = True
+
+    # ── Email alerts (SMTP) ─────────────────────────────────────────────────
+    EMAIL_ALERTS_ENABLED: bool = False
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_USE_TLS: bool = True
+    EMAIL_FROM: str = ""
+    EMAIL_TO: str = ""
+
+    # ── Alert routing & thresholds ──────────────────────────────────────────
+    ALERT_ON_ENTRY: bool = True
+    ALERT_ON_EXIT: bool = True
+    ALERT_ON_MODE_SWITCH: bool = True
+    # Fire a drawdown alert when peak-to-trough equity drawdown exceeds this
+    # fraction; fire a daily-loss alert when the day's loss exceeds this
+    # fraction of total capital.  Each alert is de-duplicated per session.
+    ALERT_DRAWDOWN_PCT: float = 0.05
+    ALERT_DAILY_LOSS_PCT: float = 0.01
+
+    # ── Multi-timeframe analysis ────────────────────────────────────────────
+    # Confirm each daily signal against the weekly trend.  When enabled, a
+    # daily long signal is only taken if the weekly trend is up (weekly close
+    # above a rising WEEKLY_TREND_EMA_PERIOD-week EMA).
+    ENABLE_MULTI_TIMEFRAME: bool = True
+    WEEKLY_TREND_EMA_PERIOD: int = 30
+    MTF_REQUIRE_WEEKLY_UPTREND: bool = True
 
     # ── Logging ─────────────────────────────────────────────────────────────
     LOG_LEVEL: str = "INFO"
