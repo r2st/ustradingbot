@@ -112,6 +112,11 @@ class TradingEngine:
         # reports them; expired orders are dropped.
         self._pending_orders: dict[str, TradeOrder] = {}
 
+        # Dashboard status heartbeat: last completed cycle and next scan time
+        # (ISO strings in market time), surfaced through the engine_status file.
+        self._last_cycle_at: str | None = None
+        self._next_scan_at: str | None = None
+
         log.info(
             "engine.init",
             broker=self.settings.BROKER,
@@ -144,6 +149,7 @@ class TradingEngine:
             loop.add_signal_handler(sig, self.shutdown)
 
         log.info("engine.started")
+        self._emit_heartbeat("starting")
 
         while self.running:
             # A dashboard mode switch drops a restart sentinel; when we see it
@@ -157,7 +163,9 @@ class TradingEngine:
                     # dropped session is transparently re-established (with
                     # exponential backoff) before we scan or manage exits.
                     if await self._ensure_broker_connected():
+                        self._emit_heartbeat("scanning")
                         await self.run_cycle()
+                        self._last_cycle_at = datetime.now(tz=ET).isoformat()
                     else:
                         log.error(
                             "engine.cycle_skipped_no_broker",
@@ -177,11 +185,16 @@ class TradingEngine:
                 break
 
             sleep_seconds = self.settings.SCAN_INTERVAL_MINUTES * 60
+            self._next_scan_at = (
+                datetime.now(tz=ET) + timedelta(seconds=sleep_seconds)
+            ).isoformat()
             log.info(
                 "engine.sleeping",
                 sleep_minutes=self.settings.SCAN_INTERVAL_MINUTES,
                 realtime_exits=self._realtime_exits_enabled(),
             )
+            self._emit_heartbeat("market_closed" if not self.is_market_open()
+                                 else "waiting")
 
             try:
                 await self._sleep_between_cycles(sleep_seconds)
@@ -189,6 +202,34 @@ class TradingEngine:
                 break
 
         log.info("engine.stopped")
+        self._emit_heartbeat("stopped")
+
+    def _emit_heartbeat(self, phase: str) -> None:
+        """Write a status heartbeat the dashboard reads (best-effort).
+
+        Reports the current phase, market state, open-position count, and the
+        last-cycle / next-scan timestamps so the dashboard's engine control
+        panel can show live activity without scraping logs.
+        """
+        import os
+
+        from dashboard.engine_control import write_heartbeat
+
+        try:
+            open_positions = len(self.risk_manager.get_open_positions())
+        except Exception:  # noqa: BLE001 -- never let telemetry break the loop
+            open_positions = None
+
+        write_heartbeat(
+            self.settings.DATA_DIR,
+            phase=phase,
+            pid=os.getpid(),
+            market_open=self.is_market_open(),
+            scan_interval_min=self.settings.SCAN_INTERVAL_MINUTES,
+            open_positions=open_positions,
+            last_cycle_at=self._last_cycle_at,
+            next_scan_at=self._next_scan_at,
+        )
 
     def _realtime_exits_enabled(self) -> bool:
         """Return whether fast exit polling should run between scan cycles.

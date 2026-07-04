@@ -1,6 +1,8 @@
 # Core runtime dependencies for the US Trading Bot (paper broker + dashboard).
 # For live Interactive Brokers trading also install: ib_insync>=0.9.86
 yfinance>=0.2.36
+# lxml backs pandas.read_html, which yfinance uses for earnings dates (PEAD).
+lxml>=5.0
 pandas>=2.2
 numpy>=1.26
 pydantic>=2.6

@@ -28,6 +28,7 @@ import pandas as pd
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from starlette.concurrency import run_in_threadpool
 
 # ---------------------------------------------------------------------------
 # Ensure project root is on sys.path so we can import config / signals / risk
@@ -596,6 +597,8 @@ async def dashboard(request: Request, _user: str = Depends(require_auth)):
             "status": _build_system_status(),
             "paper": _build_paper_trading(),
             "providers": _build_provider_status(),
+            "engine": _build_engine_status(),
+            "backtest_options": _build_backtest_options(),
             "help": _build_help(),
             "strategies": _build_strategies(),
             "strategy_comparison": _build_strategy_comparison(),
@@ -617,6 +620,20 @@ def _build_provider_status() -> Dict[str, Any]:
     from dashboard.provider_control import provider_status
 
     return provider_status(get_settings())
+
+
+def _build_engine_status() -> Dict[str, Any]:
+    """Engine service status + activity heartbeat for the control panel."""
+    from dashboard.engine_control import engine_status
+
+    return engine_status(get_settings())
+
+
+def _build_backtest_options() -> Dict[str, Any]:
+    """Symbol / strategy / date choices for the backtest form."""
+    from dashboard.backtest_control import options
+
+    return options()
 
 
 @app.get("/health")
@@ -872,3 +889,84 @@ async def risk_drawdown(_user: str = Depends(require_auth)):
 async def risk_pnl_breakdown(_user: str = Depends(require_auth)):
     """Daily / weekly / monthly realised-P&L breakdown."""
     return _risk_report().pnl_breakdown
+
+
+# ---------------------------------------------------------------------------
+# Engine control API — start/stop/restart + live status + logs (admin-gated)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/engine/status")
+async def engine_status_api(_user: str = Depends(require_auth)):
+    """Live engine status: systemd state + activity heartbeat.
+
+    The systemd lookup shells out to ``systemctl show``; run it off the event
+    loop so a slow probe never blocks other dashboard requests.
+    """
+    from dashboard.engine_control import engine_status
+
+    return await run_in_threadpool(engine_status, get_settings())
+
+
+@app.post("/api/engine/control")
+async def engine_control_api(request: Request, _user: str = Depends(require_auth)):
+    """Start / stop / restart the trading engine (admin password required)."""
+    from dashboard.engine_control import control_engine
+
+    try:
+        body = await request.json()
+    except (ValueError, TypeError):
+        body = {}
+    action = str(body.get("action", ""))
+    admin_password = str(body.get("admin_password", ""))
+
+    result = await run_in_threadpool(
+        control_engine, action, admin_password, get_settings()
+    )
+    return result
+
+
+@app.get("/api/engine/logs")
+async def engine_logs_api(lines: int = 200, _user: str = Depends(require_auth)):
+    """Return the last *lines* of engine logs from journald."""
+    from dashboard.engine_control import engine_logs
+
+    return await run_in_threadpool(engine_logs, lines)
+
+
+# ---------------------------------------------------------------------------
+# Backtesting API — run backtests from the UI in a background thread
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/backtest/options")
+async def backtest_options_api(_user: str = Depends(require_auth)):
+    """Symbol / strategy / date choices for the backtest form."""
+    from dashboard.backtest_control import options
+
+    return options()
+
+
+@app.post("/api/backtest/run")
+async def backtest_run_api(request: Request, _user: str = Depends(require_auth)):
+    """Validate parameters and kick off a background backtest run."""
+    from dashboard.backtest_control import start_backtest
+
+    try:
+        body = await request.json()
+    except (ValueError, TypeError):
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    return start_backtest(body)
+
+
+@app.get("/api/backtest/status/{job_id}")
+async def backtest_status_api(job_id: str, _user: str = Depends(require_auth)):
+    """Poll a backtest job: state, message, and results when complete."""
+    from dashboard.backtest_control import get_job
+
+    job = get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Unknown or expired job id.")
+    return job
