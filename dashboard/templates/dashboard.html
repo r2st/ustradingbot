@@ -33,9 +33,9 @@
     background: linear-gradient(135deg, var(--surface) 0%, var(--surface-2) 100%);
     border-bottom: 1px solid var(--border);
     padding: 24px 32px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+    /* Block layout: the .header-row handles its own flex, and .section-nav
+       stacks beneath it. */
+    display: block;
   }
   .header h1 { font-size: 22px; font-weight: 600; }
   .header h1 span { color: var(--accent); }
@@ -462,11 +462,76 @@
   .pill-us { border-color: var(--accent-dim); }
   .pill-ca { border-color: var(--green-dim); }
 
+  /* ── Responsive header + in-page navigation ─────────────────────────── */
+  .header { position: sticky; top: 0; z-index: 50; }
+  .header-row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap;
+  }
+  .header-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .nav-toggle {
+    display: none;               /* shown only on mobile */
+    background: var(--surface-2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+    font-size: 20px; line-height: 1; padding: 8px 14px; cursor: pointer;
+  }
+  .section-nav { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+  .section-nav a {
+    color: var(--text-muted); text-decoration: none; font-size: 13px;
+    font-weight: 600; padding: 6px 12px; border-radius: 8px;
+  }
+  .section-nav a:hover { background: var(--surface-2); color: var(--text); }
+  /* Offset anchor targets so the sticky header doesn't cover section titles. */
+  .section { scroll-margin-top: 96px; }
+
+  /* ── Horizontally scrollable tables on narrow screens ───────────────── */
+  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .table-wrap .data-table { min-width: 100%; }
+  .data-table th, .data-table td { white-space: nowrap; }
+  .risk-grid > div { min-width: 0; overflow-x: auto; }
+
   @media (max-width: 768px) {
+    body { font-size: 14px; }
+    .header { padding: 14px 16px; }
+    .header h1 { font-size: 18px; }
+    .nav-toggle { display: block; }
+    /* Collapse the section nav into a hamburger-triggered vertical menu. */
+    .section-nav { display: none; flex-direction: column; margin-top: 10px; }
+    .section-nav.open { display: flex; }
+    .section-nav a { padding: 12px; border: 1px solid var(--border); }
+    .mode-banner { padding: 10px 16px; gap: 8px; font-size: 13px; flex-wrap: wrap; }
     .container { padding: 16px; }
-    .kv-grid, .strategy-grid, .rules-grid { grid-template-columns: 1fr; }
+    .section-body { padding: 16px; }
+    .section-header h2 { font-size: 16px; }
+    /* Everything stacks to one column. */
+    .kv-grid, .strategy-grid, .rules-grid, .risk-grid,
+    .provider-cards, .provider-keys { grid-template-columns: 1fr; }
+    .stat-cards { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+    .provider-select-row { flex-direction: column; align-items: stretch; }
+    .provider-select-row select, .provider-select-row .btn-primary { width: 100%; min-width: 0; }
+    /* Touch-friendly control sizing (≥44px tap targets). */
+    .mode-toggle-btn, .nav-toggle, .btn-primary, .btn-secondary, .btn-danger,
+    .provider-select-row select, .provider-key-field input, .modal input {
+      min-height: 44px;
+    }
+    .modal-actions { flex-wrap: wrap; }
+    .modal-actions .btn-secondary, .modal-actions .btn-danger { flex: 1 1 120px; }
+    .sb-label { width: 84px; }
+    .sb-value { width: 58px; }
     .score-table { font-size: 11px; }
     .score-table th, .score-table td { padding: 6px 8px; }
+  }
+
+  @media (max-width: 480px) {
+    .header h1 { font-size: 16px; }
+    .header .meta { font-size: 11px; }
+    .header-controls { gap: 8px; }
+    .mode-badge { font-size: 11px; padding: 3px 9px; }
+    /* Keep the banner compact — drop the long secondary detail line. */
+    .mode-banner .sub { display: none; }
+    .stat-cards { grid-template-columns: 1fr 1fr; }
+    .section-header h2 { font-size: 15px; }
+    .section-icon { width: 26px; height: 26px; line-height: 26px; font-size: 13px; }
   }
 </style>
 </head>
@@ -474,21 +539,33 @@
 
 <!-- ═══════════════════ HEADER ═══════════════════ -->
 <div class="header">
-  <div>
-    <h1><span>US Trading Bot</span> Dashboard</h1>
-    <div class="meta">{{ status.timestamp }}</div>
+  <div class="header-row">
+    <div class="brand">
+      <h1><span>US Trading Bot</span> Dashboard</h1>
+      <div class="meta">{{ status.timestamp }}</div>
+    </div>
+    <div class="header-controls">
+      {% if "Paper" in status.mode %}
+        <span class="mode-badge mode-paper" id="modeBadge">{{ status.mode }}</span>
+      {% else %}
+        <span class="mode-badge mode-live" id="modeBadge">{{ status.mode }}</span>
+      {% endif %}
+      <button type="button" class="mode-toggle-btn" id="modeToggleBtn"
+              onclick="openModeDialog()">
+        {% if paper.is_live %}Switch to Paper{% else %}Switch to Live{% endif %}
+      </button>
+      <button type="button" class="nav-toggle" id="navToggle" aria-label="Toggle menu"
+              aria-expanded="false" aria-controls="sectionNav" onclick="toggleNav()">☰</button>
+    </div>
   </div>
-  <div style="display:flex;align-items:center;gap:14px;">
-    {% if "Paper" in status.mode %}
-      <span class="mode-badge mode-paper" id="modeBadge">{{ status.mode }}</span>
-    {% else %}
-      <span class="mode-badge mode-live" id="modeBadge">{{ status.mode }}</span>
-    {% endif %}
-    <button type="button" class="mode-toggle-btn" id="modeToggleBtn"
-            onclick="openModeDialog()">
-      {% if paper.is_live %}Switch to Paper{% else %}Switch to Live{% endif %}
-    </button>
-  </div>
+  <nav class="section-nav" id="sectionNav">
+    <a href="#nav-provider" onclick="closeNav()">Data</a>
+    <a href="#nav-account" onclick="closeNav()">Account</a>
+    <a href="#nav-strategy" onclick="closeNav()">Strategies</a>
+    <a href="#nav-risk" onclick="closeNav()">Risk</a>
+    <a href="#nav-status" onclick="closeNav()">System</a>
+    <a href="#nav-help" onclick="closeNav()">Help</a>
+  </nav>
 </div>
 
 <!-- ═══════════════════ MODE-SWITCH DIALOG ═══════════════════ -->
@@ -528,7 +605,7 @@
 <div class="container">
 
 <!-- ═══════════════════ MARKET DATA PROVIDER ═══════════════════ -->
-<div class="section">
+<div class="section" id="nav-provider">
   <div class="section-header">
     <div class="section-icon icon-provider">D</div>
     <h2>Market Data Provider</h2>
@@ -603,7 +680,7 @@
 </div>
 
 <!-- ═══════════════════ PAPER TRADING ═══════════════════ -->
-<div class="section">
+<div class="section" id="nav-account">
   <div class="section-header">
     <div class="section-icon icon-paper">P</div>
     <h2>{{ paper.mode|capitalize }} Trading Account</h2>
@@ -744,13 +821,14 @@
 </div>
 
 <!-- ═══════════════════ STRATEGY PERFORMANCE COMPARISON ═══════════════════ -->
-<div class="section">
+<div class="section" id="nav-strategy">
   <div class="section-header">
     <div class="section-icon icon-strategy">C</div>
     <h2>Strategy Performance Comparison</h2>
   </div>
   <div class="section-body">
     {% if strategy_comparison %}
+    <div class="table-wrap">
     <table class="data-table">
       <thead>
         <tr>
@@ -775,6 +853,7 @@
         {% endfor %}
       </tbody>
     </table>
+    </div>
     <!-- Visual: total-P&L bar comparison -->
     <div class="strategy-bars" id="strategyBars"></div>
     <script>
@@ -806,7 +885,7 @@
 </div>
 
 <!-- ═══════════════════ RISK DASHBOARD ═══════════════════ -->
-<div class="section">
+<div class="section" id="nav-risk">
   <div class="section-header">
     <div class="section-icon icon-risk">R</div>
     <h2>Risk Dashboard</h2>
@@ -902,7 +981,7 @@
 </script>
 
 <!-- ═══════════════════ SYSTEM STATUS ═══════════════════ -->
-<div class="section">
+<div class="section" id="nav-status">
   <div class="section-header">
     <div class="section-icon icon-status">S</div>
     <h2>System Status &amp; Configuration</h2>
@@ -1072,7 +1151,7 @@
 </div>
 
 <!-- ═══════════════════ HELP: PAPER TRADING ═══════════════════ -->
-<div class="section">
+<div class="section" id="nav-help">
   <div class="section-header">
     <div class="section-icon icon-help">?</div>
     <h2>How to Use Paper Trading</h2>
@@ -1143,6 +1222,20 @@
 </div><!-- /container -->
 
 <script>
+  // ── Mobile in-page navigation (hamburger) ───────────────────────────
+  function toggleNav() {
+    var nav = document.getElementById("sectionNav");
+    var btn = document.getElementById("navToggle");
+    var open = nav.classList.toggle("open");
+    if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+  function closeNav() {
+    var nav = document.getElementById("sectionNav");
+    var btn = document.getElementById("navToggle");
+    if (nav) nav.classList.remove("open");
+    if (btn) btn.setAttribute("aria-expanded", "false");
+  }
+
   // Current mode is injected server-side ("LIVE" or "PAPER").
   var CURRENT_MODE = "{{ status.trading_mode }}";
 
