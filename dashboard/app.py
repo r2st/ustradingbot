@@ -496,27 +496,88 @@ def _build_paper_trading() -> Dict[str, Any]:
 
 
 def _build_help() -> Dict[str, Any]:
-    """Static how-to content for the dashboard help section."""
+    """Comprehensive how-to content for the dashboard help section."""
     settings = get_settings()
     return {
         "is_live": settings.IS_LIVE_TRADING,
         "broker": settings.BROKER,
         "getting_started": [
             "Paper trading is the DEFAULT — no brokerage account or API keys needed.",
-            "Start the bot:  python engine.py  (it runs the simulated broker).",
+            "Start the bot:  python engine.py  (it runs the built-in simulated broker).",
             "Open this dashboard:  uvicorn dashboard.app:app --port 8501",
-            "Watch the Paper Trading section below fill with positions and P&L.",
-            "Trades are simulated with realistic slippage & commissions — no real money moves.",
+            "The engine only trades during US market hours (09:30–16:00 ET, weekdays).",
+            "Watch the Paper Trading section fill with positions and P&L as it runs.",
+            "Every fill is simulated with realistic slippage & commissions — no real money moves.",
+        ],
+        "reading_dashboard": [
+            "Account Equity = starting capital + realised P&L from closed trades.",
+            "Today's P&L sums the net P&L of trades that closed today.",
+            "Open Positions lists each live lot: entry, stop, target, cost basis, and grade.",
+            "Balances show committed vs. available capital per currency (USD / CAD).",
+            "The Risk Dashboard shows gross exposure, sector concentration, position "
+            "correlation, drawdown, and daily/weekly/monthly P&L.",
+            "Strategy Performance Comparison breaks results down per strategy so you can "
+            "see which edges are actually working.",
         ],
         "switch_to_live": [
-            "1. Open a funded Interactive Brokers account and run TWS/Gateway.",
-            "2. In your .env set  BROKER=ibkr  and  IBKR_PORT=7496  (the LIVE port).",
-            "3. Restart the bot. The banner above will turn red and read LIVE.",
-            "Tip: IBKR_PORT=7497 connects to IBKR's *paper* gateway — still paper trading.",
+            "Use the ‘Switch to Live’ button at the top — it pops a confirmation dialog "
+            "warning that REAL money is at risk.",
+            "Going live requires the admin password (DASHBOARD_PASSWORD) — de-risking "
+            "back to paper never needs one.",
+            "On confirm, the bot writes BROKER=ibkr / IBKR_PORT=7496 to .env and restarts "
+            "the engine automatically; the banner turns red and reads LIVE.",
+            "Live trading needs a funded Interactive Brokers account with TWS/Gateway "
+            "running. IBKR_PORT=7497 is IBKR's paper gateway — still paper.",
         ],
         "switch_to_paper": [
-            "Set  BROKER=paper  in your .env (or remove the BROKER line entirely — "
-            "paper is the default) and restart. No keys required.",
+            "Click ‘Switch to Paper’ (no password needed) — it sets BROKER=paper and "
+            "restarts. You can also just set BROKER=paper in .env and restart.",
+        ],
+        "market_data": [
+            "Pick your data source in the Market Data Provider section — Yahoo Finance, "
+            "Alpaca, or Polygon.io — no .env editing required.",
+            "Yahoo Finance is the free default and needs no key.",
+            "Alpaca adds realtime websocket streaming for lower-latency exits; enter your "
+            "key + secret and the provider auto-switches to Alpaca.",
+            "Polygon.io covers US equities via its REST API; paste your key and select it.",
+            "Each provider card shows Connected or Needs API key. Switching restarts the engine.",
+        ],
+        "api_keys": [
+            "Alpaca: sign up at https://app.alpaca.markets, then Home → API Keys → "
+            "Generate. The market-data keys work for both paper and live.",
+            "Polygon.io: sign up at https://polygon.io, then Dashboard → API Keys. A free "
+            "tier is available (rate-limited).",
+            "Keys are written only to your local .env and never leave your machine.",
+        ],
+        "backtester": [
+            "Run a historical backtest:  python -m backtest  (see backtest/__main__.py "
+            "for symbol/date/strategy flags).",
+            "The backtester reuses the exact fill model (slippage + commission) and the "
+            "same analytics as live paper trading, so results are comparable.",
+            "Use it to validate a strategy over past data before committing paper capital.",
+        ],
+        "signals": [
+            "Each cycle the screener scores every symbol across 5 strategies "
+            "(VCP, PEAD, momentum, swing, mean-reversion) using 5 weighted indicators "
+            "(RSI, MACD, EMA structure, volume, Ripster clouds).",
+            "Scores map to grades: A ≥ 0.78 (full size), B ≥ 0.65 (75% size), C/F are skipped.",
+            "Multi-timeframe: a daily signal is only taken when the weekly trend agrees.",
+            "Signals then pass the 9-gate entry pipeline: (1) risk pre-check "
+            "(held/cooldown/daily-loss/limits/stop/target/RR), (2) strategy capacity, "
+            "(3) pending-order guard, (4) AI news veto, (5) position sizing, "
+            "(6) freshness (age + price drift), (7) cash availability, (8) bracket "
+            "placement, (9) journaling & registration.",
+        ],
+        "evaluation_tips": [
+            "Let paper trading run for weeks, not days — you want dozens of closed trades "
+            "before judging an edge.",
+            "Check Profit Factor (> 1.5 is healthy) and Expectancy (positive) per strategy, "
+            "not just total P&L.",
+            "Watch max drawdown and position correlation — a book of correlated names is "
+            "really one bet.",
+            "Confirm the win rate and average R-multiple are stable across different market "
+            "conditions before going live.",
+            "Start live with reduced capital and the same settings you validated on paper.",
         ],
     }
 
@@ -534,6 +595,7 @@ async def dashboard(request: Request, _user: str = Depends(require_auth)):
         {
             "status": _build_system_status(),
             "paper": _build_paper_trading(),
+            "providers": _build_provider_status(),
             "help": _build_help(),
             "strategies": _build_strategies(),
             "strategy_comparison": _build_strategy_comparison(),
@@ -548,6 +610,13 @@ async def dashboard(request: Request, _user: str = Depends(require_auth)):
 def _build_strategy_comparison() -> List[Dict[str, Any]]:
     """Per-strategy performance rows (win rate, avg win/loss, profit factor)."""
     return _analytics_report().by_strategy
+
+
+def _build_provider_status() -> Dict[str, Any]:
+    """Market-data provider status for the dashboard selector."""
+    from dashboard.provider_control import provider_status
+
+    return provider_status(get_settings())
 
 
 @app.get("/health")
@@ -618,6 +687,64 @@ async def api_mode_switch(request: Request, _user: str = Depends(require_auth)):
         "ok": result.ok,
         "mode": result.mode,
         "message": result.message,
+        "restart_requested": result.restart_requested,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Market-data provider selection API
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/providers")
+async def api_providers(_user: str = Depends(require_auth)):
+    """List market-data providers with active/connected status (no secrets)."""
+    from dashboard.provider_control import provider_status
+
+    return provider_status(get_settings())
+
+
+@app.post("/api/providers/select")
+async def api_provider_select(request: Request, _user: str = Depends(require_auth)):
+    """Switch the active market-data provider (persists to .env + restarts)."""
+    from dashboard.provider_control import switch_provider
+
+    try:
+        body = await request.json()
+    except (ValueError, TypeError):
+        body = {}
+    result = switch_provider(str(body.get("provider", "")), get_settings())
+    if result.ok and hasattr(get_settings, "cache_clear"):
+        get_settings.cache_clear()
+    return {
+        "ok": result.ok,
+        "message": result.message,
+        "active": result.active,
+        "restart_requested": result.restart_requested,
+    }
+
+
+@app.post("/api/providers/keys")
+async def api_provider_keys(request: Request, _user: str = Depends(require_auth)):
+    """Save provider API keys to .env (auto-selects Alpaca when keys complete)."""
+    from dashboard.provider_control import save_api_keys
+
+    try:
+        body = await request.json()
+    except (ValueError, TypeError):
+        body = {}
+    keys = body.get("keys", body)  # accept {"keys": {...}} or a flat dict
+    if not isinstance(keys, dict):
+        keys = {}
+    result = save_api_keys(
+        {str(k): str(v) for k, v in keys.items()}, get_settings()
+    )
+    if result.ok and hasattr(get_settings, "cache_clear"):
+        get_settings.cache_clear()
+    return {
+        "ok": result.ok,
+        "message": result.message,
+        "active": result.active,
         "restart_requested": result.restart_requested,
     }
 

@@ -232,7 +232,56 @@
   .icon-strategy { background: var(--accent-dim); color: var(--accent); }
   .icon-scoring { background: #5b3a8c; color: var(--purple); }
   .icon-risk { background: #7a2020; color: var(--red); }
+  .icon-provider { background: #14504f; color: var(--cyan); }
   .section-body { padding: 20px; }
+
+  /* Market-data provider selector */
+  .provider-active { font-size: 14px; color: var(--text-muted); margin-bottom: 14px; }
+  .provider-active-badge {
+    display: inline-block; margin-left: 6px; padding: 4px 12px; border-radius: 12px;
+    background: var(--cyan); color: #04211f; font-weight: 700; font-size: 13px;
+    text-transform: uppercase; letter-spacing: 0.4px;
+  }
+  .provider-select-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .provider-select-row label { color: var(--text-muted); font-size: 13px; }
+  .provider-select-row select {
+    padding: 9px 12px; background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px; font-size: 14px; min-width: 260px;
+  }
+  .btn-primary {
+    padding: 9px 18px; border-radius: 8px; font-size: 13px; font-weight: 600;
+    cursor: pointer; background: var(--accent); color: #fff; border: 1px solid var(--accent);
+  }
+  .btn-primary:hover { background: var(--accent-dim); }
+  .btn-sm { padding: 6px 12px; font-size: 12px; }
+  .provider-cards {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px; margin-top: 18px;
+  }
+  .provider-card {
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px;
+  }
+  .provider-card.active { border-color: var(--cyan); }
+  .provider-card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .provider-card-name { font-weight: 600; }
+  .provider-card-desc { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+  .provider-card-link { font-size: 12px; margin-top: 8px; }
+  .provider-card-link a { color: var(--accent); }
+  .pill { font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+  .pill-ok { background: var(--green-dim); color: var(--green); }
+  .pill-warn { background: #6b4a12; color: var(--orange); }
+  .provider-hint { font-size: 12px; color: var(--text-muted); margin-bottom: 12px; }
+  .provider-hint code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
+  .provider-keys { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+  .provider-key-group { background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+  .provider-key-title { font-weight: 600; margin-bottom: 10px; }
+  .provider-key-field { margin-bottom: 10px; }
+  .provider-key-field label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
+  .provider-key-field input {
+    width: 100%; padding: 8px 10px; background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; font-size: 13px;
+  }
 
   /* Generic data table (strategy comparison + risk dashboard) */
   .data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -477,6 +526,81 @@
 {% endif %}
 
 <div class="container">
+
+<!-- ═══════════════════ MARKET DATA PROVIDER ═══════════════════ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-icon icon-provider">D</div>
+    <h2>Market Data Provider</h2>
+  </div>
+  <div class="section-body">
+    <div class="provider-active">
+      Active provider:
+      <span class="provider-active-badge" id="providerActiveBadge">{{ providers.active_label }}</span>
+    </div>
+    <div class="provider-select-row">
+      <label for="providerSelect">Select provider</label>
+      <select id="providerSelect">
+        {% for p in providers.providers %}
+        <option value="{{ p.name }}" {% if p.active %}selected{% endif %}
+                {% if not p.connected %}data-needs-key="1"{% endif %}>
+          {{ p.label }}{% if not p.connected %} — needs API key{% endif %}{% if p.active %} (active){% endif %}
+        </option>
+        {% endfor %}
+      </select>
+      <button type="button" class="btn-primary" id="providerApplyBtn"
+              onclick="applyProvider()">Apply</button>
+    </div>
+    <div id="providerSelectResult" class="modal-result"></div>
+
+    <!-- Provider status cards -->
+    <div class="provider-cards">
+      {% for p in providers.providers %}
+      <div class="provider-card {% if p.active %}active{% endif %}">
+        <div class="provider-card-head">
+          <span class="provider-card-name">{{ p.label }}</span>
+          {% if p.connected %}
+            <span class="pill pill-ok">Connected</span>
+          {% else %}
+            <span class="pill pill-warn">Needs API key</span>
+          {% endif %}
+        </div>
+        <div class="provider-card-desc">{{ p.description }}</div>
+        {% if p.signup_url %}
+        <div class="provider-card-link">
+          Get a key: <a href="{{ p.signup_url }}" target="_blank" rel="noopener">{{ p.signup_url }}</a>
+        </div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- API-key entry -->
+    <h4 style="margin-top:18px;">API Keys</h4>
+    <p class="provider-hint">Keys are written to your local <code>.env</code> and never leave this machine.
+      Saving Alpaca keys switches the active provider to Alpaca automatically.</p>
+    <div class="provider-keys">
+      {% for p in providers.providers %}
+        {% if p.key_fields %}
+        <div class="provider-key-group">
+          <div class="provider-key-title">{{ p.label }}</div>
+          {% for kf in p.key_fields %}
+          <div class="provider-key-field">
+            <label>{{ kf.label }}{% if kf.configured %} <span class="pill pill-ok">saved</span>{% endif %}</label>
+            <input type="{% if kf.secret %}password{% else %}text{% endif %}"
+                   data-env="{{ kf.env }}" autocomplete="off"
+                   placeholder="{% if kf.configured %}•••••••• (leave blank to keep){% else %}Enter {{ kf.label }}{% endif %}">
+          </div>
+          {% endfor %}
+          <button type="button" class="btn-primary btn-sm"
+                  onclick="saveProviderKeys('{{ p.name }}')">Save {{ p.label }} keys</button>
+        </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+    <div id="providerKeysResult" class="modal-result"></div>
+  </div>
+</div>
 
 <!-- ═══════════════════ PAPER TRADING ═══════════════════ -->
 <div class="section">
@@ -961,19 +1085,55 @@
     </p>
     <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:24px;">
       <div class="help-col">
-        <h4>Getting started (no setup needed)</h4>
+        <h4>1. Getting started (no setup needed)</h4>
         <ul class="help-list">
           {% for step in help.getting_started %}<li>{{ step }}</li>{% endfor %}
         </ul>
       </div>
       <div class="help-col">
-        <h4>Switch to live trading (real money)</h4>
+        <h4>2. Reading the dashboard</h4>
+        <ul class="help-list">
+          {% for step in help.reading_dashboard %}<li>{{ step }}</li>{% endfor %}
+        </ul>
+      </div>
+      <div class="help-col">
+        <h4>3. Switch to live trading (real money)</h4>
         <ul class="help-list">
           {% for step in help.switch_to_live %}<li>{{ step }}</li>{% endfor %}
         </ul>
         <h4 style="margin-top:12px;">Switch back to paper</h4>
         <ul class="help-list">
           {% for step in help.switch_to_paper %}<li>{{ step }}</li>{% endfor %}
+        </ul>
+      </div>
+      <div class="help-col">
+        <h4>4. Configure market data providers</h4>
+        <ul class="help-list">
+          {% for step in help.market_data %}<li>{{ step }}</li>{% endfor %}
+        </ul>
+      </div>
+      <div class="help-col">
+        <h4>5. Where to get API keys</h4>
+        <ul class="help-list">
+          {% for step in help.api_keys %}<li>{{ step }}</li>{% endfor %}
+        </ul>
+      </div>
+      <div class="help-col">
+        <h4>6. Running the backtester</h4>
+        <ul class="help-list">
+          {% for step in help.backtester %}<li>{{ step }}</li>{% endfor %}
+        </ul>
+      </div>
+      <div class="help-col">
+        <h4>7. Signals &amp; the 9-gate pipeline</h4>
+        <ul class="help-list">
+          {% for step in help.signals %}<li>{{ step }}</li>{% endfor %}
+        </ul>
+      </div>
+      <div class="help-col">
+        <h4>8. Tips before going live</h4>
+        <ul class="help-list">
+          {% for step in help.evaluation_tips %}<li>{{ step }}</li>{% endfor %}
         </ul>
       </div>
     </div>
@@ -1011,6 +1171,65 @@
 
   function closeModeDialog() {
     document.getElementById("modeModal").classList.remove("open");
+  }
+
+  // ── Market-data provider selection ──────────────────────────────────
+  async function applyProvider() {
+    var sel = document.getElementById("providerSelect");
+    var provider = sel.value;
+    var result = document.getElementById("providerSelectResult");
+    var opt = sel.options[sel.selectedIndex];
+    if (opt.dataset.needsKey) {
+      result.className = "modal-result err";
+      result.textContent = "That provider needs an API key first — enter it below and Save.";
+      return;
+    }
+    result.className = "modal-result";
+    result.textContent = "Switching…";
+    try {
+      var resp = await fetch("/api/providers/select", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({provider: provider})
+      });
+      var data = await resp.json();
+      result.className = "modal-result " + (data.ok ? "ok" : "err");
+      result.textContent = data.message;
+      if (data.ok) setTimeout(function () { window.location.reload(); }, 1800);
+    } catch (e) {
+      result.className = "modal-result err";
+      result.textContent = "Request failed: " + e;
+    }
+  }
+
+  async function saveProviderKeys(providerName) {
+    var keys = {};
+    document.querySelectorAll('.provider-key-field input[data-env]').forEach(function (inp) {
+      // Only send non-empty fields so blanks keep the existing saved value.
+      if (inp.value.trim()) keys[inp.dataset.env] = inp.value.trim();
+    });
+    var result = document.getElementById("providerKeysResult");
+    if (Object.keys(keys).length === 0) {
+      result.className = "modal-result err";
+      result.textContent = "Enter at least one key value to save.";
+      return;
+    }
+    result.className = "modal-result";
+    result.textContent = "Saving…";
+    try {
+      var resp = await fetch("/api/providers/keys", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({keys: keys})
+      });
+      var data = await resp.json();
+      result.className = "modal-result " + (data.ok ? "ok" : "err");
+      result.textContent = data.message;
+      if (data.ok) setTimeout(function () { window.location.reload(); }, 1800);
+    } catch (e) {
+      result.className = "modal-result err";
+      result.textContent = "Request failed: " + e;
+    }
   }
 
   async function confirmModeSwitch() {

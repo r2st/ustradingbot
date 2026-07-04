@@ -318,6 +318,92 @@ class AlpacaProvider:
 
 
 # ---------------------------------------------------------------------------
+# Polygon.io provider (optional -- requires POLYGON_API_KEY)
+# ---------------------------------------------------------------------------
+
+
+class PolygonProvider:
+    """Polygon.io market-data provider backed by the REST API.
+
+    Uses ``httpx`` directly (already a project dependency) so no extra package
+    is required.  Daily aggregate bars come from the ``/v2/aggs`` endpoint and
+    the latest price from ``/v2/last/trade``.  Polygon covers US equities only.
+    """
+
+    name = "polygon"
+    _BASE = "https://api.polygon.io"
+
+    def __init__(self, settings: object) -> None:
+        self._settings = settings
+        self._key = getattr(settings, "POLYGON_API_KEY", "")
+        self._log = logger.bind(provider="polygon")
+
+    def get_ohlcv(self, symbol: str, period: str = "6mo") -> Optional[pd.DataFrame]:
+        import httpx
+
+        log = self._log.bind(symbol=symbol, period=period)
+        start = period_to_start(period).strftime("%Y-%m-%d")
+        end = datetime.now().strftime("%Y-%m-%d")
+        url = (
+            f"{self._BASE}/v2/aggs/ticker/{symbol}/range/1/day/{start}/{end}"
+        )
+        resp = httpx.get(
+            url,
+            params={"adjusted": "true", "sort": "asc", "limit": 50000,
+                    "apiKey": self._key},
+            timeout=30.0,
+        )
+        resp.raise_for_status()
+        results = resp.json().get("results") or []
+        raw = self._aggs_to_frame(results)
+        return clean_ohlcv(raw, symbol, log)
+
+    @staticmethod
+    def _aggs_to_frame(results: list) -> Optional[pd.DataFrame]:
+        """Convert Polygon aggregate bars to a canonical OHLCV DataFrame."""
+        if not results:
+            return None
+        frame = pd.DataFrame(
+            [
+                {
+                    "Open": float(b.get("o", 0.0)),
+                    "High": float(b.get("h", 0.0)),
+                    "Low": float(b.get("l", 0.0)),
+                    "Close": float(b.get("c", 0.0)),
+                    "Volume": float(b.get("v", 0.0)),
+                    "_ts": b.get("t", 0),
+                }
+                for b in results
+            ]
+        )
+        # Polygon timestamps are epoch milliseconds.
+        frame.index = pd.to_datetime(frame.pop("_ts"), unit="ms")
+        frame.index.name = "Date"
+        return frame
+
+    def get_current_price(self, symbol: str) -> Optional[float]:
+        import httpx
+
+        log = self._log.bind(symbol=symbol)
+        url = f"{self._BASE}/v2/last/trade/{symbol}"
+        resp = httpx.get(url, params={"apiKey": self._key}, timeout=15.0)
+        resp.raise_for_status()
+        body = resp.json()
+        # Newer schema: {"results": {"p": price}}; older: {"last": {"price": ...}}
+        results = body.get("results") or {}
+        price = results.get("p")
+        if price is None:
+            price = (body.get("last") or {}).get("price")
+        if price is None or float(price) <= 0:
+            log.warning("provider.price_unavailable", symbol=symbol)
+            return None
+        return float(price)
+
+    def supports_streaming(self) -> bool:
+        return False
+
+
+# ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
 
@@ -327,4 +413,6 @@ def make_provider(settings: object) -> MarketDataProvider:
     provider = str(getattr(settings, "MARKET_DATA_PROVIDER", "yfinance")).lower()
     if provider == "alpaca":
         return AlpacaProvider(settings)  # type: ignore[return-value]
+    if provider == "polygon":
+        return PolygonProvider(settings)  # type: ignore[return-value]
     return YFinanceProvider(settings)  # type: ignore[return-value]

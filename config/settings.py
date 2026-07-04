@@ -189,10 +189,24 @@ class Settings(BaseSettings):
     # "yfinance" uses the free Yahoo Finance backend (default, no key needed).
     # "alpaca" uses Alpaca's market-data API with optional websocket streaming
     # for low-latency exits (requires alpaca-py + API keys below).
+    # "polygon" uses the Polygon.io REST API (requires POLYGON_API_KEY).
+    # The provider can be switched at runtime from the dashboard, which writes
+    # the choice back to .env and restarts the engine.
     MARKET_DATA_PROVIDER: str = "yfinance"
     ALPACA_API_KEY: str = ""
     ALPACA_API_SECRET: str = ""
     ALPACA_DATA_FEED: str = "iex"  # "iex" (free) or "sip" (paid)
+    POLYGON_API_KEY: str = ""
+
+    @property
+    def alpaca_keys_present(self) -> bool:
+        """Return whether both Alpaca API credentials are configured."""
+        return bool(self.ALPACA_API_KEY and self.ALPACA_API_SECRET)
+
+    @property
+    def polygon_key_present(self) -> bool:
+        """Return whether a Polygon.io API key is configured."""
+        return bool(self.POLYGON_API_KEY)
 
     # ── Data cache TTLs (seconds) ───────────────────────────────────────────
     # Fetched data is memoised in a thread-safe TTL cache to eliminate the
