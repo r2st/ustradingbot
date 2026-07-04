@@ -93,10 +93,37 @@ class Settings(BaseSettings):
     MARKET_CLOSE_HOUR: int = 16
     MARKET_CLOSE_MINUTE: int = 0
 
-    # ── API keys & external services ────────────────────────────────────────
+    # ── AI veto layer (OpenRouter) ──────────────────────────────────────────
+    # The AI news-veto layer uses OpenRouter (https://openrouter.ai).  Only the
+    # API key is read from the environment (OPENROUTER_API_KEY); it is never
+    # hard-coded.  Free models such as ``openai/gpt-oss-20b:free`` incur $0 cost.
+    OPENROUTER_API_KEY: str = ""
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+    OPENROUTER_MODEL: str = "openai/gpt-oss-20b:free"
+    OPENROUTER_TIMEOUT_SECONDS: float = 45.0
+    # Pricing per 1M tokens (free models are 0.0). Used for cost tracking only.
+    OPENROUTER_INPUT_COST_PER_1M: float = 0.0
+    OPENROUTER_OUTPUT_COST_PER_1M: float = 0.0
+    # Enable/disable the paid Tier-2 LLM call. When False, only the free
+    # Tier-1 earnings filter runs and everything else is auto-approved.
+    AI_VETO_ENABLED: bool = True
+    # How long (hours) an AI verdict is cached per symbol+strategy.
+    AI_CACHE_TTL_HOURS: float = 4.0
+    # Reject signals whose earnings fall within this many days (Tier-1 filter).
+    AI_EARNINGS_BLACKOUT_DAYS: int = 14
+
+    # ── Legacy Anthropic key (unused; kept for backward compat) ─────────────
     ANTHROPIC_API_KEY: str = ""
+
+    # ── Telegram notifications ──────────────────────────────────────────────
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_CHAT_ID: str = ""
+
+    # ── Broker selection ────────────────────────────────────────────────────
+    # "paper" runs the built-in simulated broker (no TWS needed, works
+    # headless on a server). "ibkr" connects to Interactive Brokers via
+    # ib_insync (requires a running TWS/Gateway on IBKR_HOST:IBKR_PORT).
+    BROKER: str = "paper"
 
     # ── Logging ─────────────────────────────────────────────────────────────
     LOG_LEVEL: str = "INFO"

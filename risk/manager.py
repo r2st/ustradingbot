@@ -440,6 +440,28 @@ class RiskManager:
             pnl_gross=round(exit_event.pnl_gross, 2),
         )
 
+    def update_stop(self, symbol: str, new_stop: float) -> bool:
+        """Update the stored stop for an open position (trailing stops).
+
+        Only mutates the mutable ``stop_price``; ``original_stop_loss`` (set
+        at entry) is preserved for drawdown calculations.
+
+        Args:
+            symbol: Ticker symbol of the open position.
+            new_stop: The new (higher) stop price.
+
+        Returns:
+            ``True`` if the position existed and was updated, else ``False``.
+        """
+        pos = self._positions.get(symbol)
+        if pos is None:
+            return False
+        pos.setdefault("original_stop_loss", pos.get("stop_price"))
+        pos["stop_price"] = round(new_stop, 4)
+        self._save_positions()
+        self._log.info("position.stop_updated", symbol=symbol, new_stop=new_stop)
+        return True
+
     def get_open_positions(self) -> Dict[str, Dict[str, Any]]:
         """Return a copy of the current open positions.
 

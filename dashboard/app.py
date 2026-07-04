@@ -298,9 +298,9 @@ def _build_risk_rules() -> Dict[str, Any]:
 async def dashboard(request: Request):
     """Render the main dashboard page."""
     return templates.TemplateResponse(
+        request,
         "dashboard.html",
         {
-            "request": request,
             "status": _build_system_status(),
             "strategies": _build_strategies(),
             "scores": _build_sample_scores(),

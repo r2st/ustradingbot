@@ -34,11 +34,18 @@ from zoneinfo import ZoneInfo
 import structlog
 
 import logging_config
+from agent.notifier import TelegramNotifier
+from ai.analyst import AIAnalyst
 from config.settings import Settings, get_settings
-from config.universe import ALL_SYMBOLS, get_currency
+from config.universe import ALL_SYMBOLS
 from data.fetcher import fetch_current_price
+from execution.broker import make_broker
+from execution.exit_manager import ExitManager
+from journal.btst_logger import RejectedSignalLogger
+from journal.trade_logger import TradeLogger
+from risk.manager import RiskManager
 from signals.screener import run_full_scan
-from signals.signal_types import Signal, TradeOrder
+from signals.signal_types import Signal
 
 log = structlog.get_logger(__name__)
 
@@ -67,24 +74,36 @@ class TradingEngine:
         self.settings: Settings = get_settings()
         self.running: bool = True
 
-        # TODO: Uncomment once risk/manager.py is complete:
-        # from risk.manager import RiskManager
-        # self.risk_manager = RiskManager()
-        self.risk_manager = None  # placeholder
+        data_dir = str(self.settings.DATA_DIR)
 
-        # TODO: Uncomment once journal/trade_logger.py is complete:
-        # from journal.trade_logger import TradeLogger
-        # self.trade_logger = TradeLogger()
-        self.trade_logger = None  # placeholder
+        # Risk gatekeeper (position sizing, caps, cooldowns, daily P&L).
+        self.risk_manager = RiskManager(self.settings)
 
-        # TODO: Uncomment once journal/btst_logger.py is complete:
-        # from journal.btst_logger import BTSTLogger
-        # self.rejected_logger = BTSTLogger()
-        self.rejected_logger = None  # placeholder
+        # Journals.
+        self.trade_logger = TradeLogger(data_dir)
+        self.rejected_logger = RejectedSignalLogger(data_dir)
+
+        # AI veto layer (OpenRouter).
+        self.ai_analyst = AIAnalyst(self.settings)
+
+        # Broker (paper by default; ibkr when configured).
+        self.broker = make_broker(self.settings)
+        self.broker.connect()
+
+        # Exit management coordinator.
+        self.exit_manager = ExitManager(
+            self.settings, self.broker, self.risk_manager, self.trade_logger
+        )
+
+        # Optional Telegram reporting.
+        self.notifier = TelegramNotifier(self.settings)
 
         log.info(
             "engine.init",
+            broker=self.settings.BROKER,
             paper_trading=self.settings.IS_PAPER_TRADING,
+            ai_model=self.settings.OPENROUTER_MODEL,
+            ai_veto_enabled=self.settings.AI_VETO_ENABLED,
             scan_interval_min=self.settings.SCAN_INTERVAL_MINUTES,
             max_positions=self.settings.MAX_OPEN_POSITIONS,
             capital=self.settings.TOTAL_CAPITAL,
@@ -170,10 +189,22 @@ class TradingEngine:
         log.info("engine.cycle_start", time_et=cycle_start.strftime("%H:%M:%S"))
 
         # ── Exit phase ────────────────────────────────────────────────
-        await self._check_broker_exits()
-        await self._check_time_based_exits()
-        await self._check_position_health()
-        await self._check_trailing_stops()
+        # A single coordinator runs broker reconciliation, time-based exits,
+        # position-health exits, and trailing-stop updates.
+        exit_summary = self.exit_manager.manage_exits()
+        total_exits = (
+            exit_summary.broker_exits
+            + exit_summary.time_exits
+            + exit_summary.health_exits
+        )
+        if total_exits or exit_summary.trails_updated:
+            log.info(
+                "engine.exit_phase",
+                broker_exits=exit_summary.broker_exits,
+                time_exits=exit_summary.time_exits,
+                health_exits=exit_summary.health_exits,
+                trails_updated=exit_summary.trails_updated,
+            )
 
         # ── Entry phase ───────────────────────────────────────────────
 
@@ -202,63 +233,22 @@ class TradingEngine:
 
         # Cycle summary.
         cycle_elapsed = (datetime.now(tz=ET) - cycle_start).total_seconds()
+        open_positions = len(self.risk_manager.get_open_positions())
         log.info(
             "engine.cycle_complete",
             signals_found=len(signals),
             trades_placed=trades_placed,
             trades_rejected=trades_rejected,
+            open_positions=open_positions,
+            ai_cost_usd=self.ai_analyst.total_cost_usd,
             elapsed_seconds=round(cycle_elapsed, 2),
         )
-
-    # ------------------------------------------------------------------
-    # Exit management (all placeholders pending IBKR integration)
-    # ------------------------------------------------------------------
-
-    async def _check_broker_exits(self) -> None:
-        """Poll the broker for filled exit orders and reconcile positions.
-
-        TODO: Connect to IBKR via ib_insync.  Query open orders and
-              execution reports.  For each filled exit:
-              - Call risk_manager.remove_position(symbol)
-              - Call trade_logger.log_exit(exit_event)
-              - Update P&L tracking
-        """
-        log.debug("engine.check_broker_exits", status="placeholder")
-
-    async def _check_time_based_exits(self) -> None:
-        """Exit positions that have exceeded their maximum hold period.
-
-        TODO: Iterate risk_manager.get_open_positions().  For each
-              position where (now - entry_date).days > HOLD_MAX_DAYS:
-              - If P&L < 0: submit market sell, reason=TIME_EXIT_LOSS
-              - If P&L ~ 0: submit market sell, reason=TIME_EXIT_FLAT
-              - If position is a zombie (no fills, no movement):
-                reason=TIME_EXIT_ZOMBIE
-        """
-        log.debug("engine.check_time_based_exits", status="placeholder")
-
-    async def _check_position_health(self) -> None:
-        """Check whether any position's original setup has broken down.
-
-        TODO: For each open position, re-run a subset of indicators
-              to detect:
-              - Price dropped below EMA-200 (bear regime)
-              - Bearish volume surge (distribution day)
-              - Ripster clouds crossed bearish
-              If setup is broken, submit market sell,
-              reason=SETUP_BROKEN
-        """
-        log.debug("engine.check_position_health", status="placeholder")
-
-    async def _check_trailing_stops(self) -> None:
-        """Update trailing stops for positions that have moved in our favour.
-
-        TODO: For each open position with partial-take/trail enabled:
-              - Recalculate stop based on current ATR
-              - If new stop > existing stop, submit modify order to IBKR
-              - Log the stop update
-        """
-        log.debug("engine.check_trailing_stops", status="placeholder")
+        await self.notifier.notify_cycle(
+            signals_found=len(signals),
+            trades_placed=trades_placed,
+            exits=total_exits,
+            open_positions=open_positions,
+        )
 
     # ------------------------------------------------------------------
     # Entry pipeline
@@ -290,109 +280,105 @@ class TradingEngine:
         """
         bound_log = log.bind(symbol=sig.symbol, strategy=sig.strategy)
 
-        # (a) Risk manager pre-check.
-        # TODO: Uncomment when risk_manager is available:
-        # if not self.risk_manager.pre_check(sig):
-        #     bound_log.info("engine.rejected", gate="pre_check")
-        #     return False
-        bound_log.debug("engine.gate_passed", gate="pre_check", status="placeholder")
+        # (a) Risk manager pre-check (already-held, cooldown, daily loss,
+        #     max positions, invalid stop/target, R:R minimum).
+        ok, reason = self.risk_manager.pre_check(sig)
+        if not ok:
+            bound_log.info("engine.rejected", gate="pre_check", reason=reason)
+            self.rejected_logger.log_rejection(sig, "pre_check", reason)
+            return False
 
         # (b) Strategy capacity check.
-        # TODO: Uncomment when risk_manager is available:
-        # if not self.risk_manager.check_strategy_cap(sig.strategy):
-        #     bound_log.info("engine.rejected", gate="strategy_cap")
-        #     return False
-        bound_log.debug("engine.gate_passed", gate="strategy_cap", status="placeholder")
+        ok, reason = self.risk_manager.check_strategy_cap(sig.strategy)
+        if not ok:
+            bound_log.info("engine.rejected", gate="strategy_cap", reason=reason)
+            self.rejected_logger.log_rejection(sig, "strategy_cap", reason)
+            return False
 
-        # (c) Pending order guard.
-        # TODO: Query IBKR for open/pending orders for this symbol.
-        #       If an order already exists, skip to avoid doubling up.
-        bound_log.debug("engine.gate_passed", gate="pending_order_guard", status="placeholder")
+        # (c) Pending order guard — never double up on a symbol the broker
+        #     already holds.
+        if sig.symbol in self.broker.get_positions():
+            bound_log.info("engine.rejected", gate="pending_order_guard")
+            self.rejected_logger.log_rejection(
+                sig, "pending_order_guard", "broker already holds symbol"
+            )
+            return False
 
-        # (d) AI evaluation.
-        # TODO: Call the AI veto layer (ai/evaluator.py) for a Claude-based
-        #       analysis of the signal.  For now, auto-approve with a log.
-        ai_decision = "APPROVE"
-        ai_reasoning = "AI evaluation layer pending — auto-approved"
-        ai_cost = 0.0
-        bound_log.info(
-            "engine.ai_evaluation",
-            decision=ai_decision,
-            message="AI layer is pending — auto-approving all signals",
+        # (d) AI evaluation (Tier-1 earnings filter + Tier-2 OpenRouter veto).
+        decision = await self.ai_analyst.evaluate(sig)
+        if not decision.approved:
+            bound_log.info(
+                "engine.rejected", gate="ai_veto", reason=decision.reasoning
+            )
+            self.rejected_logger.log_rejection(sig, "ai_veto", decision.reasoning)
+            return False
+
+        # (e) Build the sized order.
+        order = self.risk_manager.build_order(
+            sig, decision.decision, decision.reasoning, decision.cost_usd
         )
+        if order is None or order.quantity <= 0:
+            bound_log.info("engine.rejected", gate="build_order", reason="zero_qty")
+            self.rejected_logger.log_rejection(
+                sig, "build_order", "position size rounded to zero shares"
+            )
+            return False
 
-        # (e) Build the order (position sizing).
-        # TODO: Uncomment when risk_manager is available:
-        # order: TradeOrder = self.risk_manager.build_order(
-        #     sig, ai_decision, ai_reasoning, ai_cost
-        # )
-        # if order.quantity <= 0:
-        #     bound_log.info("engine.rejected", gate="build_order", reason="zero quantity")
-        #     return False
-        order = TradeOrder(
-            signal=sig,
-            quantity=0,
-            ai_decision=ai_decision,
-            ai_reasoning=ai_reasoning,
-            ai_cost_usd=ai_cost,
-        )
-        bound_log.debug("engine.gate_passed", gate="build_order", status="placeholder")
-
-        # (f) Freshness check.
+        # (f) Freshness check (signal age + price drift).
         fresh, reason = self.freshness_check(sig)
         if not fresh:
             bound_log.info("engine.rejected", gate="freshness_check", reason=reason)
-            # TODO: Log rejection to btst_logger when available:
-            # self.rejected_logger.log_rejection(sig, reason)
+            self.rejected_logger.log_rejection(sig, "freshness_check", reason)
             return False
 
         # (g) Cash availability check.
-        currency = get_currency(sig.symbol)
-        # TODO: Uncomment when risk_manager is available:
-        # available_cash = self.risk_manager.get_available_cash(currency)
-        # required_cash = sig.entry_price * order.quantity
-        # if required_cash > available_cash:
-        #     bound_log.info(
-        #         "engine.rejected",
-        #         gate="cash_check",
-        #         required=required_cash,
-        #         available=available_cash,
-        #         currency=currency,
-        #     )
-        #     return False
-        bound_log.debug(
-            "engine.gate_passed",
-            gate="cash_check",
-            currency=currency,
-            status="placeholder",
-        )
+        currency = order.currency
+        available_cash = self.risk_manager.get_available_cash(currency)
+        required_cash = sig.entry_price * order.quantity
+        if required_cash > available_cash:
+            bound_log.info(
+                "engine.rejected",
+                gate="cash_check",
+                required=round(required_cash, 2),
+                available=round(available_cash, 2),
+                currency=currency,
+            )
+            self.rejected_logger.log_rejection(
+                sig,
+                "cash_check",
+                f"need {required_cash:.2f} {currency}, have {available_cash:.2f}",
+            )
+            return False
 
-        # (h) Place bracket order.
-        # TODO: Submit a bracket order to IBKR via ib_insync:
-        #       - Parent: LMT BUY at sig.entry_price, quantity=order.quantity
-        #       - Take-profit: LMT SELL at sig.target_price
-        #       - Stop-loss: STP SELL at sig.stop_price
-        #       Capture the order ID for tracking.
-        bound_log.info(
-            "engine.order_placement",
-            status="placeholder",
+        # (h) Place the bracket order.
+        result = self.broker.place_bracket_order(
+            symbol=sig.symbol,
+            quantity=order.quantity,
             entry_price=sig.entry_price,
             stop_price=sig.stop_price,
             target_price=sig.target_price,
-            quantity=order.quantity,
-            message="IBKR bracket order placement pending",
+            currency=currency,
         )
+        if not result.accepted:
+            bound_log.warning(
+                "engine.order_rejected", gate="broker", reason=result.reason
+            )
+            self.rejected_logger.log_rejection(sig, "broker", result.reason)
+            return False
 
-        # (i) Log and register.
-        # TODO: Uncomment when trade_logger and risk_manager are available:
-        # self.trade_logger.log_entry(order)
-        # self.risk_manager.register_position(order)
+        # (i) Journal the entry and register the position.
+        self.trade_logger.log_entry(order, result.fill_price, result.commission)
+        self.risk_manager.register_position(order, result.fill_price)
         bound_log.info(
-            "engine.trade_logged",
-            status="placeholder",
-            message="Trade logging and position registration pending",
+            "engine.trade_placed",
+            quantity=order.quantity,
+            fill_price=result.fill_price,
+            stop_price=sig.stop_price,
+            target_price=sig.target_price,
+            order_id=result.order_id,
+            ai_cost_usd=decision.cost_usd,
         )
-
+        await self.notifier.notify_entry(order, result.fill_price)
         return True
 
     # ------------------------------------------------------------------

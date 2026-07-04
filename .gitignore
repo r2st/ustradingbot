@@ -40,6 +40,23 @@ coverage.xml
 
 # ── Environment / Secrets ────────────────────────────────────────────────────
 .env
+.env.*
+!.env.example
+keys/
+*.pem
+*.key
+*.p12
+*.pfx
+*_rsa
+*_ed25519
+id_*
+secrets/
+*.secret
+credentials.json
+service-account*.json
+
+# ── Node (in case any tooling is added) ──────────────────────────────────────
+node_modules/
 
 # ── Project-specific ─────────────────────────────────────────────────────────
 data_store/

@@ -26,9 +26,20 @@ import structlog
 from config.settings import get_settings
 from data.fetcher import fetch_ohlcv
 from signals.combined_filter import score_symbol
+from signals.mean_reversion_signal import detect as detect_mean_reversion
+from signals.pead_signal import detect as detect_pead
 from signals.signal_types import Grade, Signal
+from signals.vcp_signal import detect as detect_vcp
 
 log = structlog.get_logger(__name__)
+
+# Dedicated strategy detectors.  Strategies not listed here (momentum, swing)
+# fall through to the generic weighted scoring engine (``score_symbol``).
+_DEDICATED_DETECTORS = {
+    "vcp_breakout": detect_vcp,
+    "pead": detect_pead,
+    "mean_reversion": detect_mean_reversion,
+}
 
 # Strategy priority order.  The first strategy to produce a qualifying
 # signal wins for that symbol — later strategies are not attempted.
@@ -94,14 +105,13 @@ def _scan_symbol(
         return None
 
     for strategy in STRATEGY_PRIORITY:
-        # TODO: VCP breakout should use a dedicated contraction-pattern
-        #       detector (VCPDetector) once it is built.  For now we
-        #       delegate to combined_filter.score_symbol which applies
-        #       generic momentum-family weights.
-        # TODO: PEAD should use a dedicated post-earnings-announcement-drift
-        #       detector that checks get_recent_earnings().  For now we
-        #       delegate to combined_filter.score_symbol.
-        signal = score_symbol(symbol, strategy, df)
+        # VCP, PEAD, and mean-reversion use dedicated pattern detectors.
+        # Momentum and swing use the generic weighted scoring engine.
+        detector = _DEDICATED_DETECTORS.get(strategy)
+        if detector is not None:
+            signal = detector(symbol, df)
+        else:
+            signal = score_symbol(symbol, strategy, df)
 
         if signal is None:
             continue

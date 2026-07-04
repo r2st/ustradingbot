@@ -272,17 +272,19 @@ class TradeLogger:
             else 0.0
         )
 
-        # Update the row
-        df.at[idx, "exit_price"] = round(exit_price, 4)
+        # Update the row.  The frame is read with ``dtype=str`` so every
+        # assigned value must be a string (newer pandas string dtypes reject
+        # raw floats).
+        df.at[idx, "exit_price"] = str(round(exit_price, 4))
         df.at[idx, "exit_time"] = exit_time.isoformat()
         df.at[idx, "exit_reason"] = exit_event.exit_reason.value
-        df.at[idx, "exit_commission"] = round(exit_commission, 4)
-        df.at[idx, "pnl_gross"] = round(pnl_gross, 2)
-        df.at[idx, "pnl_net"] = round(pnl_net, 2)
-        df.at[idx, "pnl_pct"] = round(pnl_pct, 4)
-        df.at[idx, "hold_duration_hours"] = hold_duration_hours
-        df.at[idx, "capture_ratio"] = capture_ratio
-        df.at[idx, "r_multiple"] = r_multiple
+        df.at[idx, "exit_commission"] = str(round(exit_commission, 4))
+        df.at[idx, "pnl_gross"] = str(round(pnl_gross, 2))
+        df.at[idx, "pnl_net"] = str(round(pnl_net, 2))
+        df.at[idx, "pnl_pct"] = str(round(pnl_pct, 4))
+        df.at[idx, "hold_duration_hours"] = str(hold_duration_hours)
+        df.at[idx, "capture_ratio"] = str(capture_ratio)
+        df.at[idx, "r_multiple"] = str(r_multiple)
 
         # Write back atomically
         self._write_dataframe(df)
