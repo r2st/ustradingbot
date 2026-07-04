@@ -3,7 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0f1117">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/pwa/icon.svg">
 <title>US Trading Bot Dashboard</title>
+<!-- Apply the saved theme before first paint to avoid a flash of the wrong theme. -->
+<script>
+  (function () {
+    try {
+      var t = localStorage.getItem("ustb_theme");
+      if (t === "light") document.documentElement.setAttribute("data-theme", "light");
+    } catch (e) {}
+  })();
+</script>
 <style>
   :root {
     --bg: #0f1117;
@@ -20,6 +32,23 @@
     --orange: #f39c12;
     --purple: #9b59b6;
     --cyan: #00bcd4;
+  }
+  /* ── Light theme (feature 15) — toggled via data-theme="light" ── */
+  :root[data-theme="light"] {
+    --bg: #f4f6fb;
+    --surface: #ffffff;
+    --surface-2: #eef1f8;
+    --border: #d3d9e6;
+    --text: #1a1d27;
+    --text-muted: #5c6270;
+    --accent: #2d6cdf;
+    --accent-dim: #7ba7ec;
+    --green: #1a9e54;
+    --green-dim: #7fce9f;
+    --red: #d63b2a;
+    --orange: #d9840a;
+    --purple: #8845a6;
+    --cyan: #0093a8;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -602,6 +631,72 @@
     .engine-controls .btn-danger { flex: 1 1 44%; }
     .bt-grid { grid-template-columns: 1fr; }
   }
+  /* ───────────────── New feature UI (features 1-19) ───────────────── */
+  .icon-btn {
+    background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; min-width: 40px; min-height: 40px; padding: 8px 10px;
+    font-size: 16px; cursor: pointer; transition: background .15s, border-color .15s;
+  }
+  .icon-btn:hover { background: var(--accent-dim); border-color: var(--accent); }
+  .icon-btn.active { background: var(--green-dim); border-color: var(--green); }
+  .subgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px; background: var(--surface-2);
+    border: 1px solid var(--border); border-radius: 16px; padding: 5px 10px;
+    font-size: 13px; margin: 3px; font-family: ui-monospace, Menlo, monospace;
+  }
+  .chip button {
+    background: none; border: none; color: var(--red); cursor: pointer;
+    font-size: 15px; line-height: 1; padding: 0 2px; min-width: 20px; min-height: 20px;
+  }
+  .wl-list { background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+             padding: 10px 12px; margin-bottom: 12px; }
+  .wl-list-head { display: flex; align-items: center; justify-content: space-between;
+                  gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+  .wl-list-head h4 { margin: 0; font-size: 14px; }
+  .form-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin: 10px 0; }
+  .form-field { display: flex; flex-direction: column; gap: 4px; flex: 1 1 120px; }
+  .form-field label { font-size: 12px; color: var(--text-muted); }
+  .form-field input, .form-field select {
+    width: 100%; padding: 9px 10px; background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 7px; font-size: 14px; min-height: 40px;
+  }
+  /* Heat map (feature 6) */
+  .heatmap { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+             gap: 8px; margin-top: 8px; }
+  .heat-cell { border-radius: 8px; padding: 12px 10px; color: #fff; min-height: 66px;
+               display: flex; flex-direction: column; justify-content: space-between; }
+  .heat-cell .h-sec { font-size: 12px; font-weight: 700; opacity: .95; }
+  .heat-cell .h-pct { font-size: 18px; font-weight: 700; }
+  .heat-cell .h-sub { font-size: 11px; opacity: .85; }
+  /* Correlation matrix (feature 7) */
+  .corr-matrix { border-collapse: collapse; font-size: 12px; }
+  .corr-matrix th, .corr-matrix td {
+    border: 1px solid var(--border); padding: 6px 8px; text-align: center; min-width: 44px;
+  }
+  .corr-matrix th { background: var(--surface-2); position: sticky; }
+  .corr-cell { color: #fff; font-weight: 600; border-radius: 3px; }
+  .scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .hit-badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 7px;
+               border-radius: 10px; margin-right: 4px; }
+  .hit-up { background: var(--green-dim); color: #fff; }
+  .hit-down { background: var(--red); color: #fff; }
+  .hit-vol { background: var(--orange); color: #fff; }
+  .export-bar { display: flex; flex-wrap: wrap; gap: 8px; }
+  .btn-download {
+    background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 9px 14px; font-size: 13px; font-weight: 600;
+    cursor: pointer; text-decoration: none; display: inline-block; min-height: 40px;
+  }
+  .btn-download:hover { background: var(--accent-dim); border-color: var(--accent); }
+  .mc-fan { width: 100%; height: auto; }
+  .api-key-raw { font-family: ui-monospace, Menlo, monospace; font-size: 12px; word-break: break-all;
+                 background: var(--bg); border: 1px solid var(--green); border-radius: 6px; padding: 8px; }
+  .muted-note { color: var(--text-muted); font-size: 12px; margin-top: 6px; }
+  @media (max-width: 600px) {
+    .heatmap { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
+    .form-field { flex: 1 1 100%; }
+  }
 </style>
 </head>
 <body>
@@ -623,6 +718,10 @@
               onclick="openModeDialog()">
         {% if paper.is_live %}Switch to Paper{% else %}Switch to Live{% endif %}
       </button>
+      <button type="button" class="icon-btn" id="notifyBtn" title="Enable notifications"
+              aria-label="Enable notifications" onclick="enableNotifications()">🔔</button>
+      <button type="button" class="icon-btn" id="themeToggle" title="Toggle light / dark"
+              aria-label="Toggle light or dark theme" onclick="toggleTheme()">🌙</button>
       <button type="button" class="nav-toggle" id="navToggle" aria-label="Toggle menu"
               aria-expanded="false" aria-controls="sectionNav" onclick="toggleNav()">☰</button>
     </div>
@@ -630,10 +729,17 @@
   <nav class="section-nav" id="sectionNav">
     <a href="#nav-provider" onclick="closeNav()">Data</a>
     <a href="#nav-account" onclick="closeNav()">Account</a>
+    <a href="#nav-watchlist" onclick="closeNav()">Watchlist</a>
+    <a href="#nav-trade" onclick="closeNav()">Trade</a>
+    <a href="#nav-scanner" onclick="closeNav()">Scanner</a>
+    <a href="#nav-earnings" onclick="closeNav()">Earnings</a>
     <a href="#nav-backtest" onclick="closeNav()">Backtest</a>
     <a href="#nav-strategy" onclick="closeNav()">Strategies</a>
     <a href="#nav-risk" onclick="closeNav()">Risk</a>
+    <a href="#nav-montecarlo" onclick="closeNav()">Monte&nbsp;Carlo</a>
+    <a href="#nav-notes" onclick="closeNav()">Journal</a>
     <a href="#nav-engine" onclick="closeNav()">Engine</a>
+    <a href="#nav-api" onclick="closeNav()">API</a>
     <a href="#nav-status" onclick="closeNav()">System</a>
     <a href="#nav-help" onclick="closeNav()">Help</a>
   </nav>
@@ -1086,6 +1192,20 @@
         </tbody></table>
       </div>
     </div>
+
+    <!-- Sector heat map (feature 6) -->
+    <h4 style="margin-top:18px;">Sector / Industry Exposure Heat Map</h4>
+    <div class="heatmap" id="riskHeatmap">
+      <div class="empty-note">No open positions.</div>
+    </div>
+
+    <!-- Correlation matrix (feature 7) -->
+    <h4 style="margin-top:18px;">Position Correlation Matrix</h4>
+    <div class="scroll-x">
+      <table class="corr-matrix" id="riskCorrMatrix"></table>
+    </div>
+    <p class="muted-note" id="riskCorrNote">Green = positively correlated, red = inversely.
+      A book of highly-correlated names is really one bet.</p>
   </div>
 </div>
 <script>
@@ -1133,8 +1253,54 @@
         return "<tr><td>" + c.currency + "</td><td>$" + c.committed.toFixed(0) +
           " / $" + c.allocated.toFixed(0) + "</td><td>" + pct(c.exposure_pct) +
           "</td></tr>"; }).join("");
+
+      renderHeatmap(r.sector_concentration || []);
+      renderCorrMatrix(r.correlations || []);
     } catch (e) { /* best-effort */ }
   })();
+
+  // Heat map: block colour intensity scales with each sector's share (feature 6).
+  function renderHeatmap(sectors) {
+    var el = document.getElementById("riskHeatmap");
+    if (!sectors.length) { el.innerHTML = '<div class="empty-note">No open positions.</div>'; return; }
+    var max = Math.max.apply(null, sectors.map(function (s) { return s.pct; })) || 1;
+    el.innerHTML = sectors.map(function (s) {
+      var intensity = 0.25 + 0.75 * (s.pct / max);          // 0.25–1.0
+      var bg = "rgba(79,143,247," + intensity.toFixed(2) + ")";
+      return '<div class="heat-cell" style="background:' + bg + '">' +
+        '<div class="h-sec">' + s.sector + '</div>' +
+        '<div class="h-pct">' + (s.pct * 100).toFixed(0) + '%</div>' +
+        '<div class="h-sub">' + s.positions + ' pos · $' + s.exposure.toFixed(0) + '</div></div>';
+    }).join("");
+  }
+
+  // Correlation matrix: build a symmetric grid from the pairwise list (feature 7).
+  function renderCorrMatrix(pairs) {
+    var table = document.getElementById("riskCorrMatrix");
+    if (!pairs.length) { table.innerHTML = '<tr><td class="empty-note">Need 2+ positions with history.</td></tr>'; return; }
+    var syms = [], seen = {}, m = {};
+    pairs.forEach(function (p) {
+      [p.a, p.b].forEach(function (s) { if (!seen[s]) { seen[s] = 1; syms.push(s); } });
+      m[p.a + "|" + p.b] = p.correlation; m[p.b + "|" + p.a] = p.correlation;
+    });
+    syms.sort();
+    function cellColor(v) {
+      // v in [-1,1]: green for positive, red for negative, alpha by magnitude.
+      var a = Math.min(1, Math.abs(v)) * 0.85 + 0.1;
+      return v >= 0 ? "rgba(46,204,113," + a.toFixed(2) + ")"
+                    : "rgba(231,76,60," + a.toFixed(2) + ")";
+    }
+    var head = "<tr><th></th>" + syms.map(function (s) { return "<th>" + s + "</th>"; }).join("") + "</tr>";
+    var body = syms.map(function (r) {
+      return "<tr><th>" + r + "</th>" + syms.map(function (c) {
+        if (r === c) return '<td class="corr-cell" style="background:var(--surface-2)">1.00</td>';
+        var v = m[r + "|" + c];
+        if (v === undefined) return '<td>·</td>';
+        return '<td class="corr-cell" style="background:' + cellColor(v) + '">' + v.toFixed(2) + '</td>';
+      }).join("") + "</tr>";
+    }).join("");
+    table.innerHTML = head + body;
+  }
 </script>
 
 <!-- ═══════════════════ ENGINE CONTROL ═══════════════════ -->
@@ -1361,6 +1527,200 @@
           {% endfor %}
         </ul>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ WATCHLIST MANAGEMENT (feature 1) ═══════════════════ -->
+<div class="section" id="nav-watchlist">
+  <div class="section-header">
+    <div class="section-icon icon-scoring">W</div>
+    <h2>Watchlist Management</h2>
+  </div>
+  <div class="section-body">
+    <p class="muted-note">Organise symbols into named lists. The engine scans every
+      <strong>enabled</strong> list; disable a list to park it without deleting it.</p>
+    <div class="form-row">
+      <div class="form-field"><label>Add symbol</label>
+        <input type="text" id="wlSymbol" placeholder="e.g. NVDA" autocomplete="off"></div>
+      <div class="form-field"><label>To list</label>
+        <select id="wlListSelect"></select></div>
+      <button type="button" class="btn-primary" onclick="wlAddSymbol()">Add</button>
+    </div>
+    <div class="form-row">
+      <div class="form-field"><label>New list name</label>
+        <input type="text" id="wlNewList" placeholder="e.g. AI Leaders" autocomplete="off"></div>
+      <button type="button" class="btn-secondary" onclick="wlCreateList()">Create list</button>
+    </div>
+    <div id="wlResult" class="modal-result"></div>
+    <div id="wlLists"><div class="empty-note">Loading…</div></div>
+  </div>
+</div>
+
+<!-- ═══════════════════ MANUAL TRADE ENTRY (feature 2) ═══════════════════ -->
+<div class="section" id="nav-trade">
+  <div class="section-header">
+    <div class="section-icon icon-strategy">T</div>
+    <h2>Manual Trade Entry</h2>
+  </div>
+  <div class="section-body">
+    <p class="muted-note">Place a bracket order by hand (long only). Works with the paper
+      broker and IBKR. Requires the admin password.</p>
+    <div class="form-row">
+      <div class="form-field"><label>Symbol</label><input type="text" id="mtSymbol" placeholder="AAPL"></div>
+      <div class="form-field"><label>Quantity</label><input type="number" id="mtQty" min="1" step="1"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-field"><label>Entry price</label><input type="number" id="mtEntry" min="0" step="0.01"></div>
+      <div class="form-field"><label>Stop price</label><input type="number" id="mtStop" min="0" step="0.01"></div>
+      <div class="form-field"><label>Target price</label><input type="number" id="mtTarget" min="0" step="0.01"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-field"><label>Admin password</label>
+        <input type="password" id="mtAdminPw" autocomplete="off" placeholder="Required"></div>
+      <button type="button" class="btn-danger" onclick="placeManualTrade()">Place trade</button>
+    </div>
+    <div id="mtResult" class="modal-result"></div>
+  </div>
+</div>
+
+<!-- ═══════════════════ PRE-MARKET SCANNER (feature 14) ═══════════════════ -->
+<div class="section" id="nav-scanner">
+  <div class="section-header">
+    <div class="section-icon icon-risk">S</div>
+    <h2>Pre-Market Scanner</h2>
+  </div>
+  <div class="section-body">
+    <p class="muted-note">Scans the watchlist for opening <strong>gaps</strong> and
+      <strong>unusual volume</strong>.</p>
+    <button type="button" class="btn-primary" onclick="loadScanner()">Run scan</button>
+    <div class="scroll-x" style="margin-top:12px;">
+      <table class="data-table">
+        <thead><tr><th>Symbol</th><th>Prev</th><th>Last</th><th>Gap</th><th>Vol&nbsp;×</th><th>Signals</th></tr></thead>
+        <tbody id="scannerRows"><tr><td colspan="6" class="empty-note">Click “Run scan”.</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ EARNINGS CALENDAR (feature 5) ═══════════════════ -->
+<div class="section" id="nav-earnings">
+  <div class="section-header">
+    <div class="section-icon icon-backtest">E</div>
+    <h2>Earnings Calendar</h2>
+  </div>
+  <div class="section-body">
+    <p class="muted-note">Upcoming earnings for every watchlist symbol (via yfinance).</p>
+    <button type="button" class="btn-secondary" onclick="loadEarnings()">Load earnings</button>
+    <div class="scroll-x" style="margin-top:12px;">
+      <table class="data-table">
+        <thead><tr><th>Symbol</th><th>Earnings date</th><th>Days away</th></tr></thead>
+        <tbody id="earningsRows"><tr><td colspan="3" class="empty-note">Click “Load earnings”.</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ MONTE CARLO + MARKET INTELLIGENCE (features 8,12,13) ═══════════════════ -->
+<div class="section" id="nav-montecarlo">
+  <div class="section-header">
+    <div class="section-icon icon-scoring">M</div>
+    <h2>Monte Carlo &amp; Market Intelligence</h2>
+  </div>
+  <div class="section-body">
+    <div class="subgrid">
+      <div>
+        <h4>Market Regime <span class="bt-hint">(feature 13)</span></h4>
+        <div id="regimeBox"><div class="empty-note">Loading…</div></div>
+        <h4 style="margin-top:14px;">Adaptive Thresholds <span class="bt-hint">(feature 12)</span></h4>
+        <div id="autotuneBox"><div class="empty-note">Loading…</div></div>
+      </div>
+      <div>
+        <h4>Monte Carlo Projection <span class="bt-hint">(feature 8)</span></h4>
+        <div class="form-row">
+          <div class="form-field"><label>Runs</label><input type="number" id="mcRuns" value="1000" min="100" step="100"></div>
+          <div class="form-field"><label>Horizon (trades)</label><input type="number" id="mcHorizon" value="50" min="5" step="5"></div>
+          <button type="button" class="btn-primary" onclick="runMonteCarlo()">Run</button>
+        </div>
+        <div class="stat-cards" id="mcCards"></div>
+        <div class="equity-wrap"><svg id="mcFan" class="mc-fan" viewBox="0 0 800 240" preserveAspectRatio="none"></svg></div>
+        <div id="mcResult" class="modal-result"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ TRADE JOURNAL NOTES (feature 3) ═══════════════════ -->
+<div class="section" id="nav-notes">
+  <div class="section-header">
+    <div class="section-icon icon-help">J</div>
+    <h2>Trade Journal Notes</h2>
+  </div>
+  <div class="section-body">
+    <p class="muted-note">Attach notes &amp; tags to trades (by trade ID from the history table).
+      Searchable and filterable.</p>
+    <div class="form-row">
+      <div class="form-field"><label>Trade ID</label><input type="text" id="noteId" placeholder="e.g. 12"></div>
+      <div class="form-field" style="flex:3 1 240px;"><label>Note</label><input type="text" id="noteText" placeholder="What happened / lesson"></div>
+      <div class="form-field"><label>Tags (comma-sep)</label><input type="text" id="noteTags" placeholder="mistake, gap-up"></div>
+      <button type="button" class="btn-primary" onclick="saveNote()">Save</button>
+    </div>
+    <div class="form-row">
+      <div class="form-field"><label>Search text</label><input type="text" id="noteQuery" placeholder="keyword"></div>
+      <div class="form-field"><label>Filter tag</label><input type="text" id="noteTagFilter" placeholder="tag"></div>
+      <button type="button" class="btn-secondary" onclick="searchNotes()">Search</button>
+    </div>
+    <div id="noteTagCloud" style="margin:6px 0;"></div>
+    <div id="noteResult" class="modal-result"></div>
+    <div class="scroll-x">
+      <table class="data-table">
+        <thead><tr><th>Trade</th><th>Note</th><th>Tags</th><th>Updated</th><th></th></tr></thead>
+        <tbody id="noteRows"><tr><td colspan="5" class="empty-note">Search to list notes.</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ API, EXPORT, USERS, NOTIFICATIONS (features 16-19) ═══════════════════ -->
+<div class="section" id="nav-api">
+  <div class="section-header">
+    <div class="section-icon icon-engine">A</div>
+    <h2>API, Export &amp; Accounts</h2>
+  </div>
+  <div class="section-body">
+    <div class="subgrid">
+      <div>
+        <h4>Export Data <span class="bt-hint">(feature 18)</span></h4>
+        <div class="export-bar">
+          <a class="btn-download" href="/api/export/trades.csv">Trades CSV</a>
+          <a class="btn-download" href="/api/export/trades.pdf">Trades PDF</a>
+          <a class="btn-download" href="/api/export/analytics.csv">Analytics CSV</a>
+          <a class="btn-download" href="/api/export/analytics.pdf">Analytics PDF</a>
+        </div>
+
+        <h4 style="margin-top:16px;">Notifications <span class="bt-hint">(feature 17)</span></h4>
+        <p class="muted-note">Install this dashboard as an app and get push alerts on trades.</p>
+        <button type="button" class="btn-secondary" onclick="enableNotifications()">Enable notifications</button>
+        <button type="button" class="btn-secondary" onclick="testNotification()">Send test</button>
+        <div id="pushResult" class="modal-result"></div>
+      </div>
+      <div>
+        <h4>REST API Keys <span class="bt-hint">(feature 19)</span></h4>
+        <p class="muted-note">Authenticate API calls with
+          <code>Authorization: Bearer &lt;key&gt;</code>. Docs at <code>/api/v1</code>.</p>
+        <div class="form-row">
+          <div class="form-field"><label>Key name</label><input type="text" id="apiKeyName" placeholder="my-script"></div>
+          <button type="button" class="btn-primary" onclick="createApiKey()">Create key</button>
+        </div>
+        <div id="apiKeyRaw"></div>
+        <div id="apiKeyList"><div class="empty-note">Loading…</div></div>
+      </div>
+    </div>
+
+    <h4 style="margin-top:16px;">User Accounts <span class="bt-hint">(feature 16)</span></h4>
+    <div id="usersBox">
+      <p class="muted-note">Multi-user support is disabled. Set <code>MULTI_USER_ENABLED=true</code>
+        to allow separate accounts with their own strategies, capital, and watchlists.</p>
     </div>
   </div>
 </div>
@@ -1916,5 +2276,304 @@
     setInterval(function () { if (!document.hidden) refreshEngineStatus(); }, 8000);
   })();
 </script>
+
+<!-- ═══════════════════ NEW-FEATURE CLIENT LOGIC (features 1-19) ═══════════════════ -->
+<script>
+  // ── shared helpers ──
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+  async function jget(url) { var r = await fetch(url, { credentials: "same-origin" }); return r.ok ? r.json() : Promise.reject(await r.json().catch(function () { return {}; })); }
+  async function jsend(method, url, body) {
+    var r = await fetch(url, {
+      method: method, credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    var data = await r.json().catch(function () { return {}; });
+    if (!r.ok) throw (data && data.detail ? data.detail : "Request failed");
+    return data;
+  }
+  function setMsg(id, text, ok) {
+    var el = document.getElementById(id); if (!el) return;
+    el.textContent = text; el.style.color = ok ? "var(--green)" : "var(--red)";
+  }
+
+  // ── Dark / light theme (feature 15) ──
+  function applyThemeIcon() {
+    var light = document.documentElement.getAttribute("data-theme") === "light";
+    var btn = document.getElementById("themeToggle");
+    if (btn) btn.textContent = light ? "☀️" : "🌙";
+    var meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute("content", light ? "#f4f6fb" : "#0f1117");
+  }
+  function toggleTheme() {
+    var light = document.documentElement.getAttribute("data-theme") === "light";
+    if (light) { document.documentElement.removeAttribute("data-theme"); localStorage.setItem("ustb_theme", "dark"); }
+    else { document.documentElement.setAttribute("data-theme", "light"); localStorage.setItem("ustb_theme", "light"); }
+    applyThemeIcon();
+  }
+  applyThemeIcon();
+
+  // ── Notifications (feature 17) ──
+  function enableNotifications() {
+    if (window.enablePushNotifications) window.enablePushNotifications();
+    if (!("Notification" in window)) { setMsg("pushResult", "Notifications unsupported.", false); return; }
+    Notification.requestPermission().then(function (p) {
+      var btn = document.getElementById("notifyBtn");
+      if (btn && p === "granted") btn.classList.add("active");
+      setMsg("pushResult", p === "granted" ? "Notifications enabled." : "Permission: " + p, p === "granted");
+    });
+  }
+  async function testNotification() {
+    try { await jsend("POST", "/api/push/test"); setMsg("pushResult", "Test sent — grant permission if you don't see it.", true); }
+    catch (e) { setMsg("pushResult", String(e), false); }
+  }
+
+  // ── Watchlist (feature 1) ──
+  async function loadWatchlist() {
+    try {
+      var d = await jget("/api/watchlist");
+      var sel = document.getElementById("wlListSelect");
+      sel.innerHTML = d.lists.map(function (l) { return '<option>' + esc(l.name) + '</option>'; }).join("");
+      document.getElementById("wlLists").innerHTML = d.lists.map(function (l) {
+        var chips = l.symbols.map(function (s) {
+          return '<span class="chip">' + esc(s) + '<button title="Remove" onclick="wlRemove(\'' +
+            esc(l.name) + '\',\'' + esc(s) + '\')">×</button></span>';
+        }).join("") || '<span class="empty-note">Empty</span>';
+        return '<div class="wl-list"><div class="wl-list-head"><h4>' + esc(l.name) +
+          ' <span class="bt-hint">' + l.count + ' symbols</span></h4><div>' +
+          '<label style="font-size:12px;"><input type="checkbox" ' + (l.enabled ? "checked" : "") +
+          ' onchange="wlToggle(\'' + esc(l.name) + '\',this.checked)"> scan</label> ' +
+          '<button class="chip" style="cursor:pointer;" onclick="wlDeleteList(\'' + esc(l.name) +
+          '\')">delete list</button></div></div><div>' + chips + '</div></div>';
+      }).join("");
+    } catch (e) { document.getElementById("wlLists").innerHTML = '<div class="empty-note">Failed to load.</div>'; }
+  }
+  async function wlAddSymbol() {
+    var list = document.getElementById("wlListSelect").value;
+    var symbol = document.getElementById("wlSymbol").value;
+    try { await jsend("POST", "/api/watchlist/symbols", { list: list, symbol: symbol });
+      document.getElementById("wlSymbol").value = ""; setMsg("wlResult", "Added.", true); loadWatchlist(); }
+    catch (e) { setMsg("wlResult", String(e), false); }
+  }
+  async function wlRemove(list, sym) {
+    try { await jsend("DELETE", "/api/watchlist/lists/" + encodeURIComponent(list) + "/symbols/" + encodeURIComponent(sym)); loadWatchlist(); } catch (e) {}
+  }
+  async function wlCreateList() {
+    var name = document.getElementById("wlNewList").value;
+    try { await jsend("POST", "/api/watchlist/lists", { name: name });
+      document.getElementById("wlNewList").value = ""; setMsg("wlResult", "List created.", true); loadWatchlist(); }
+    catch (e) { setMsg("wlResult", String(e), false); }
+  }
+  async function wlDeleteList(name) {
+    if (!confirm("Delete list " + name + "?")) return;
+    try { await jsend("DELETE", "/api/watchlist/lists/" + encodeURIComponent(name)); loadWatchlist(); } catch (e) {}
+  }
+  async function wlToggle(name, enabled) {
+    try { await jsend("POST", "/api/watchlist/lists/" + encodeURIComponent(name) + "/enabled", { enabled: enabled }); } catch (e) {}
+  }
+
+  // ── Manual trade (feature 2) ──
+  async function placeManualTrade() {
+    var body = {
+      symbol: document.getElementById("mtSymbol").value,
+      quantity: document.getElementById("mtQty").value,
+      entry_price: document.getElementById("mtEntry").value,
+      stop_price: document.getElementById("mtStop").value,
+      target_price: document.getElementById("mtTarget").value,
+      admin_password: document.getElementById("mtAdminPw").value,
+    };
+    try { var d = await jsend("POST", "/api/manual-trade", body);
+      setMsg("mtResult", d.ok ? d.message : d.message, d.ok); }
+    catch (e) { setMsg("mtResult", String(e), false); }
+  }
+
+  // ── Pre-market scanner (feature 14) ──
+  async function loadScanner() {
+    var tb = document.getElementById("scannerRows");
+    tb.innerHTML = '<tr><td colspan="6" class="empty-note">Scanning…</td></tr>';
+    try {
+      var d = await jget("/api/premarket");
+      tb.innerHTML = d.hits.length ? d.hits.map(function (h) {
+        var badges = h.signals.map(function (s) {
+          var cls = s === "gap_up" ? "hit-up" : s === "gap_down" ? "hit-down" : "hit-vol";
+          return '<span class="hit-badge ' + cls + '">' + s.replace("_", " ") + '</span>';
+        }).join("");
+        return "<tr><td>" + esc(h.symbol) + "</td><td>" + h.prev_close.toFixed(2) + "</td><td>" +
+          h.last_price.toFixed(2) + '</td><td class="' + (h.gap_pct >= 0 ? "pos" : "neg") + '">' +
+          (h.gap_pct * 100).toFixed(1) + "%</td><td>" + h.volume_ratio.toFixed(1) + "×</td><td>" + badges + "</td></tr>";
+      }).join("") : '<tr><td colspan="6" class="empty-note">No gaps or unusual volume.</td></tr>';
+    } catch (e) { tb.innerHTML = '<tr><td colspan="6" class="empty-note">Scan failed.</td></tr>'; }
+  }
+
+  // ── Earnings (feature 5) ──
+  async function loadEarnings() {
+    var tb = document.getElementById("earningsRows");
+    tb.innerHTML = '<tr><td colspan="3" class="empty-note">Loading…</td></tr>';
+    try {
+      var d = await jget("/api/earnings");
+      tb.innerHTML = d.earnings.length ? d.earnings.map(function (e) {
+        var days = e.days_until == null ? "—" : (e.days_until + "d");
+        return "<tr><td>" + esc(e.symbol) + "</td><td>" + (e.earnings_date || "unknown") +
+          '</td><td' + (e.is_upcoming ? ' class="pos"' : "") + ">" + days + "</td></tr>";
+      }).join("") : '<tr><td colspan="3" class="empty-note">No earnings data.</td></tr>';
+    } catch (e) { tb.innerHTML = '<tr><td colspan="3" class="empty-note">Failed to load.</td></tr>'; }
+  }
+
+  // ── Market intelligence: regime + autotune (features 12, 13) ──
+  async function loadRegime() {
+    try {
+      var r = await jget("/api/regime");
+      document.getElementById("regimeBox").innerHTML =
+        '<div class="stat-cards"><div class="stat-card"><div class="label">Regime</div><div class="value">' +
+        esc(r.regime.toUpperCase()) + '</div></div><div class="stat-card"><div class="label">Volatility</div><div class="value small">' +
+        esc(r.volatility) + '</div></div><div class="stat-card"><div class="label">Momentum ×</div><div class="value">' +
+        r.weight_multipliers.momentum + '</div></div><div class="stat-card"><div class="label">Swing ×</div><div class="value">' +
+        r.weight_multipliers.swing + '</div></div></div><p class="muted-note">' + esc(r.reason) + '</p>';
+    } catch (e) { document.getElementById("regimeBox").innerHTML = '<div class="empty-note">Unavailable.</div>'; }
+  }
+  async function loadAutotune() {
+    try {
+      var t = await jget("/api/autotune");
+      var th = t.thresholds || {};
+      document.getElementById("autotuneBox").innerHTML =
+        '<p class="muted-note">' + esc(t.reason) + '</p><div class="stat-cards">' +
+        '<div class="stat-card"><div class="label">A</div><div class="value">' + (th.A != null ? th.A : "—") + '</div></div>' +
+        '<div class="stat-card"><div class="label">B</div><div class="value">' + (th.B != null ? th.B : "—") + '</div></div>' +
+        '<div class="stat-card"><div class="label">Win rate</div><div class="value small">' + (t.win_rate * 100).toFixed(0) + '%</div></div></div>';
+    } catch (e) { document.getElementById("autotuneBox").innerHTML = '<div class="empty-note">Unavailable.</div>'; }
+  }
+
+  // ── Monte Carlo (feature 8) ──
+  async function runMonteCarlo() {
+    setMsg("mcResult", "Running…", true);
+    var runs = document.getElementById("mcRuns").value, horizon = document.getElementById("mcHorizon").value;
+    try {
+      var d = await jget("/api/montecarlo?runs=" + runs + "&horizon=" + horizon);
+      if (!d.trades_sampled) { setMsg("mcResult", "No completed trades to sample yet.", false);
+        document.getElementById("mcCards").innerHTML = ""; document.getElementById("mcFan").innerHTML = ""; return; }
+      var p = d.percentiles;
+      document.getElementById("mcCards").innerHTML =
+        card("Median", "$" + fmt(d.median_ending)) + card("5th pct", "$" + fmt(p.p5)) +
+        card("95th pct", "$" + fmt(p.p95)) + card("P(profit)", (d.prob_profit * 100).toFixed(0) + "%") +
+        card("P(-10%)", (d.prob_loss_10pct * 100).toFixed(0) + "%");
+      drawFan(d);
+      setMsg("mcResult", "Sampled " + d.trades_sampled + " trades over " + d.runs + " runs.", true);
+    } catch (e) { setMsg("mcResult", String(e), false); }
+  }
+  function card(label, value) {
+    return '<div class="stat-card"><div class="label">' + label + '</div><div class="value small">' + value + '</div></div>';
+  }
+  function fmt(n) { return Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 }); }
+  function drawFan(d) {
+    var svg = document.getElementById("mcFan"), W = 800, H = 240, paths = d.sample_paths || [];
+    if (!paths.length) { svg.innerHTML = ""; return; }
+    var all = [].concat.apply([], paths), min = Math.min.apply(null, all), max = Math.max.apply(null, all);
+    var range = (max - min) || 1, n = paths[0].length;
+    function x(i) { return (i / (n - 1)) * W; }
+    function y(v) { return H - ((v - min) / range) * (H - 8) - 4; }
+    var lines = paths.map(function (path) {
+      return '<polyline fill="none" stroke="var(--accent)" stroke-width="1" opacity="0.35" points="' +
+        path.map(function (v, i) { return x(i).toFixed(1) + "," + y(v).toFixed(1); }).join(" ") + '"/>';
+    }).join("");
+    var start = d.starting_capital, yz = y(start);
+    lines += '<line x1="0" y1="' + yz.toFixed(1) + '" x2="' + W + '" y2="' + yz.toFixed(1) +
+      '" stroke="var(--text-muted)" stroke-dasharray="4 4" stroke-width="1"/>';
+    svg.innerHTML = lines;
+  }
+
+  // ── Trade journal notes (feature 3) ──
+  async function saveNote() {
+    var id = document.getElementById("noteId").value.trim();
+    if (!id) { setMsg("noteResult", "Trade ID required.", false); return; }
+    var tags = document.getElementById("noteTags").value.split(",").map(function (t) { return t.trim(); }).filter(Boolean);
+    try { await jsend("POST", "/api/notes/" + encodeURIComponent(id),
+        { note: document.getElementById("noteText").value, tags: tags });
+      setMsg("noteResult", "Saved.", true); searchNotes(); }
+    catch (e) { setMsg("noteResult", String(e), false); }
+  }
+  async function searchNotes() {
+    var q = document.getElementById("noteQuery").value, tag = document.getElementById("noteTagFilter").value;
+    try {
+      var d = await jget("/api/notes?q=" + encodeURIComponent(q) + "&tag=" + encodeURIComponent(tag));
+      document.getElementById("noteTagCloud").innerHTML = (d.all_tags || []).map(function (t) {
+        return '<span class="chip" style="cursor:pointer;" onclick="filterByTag(\'' + esc(t) + '\')">#' + esc(t) + '</span>';
+      }).join("");
+      var tb = document.getElementById("noteRows");
+      tb.innerHTML = d.notes.length ? d.notes.map(function (n) {
+        return "<tr><td>" + esc(n.trade_id) + "</td><td>" + esc(n.note) + "</td><td>" +
+          n.tags.map(function (t) { return '<span class="chip">#' + esc(t) + '</span>'; }).join("") +
+          "</td><td>" + esc(n.updated_at) + '</td><td><button class="chip" style="cursor:pointer;" onclick="deleteNote(\'' +
+          esc(n.trade_id) + '\')">del</button></td></tr>';
+      }).join("") : '<tr><td colspan="5" class="empty-note">No matching notes.</td></tr>';
+    } catch (e) {}
+  }
+  function filterByTag(t) { document.getElementById("noteTagFilter").value = t; searchNotes(); }
+  async function deleteNote(id) {
+    try { await jsend("DELETE", "/api/notes/" + encodeURIComponent(id)); searchNotes(); } catch (e) {}
+  }
+
+  // ── REST API keys (feature 19) ──
+  async function loadApiKeys() {
+    try {
+      var d = await jget("/api/v1/keys");
+      document.getElementById("apiKeyList").innerHTML = d.keys.length ? d.keys.map(function (k) {
+        return '<div class="wl-list"><div class="wl-list-head"><h4>' + esc(k.name) +
+          ' <span class="bt-hint">' + esc(k.prefix) + '… · ' + esc(k.created_at) + '</span></h4>' +
+          '<button class="chip" style="cursor:pointer;" onclick="revokeApiKey(\'' + esc(k.key_id) +
+          '\')">revoke</button></div></div>';
+      }).join("") : '<div class="empty-note">No keys yet.</div>';
+    } catch (e) { document.getElementById("apiKeyList").innerHTML = '<div class="empty-note">Failed to load.</div>'; }
+  }
+  async function createApiKey() {
+    try {
+      var d = await jsend("POST", "/api/v1/keys", { name: document.getElementById("apiKeyName").value || "api-key" });
+      document.getElementById("apiKeyRaw").innerHTML =
+        '<p class="muted-note">Copy this key now — it is shown only once:</p><div class="api-key-raw">' +
+        esc(d.key) + '</div>';
+      document.getElementById("apiKeyName").value = ""; loadApiKeys();
+    } catch (e) {}
+  }
+  async function revokeApiKey(id) {
+    if (!confirm("Revoke this key?")) return;
+    try { await jsend("DELETE", "/api/v1/keys/" + encodeURIComponent(id)); loadApiKeys(); } catch (e) {}
+  }
+
+  // ── Users (feature 16) ──
+  async function loadUsers() {
+    try {
+      var d = await jget("/api/users").catch(function () { return null; });
+      if (!d) return;  // disabled -> 404, keep the disabled hint
+      document.getElementById("usersBox").innerHTML =
+        '<div class="form-row"><div class="form-field"><label>Username</label><input id="uUser"></div>' +
+        '<div class="form-field"><label>Password</label><input id="uPass" type="password"></div>' +
+        '<button class="btn-secondary" onclick="registerUser()">Register</button>' +
+        '<button class="btn-secondary" onclick="loginUser()">Login</button></div>' +
+        '<div id="uResult" class="modal-result"></div>' +
+        '<p class="muted-note">Registered: ' + (d.users.join(", ") || "none") + '</p>';
+    } catch (e) {}
+  }
+  async function registerUser() {
+    try { await jsend("POST", "/api/users/register",
+        { username: document.getElementById("uUser").value, password: document.getElementById("uPass").value });
+      setMsg("uResult", "Registered.", true); loadUsers(); }
+    catch (e) { setMsg("uResult", String(e), false); }
+  }
+  async function loginUser() {
+    try { var d = await jsend("POST", "/api/users/login",
+        { username: document.getElementById("uUser").value, password: document.getElementById("uPass").value });
+      localStorage.setItem("ustb_user_token", d.token); setMsg("uResult", "Logged in.", true); }
+    catch (e) { setMsg("uResult", String(e), false); }
+  }
+
+  // ── Boot the sections that load on page open ──
+  (function () {
+    loadWatchlist(); loadRegime(); loadAutotune(); loadApiKeys(); loadUsers();
+  })();
+</script>
+<script src="/pwa/pwa.js" defer></script>
 </body>
 </html>
