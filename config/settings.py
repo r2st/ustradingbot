@@ -140,10 +140,37 @@ class Settings(BaseSettings):
     DASHBOARD_PORT: int = 8501
 
     # ── Broker selection ────────────────────────────────────────────────────
-    # "paper" runs the built-in simulated broker (no TWS needed, works
-    # headless on a server). "ibkr" connects to Interactive Brokers via
-    # ib_insync (requires a running TWS/Gateway on IBKR_HOST:IBKR_PORT).
+    # PAPER TRADING IS THE DEFAULT.  "paper" runs the built-in simulated broker
+    # (no TWS/Gateway, no API keys, works headless) so a user can open the
+    # dashboard and start paper trading immediately with zero extra setup.
+    # Switch to real-money trading ONLY by explicitly setting BROKER=ibkr and
+    # pointing IBKR_PORT at a LIVE gateway (7496).
     BROKER: str = "paper"
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def IS_LIVE_TRADING(self) -> bool:
+        """Return ``True`` only when trading with REAL money.
+
+        Live trading requires *both* the IBKR broker *and* a connection to the
+        live gateway port (7496).  Every other configuration — the default
+        simulated paper broker, or an IBKR connection to the 7497 paper
+        gateway — is paper trading and risks no real capital.
+        """
+        return self.BROKER.lower() == "ibkr" and self.IBKR_PORT == 7496
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def TRADING_MODE(self) -> str:
+        """Human-facing mode label: ``"LIVE"`` or ``"PAPER"``."""
+        return "LIVE" if self.IS_LIVE_TRADING else "PAPER"
+
+    @property
+    def paper_broker_label(self) -> str:
+        """Describe which paper backend is in use (for the dashboard)."""
+        if self.BROKER.lower() == "ibkr":
+            return "Interactive Brokers paper gateway (port 7497)"
+        return "Built-in simulated broker (no gateway required)"
 
     # ── Paper-broker fill realism (slippage + commission) ───────────────────
     # The paper broker (and the backtester, which shares its fill maths)

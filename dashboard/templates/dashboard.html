@@ -53,6 +53,97 @@
   .mode-live { background: var(--red); color: #fff; }
   .container { max-width: 1280px; margin: 0 auto; padding: 24px 32px; }
 
+  /* Prominent mode banner */
+  .mode-banner {
+    padding: 14px 32px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    font-size: 14px;
+    font-weight: 500;
+    border-bottom: 1px solid var(--border);
+  }
+  .mode-banner .badge {
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    padding: 5px 14px;
+    border-radius: 6px;
+    text-transform: uppercase;
+    flex-shrink: 0;
+  }
+  .mode-banner.paper {
+    background: rgba(46, 204, 113, 0.10);
+    border-bottom-color: var(--green-dim);
+    color: var(--green);
+  }
+  .mode-banner.paper .badge { background: var(--green); color: #04220f; }
+  .mode-banner.live {
+    background: rgba(231, 76, 60, 0.14);
+    border-bottom-color: var(--red);
+    color: #ff8a7a;
+  }
+  .mode-banner.live .badge { background: var(--red); color: #fff; }
+  .mode-banner .sub { color: var(--text-muted); font-weight: 400; }
+
+  /* Stat cards (paper account) */
+  .stat-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 14px;
+    margin-bottom: 18px;
+  }
+  .stat-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .stat-card .label {
+    font-size: 12px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+  }
+  .stat-card .value { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .stat-card .value.small { font-size: 17px; }
+  .pnl-pos { color: var(--green); }
+  .pnl-neg { color: var(--red); }
+  .icon-paper { background: var(--green-dim); color: var(--green); }
+  .icon-help { background: #5b3a8c; color: var(--purple); }
+
+  .empty-note {
+    padding: 18px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 13px;
+    background: var(--bg);
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+  }
+  .balances-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+  .help-list { list-style: none; padding: 0; }
+  .help-list li {
+    padding: 8px 12px 8px 30px;
+    position: relative;
+    font-size: 13px;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+  .help-list li::before {
+    content: "→";
+    position: absolute;
+    left: 10px;
+    color: var(--accent);
+  }
+  .help-col h4 { font-size: 13px; margin-bottom: 8px; color: var(--text); }
+
   /* Section cards */
   .section {
     background: var(--surface);
@@ -260,7 +351,163 @@
   </div>
 </div>
 
+<!-- ═══════════════════ MODE BANNER ═══════════════════ -->
+{% if paper.is_live %}
+<div class="mode-banner live">
+  <span class="badge">● Live Trading</span>
+  <span>Real money is at risk.</span>
+  <span class="sub">Broker: {{ paper.broker }} — orders are sent to your live brokerage account.</span>
+</div>
+{% else %}
+<div class="mode-banner paper">
+  <span class="badge">● Paper Trading</span>
+  <span>Simulated money — safe to experiment.</span>
+  <span class="sub">{{ paper.paper_backend }}. No real funds are used. This is the default mode.</span>
+</div>
+{% endif %}
+
 <div class="container">
+
+<!-- ═══════════════════ PAPER TRADING ═══════════════════ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-icon icon-paper">P</div>
+    <h2>{{ paper.mode|capitalize }} Trading Account</h2>
+  </div>
+  <div class="section-body">
+    <!-- Account summary cards -->
+    <div class="stat-cards">
+      <div class="stat-card">
+        <div class="label">Starting Capital</div>
+        <div class="value">${{ "{:,.0f}".format(paper.starting_capital) }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Account Equity</div>
+        <div class="value">${{ "{:,.2f}".format(paper.account_equity) }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Realized P&amp;L</div>
+        <div class="value {{ 'pnl-pos' if paper.realized_pnl >= 0 else 'pnl-neg' }}">
+          {{ '+' if paper.realized_pnl >= 0 else '' }}${{ "{:,.2f}".format(paper.realized_pnl) }}
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Today's P&amp;L</div>
+        <div class="value {{ 'pnl-pos' if paper.today_pnl >= 0 else 'pnl-neg' }}">
+          {{ '+' if paper.today_pnl >= 0 else '' }}${{ "{:,.2f}".format(paper.today_pnl) }}
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Open Positions</div>
+        <div class="value">{{ paper.open_count }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Closed Trades</div>
+        <div class="value">{{ paper.total_trades }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Win Rate</div>
+        <div class="value small">{{ "%.0f"|format(paper.win_rate * 100) }}%</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Profit Factor</div>
+        <div class="value small">{{ "%.2f"|format(paper.profit_factor) if paper.profit_factor is not none else "∞" if paper.total_trades else "—" }}</div>
+      </div>
+    </div>
+
+    <!-- Cash balances per currency -->
+    <div class="watchlist-label">Cash Balances</div>
+    <div class="balances-grid">
+      {% for bal in paper.balances %}
+      <div class="kv-item" style="flex-direction:column; align-items:stretch; gap:4px;">
+        <div style="display:flex; justify-content:space-between;">
+          <span class="kv-label">{{ bal.currency }} Allocated</span>
+          <span class="kv-value">${{ "{:,.0f}".format(bal.allocated) }}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between;">
+          <span class="kv-label">Committed</span>
+          <span class="kv-value">${{ "{:,.2f}".format(bal.committed) }}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between;">
+          <span class="kv-label">Available</span>
+          <span class="kv-value pnl-pos">${{ "{:,.2f}".format(bal.available) }}</span>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- Open positions -->
+    <div class="watchlist-label">Open Positions ({{ paper.open_count }})</div>
+    {% if paper.positions %}
+    <div style="overflow-x:auto;">
+      <table class="score-table">
+        <thead>
+          <tr>
+            <th>Symbol</th><th>Strategy</th><th>Grade</th>
+            <th class="num">Qty</th><th class="num">Entry</th><th class="num">Stop</th>
+            <th class="num">Target</th><th class="num">Cost Basis</th><th class="num">Risk</th>
+            <th>Opened</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for pos in paper.positions %}
+          <tr>
+            <td><strong>{{ pos.symbol }}</strong></td>
+            <td>{{ pos.strategy }}</td>
+            <td>{% if pos.grade %}<span class="grade grade-{{ pos.grade|lower }}">{{ pos.grade }}</span>{% endif %}</td>
+            <td class="num">{{ pos.quantity }}</td>
+            <td class="num">${{ "%.2f"|format(pos.entry_price) }}</td>
+            <td class="num">${{ "%.2f"|format(pos.stop_price) }}</td>
+            <td class="num">${{ "%.2f"|format(pos.target_price) }}</td>
+            <td class="num">${{ "{:,.2f}".format(pos.cost_basis) }} {{ pos.currency }}</td>
+            <td class="num">${{ "%.2f"|format(pos.risk_amount) }}</td>
+            <td>{{ pos.entry_time }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-note">
+      No open positions yet. Start the bot (<code>python engine.py</code>) during market hours
+      and qualifying signals will be filled here automatically.
+    </div>
+    {% endif %}
+
+    <!-- Trade history -->
+    <div class="watchlist-label" style="margin-top:18px;">Recent Trade History</div>
+    {% if paper.recent_trades %}
+    <div style="overflow-x:auto;">
+      <table class="score-table">
+        <thead>
+          <tr>
+            <th>Symbol</th><th>Strategy</th><th class="num">Entry</th><th class="num">Exit</th>
+            <th>Reason</th><th class="num">Net P&amp;L</th><th class="num">R</th><th>Closed</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in paper.recent_trades %}
+          <tr>
+            <td><strong>{{ t.symbol }}</strong></td>
+            <td>{{ t.strategy }}</td>
+            <td class="num">{% if t.entry_price is not none %}${{ "%.2f"|format(t.entry_price) }}{% endif %}</td>
+            <td class="num">{% if t.exit_price is not none %}${{ "%.2f"|format(t.exit_price) }}{% endif %}</td>
+            <td>{{ t.exit_reason }}</td>
+            <td class="num {{ 'pnl-pos' if (t.pnl_net or 0) >= 0 else 'pnl-neg' }}">
+              {% if t.pnl_net is not none %}{{ '+' if t.pnl_net >= 0 else '' }}${{ "%.2f"|format(t.pnl_net) }}{% endif %}
+            </td>
+            <td class="num">{% if t.r_multiple is not none %}{{ "%.2f"|format(t.r_multiple) }}R{% endif %}</td>
+            <td>{{ (t.exit_time or "")[:19].replace("T", " ") }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-note">No closed trades yet.</div>
+    {% endif %}
+  </div>
+</div>
 
 <!-- ═══════════════════ SYSTEM STATUS ═══════════════════ -->
 <div class="section">
@@ -271,6 +518,8 @@
   <div class="section-body">
     <div class="kv-grid">
       <div class="kv-item"><span class="kv-label">Bot Version</span><span class="kv-value">{{ status.bot_version }}</span></div>
+      <div class="kv-item"><span class="kv-label">Trading Mode</span><span class="kv-value">{{ status.trading_mode }}{% if not status.is_live %} (simulated){% endif %}</span></div>
+      <div class="kv-item"><span class="kv-label">Broker</span><span class="kv-value">{{ status.broker }}</span></div>
       <div class="kv-item"><span class="kv-label">IBKR Connection</span><span class="kv-value">{{ status.ibkr_host }}:{{ status.ibkr_port }}</span></div>
       <div class="kv-item"><span class="kv-label">Client ID</span><span class="kv-value">{{ status.ibkr_client_id }}</span></div>
       <div class="kv-item"><span class="kv-label">Total Capital</span><span class="kv-value">{{ status.total_capital }}</span></div>
@@ -424,6 +673,39 @@
             <span>{{ desc }}</span>
           </li>
           {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ HELP: PAPER TRADING ═══════════════════ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-icon icon-help">?</div>
+    <h2>How to Use Paper Trading</h2>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px; color:var(--text-muted); margin-bottom:14px;">
+      Paper trading is the <strong>default mode</strong> — it simulates every fill with
+      realistic slippage and commissions, so you can validate the strategies risk-free
+      before committing real capital. No brokerage account or API keys are required.
+    </p>
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:24px;">
+      <div class="help-col">
+        <h4>Getting started (no setup needed)</h4>
+        <ul class="help-list">
+          {% for step in help.getting_started %}<li>{{ step }}</li>{% endfor %}
+        </ul>
+      </div>
+      <div class="help-col">
+        <h4>Switch to live trading (real money)</h4>
+        <ul class="help-list">
+          {% for step in help.switch_to_live %}<li>{{ step }}</li>{% endfor %}
+        </ul>
+        <h4 style="margin-top:12px;">Switch back to paper</h4>
+        <ul class="help-list">
+          {% for step in help.switch_to_paper %}<li>{{ step }}</li>{% endfor %}
         </ul>
       </div>
     </div>

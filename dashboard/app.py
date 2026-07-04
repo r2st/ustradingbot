@@ -16,11 +16,14 @@ Start with::
 
 from __future__ import annotations
 
+import json
 import secrets
 import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+import pandas as pd
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import HTMLResponse
@@ -117,10 +120,14 @@ def require_auth(
 
 def _build_system_status() -> Dict[str, Any]:
     """Gather system status and configuration summary."""
-    settings = Settings()
+    settings = get_settings()
     return {
         "bot_version": "0.1.0",
-        "mode": "Paper Trading" if settings.IS_PAPER_TRADING else "LIVE",
+        "mode": "Paper Trading" if not settings.IS_LIVE_TRADING else "Live Trading",
+        "trading_mode": settings.TRADING_MODE,
+        "is_live": settings.IS_LIVE_TRADING,
+        "broker": settings.BROKER,
+        "paper_backend": settings.paper_broker_label,
         "ibkr_host": settings.IBKR_HOST,
         "ibkr_port": settings.IBKR_PORT,
         "ibkr_client_id": settings.IBKR_CLIENT_ID,
@@ -143,7 +150,7 @@ def _build_system_status() -> Dict[str, Any]:
 
 def _build_strategies() -> List[Dict[str, Any]]:
     """Return strategy descriptions and weight configurations."""
-    settings = Settings()
+    settings = get_settings()
     return [
         {
             "name": "Momentum",
@@ -330,7 +337,7 @@ def _build_sample_scores() -> List[Dict[str, Any]]:
 
 def _build_risk_rules() -> Dict[str, Any]:
     """Collect risk management parameters."""
-    settings = Settings()
+    settings = get_settings()
     return {
         "max_position_size_pct": f"{settings.MAX_POSITION_SIZE_PCT * 100:.1f}%",
         "max_open_positions": settings.MAX_OPEN_POSITIONS,
@@ -362,6 +369,159 @@ def _build_risk_rules() -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Paper trading — account, positions, and recent trades
+# ---------------------------------------------------------------------------
+
+
+def _load_open_positions(data_dir: Path) -> List[Dict[str, Any]]:
+    """Read the persisted open positions (paper or live) from JSON."""
+    path = data_dir / "open_positions.json"
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return []
+    return list(data.values()) if isinstance(data, dict) else []
+
+
+def _paper_today_pnl(data_dir: Path) -> float:
+    """Sum today's net P&L from completed journal trades."""
+    from analytics.performance import load_completed_trades
+
+    df = load_completed_trades(data_dir / "trades.csv")
+    if df.empty or "exit_time" not in df.columns or "pnl_net" not in df.columns:
+        return 0.0
+    exits = pd.to_datetime(df["exit_time"], errors="coerce")
+    mask = exits.dt.date == datetime.now().date()
+    return float(pd.to_numeric(df.loc[mask, "pnl_net"], errors="coerce").fillna(0).sum())
+
+
+def _num(value: Any) -> Optional[float]:
+    """Coerce a journal cell to float, or ``None`` when blank/unparseable."""
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def _slim_trades(rows: List[Dict[str, Any]], limit: int = 15) -> List[Dict[str, Any]]:
+    """Reduce full journal rows to the fields the history table needs."""
+    slim = []
+    for r in list(reversed(rows))[:limit]:  # most recent first
+        slim.append(
+            {
+                "symbol": r.get("symbol"),
+                "strategy": r.get("strategy"),
+                "entry_price": _num(r.get("entry_fill_price")),
+                "exit_price": _num(r.get("exit_price")),
+                "exit_reason": r.get("exit_reason"),
+                "pnl_net": _num(r.get("pnl_net")),
+                "r_multiple": _num(r.get("r_multiple")),
+                "exit_time": r.get("exit_time"),
+            }
+        )
+    return slim
+
+
+def _build_paper_trading() -> Dict[str, Any]:
+    """Gather the paper-trading account view: balance, positions, history."""
+    settings = get_settings()
+    data_dir = Path(settings.DATA_DIR)
+
+    report = analyze_journal(data_dir / "trades.csv", settings.TOTAL_CAPITAL)
+    summary = report.summary
+
+    positions_raw = _load_open_positions(data_dir)
+    committed: Dict[str, float] = {}
+    positions: List[Dict[str, Any]] = []
+    for p in positions_raw:
+        try:
+            entry = float(p.get("entry_price", 0) or 0)
+            qty = int(float(p.get("quantity", 0) or 0))
+        except (ValueError, TypeError):
+            continue
+        currency = str(p.get("currency", "USD")).upper()
+        cost = entry * qty
+        committed[currency] = committed.get(currency, 0.0) + cost
+        positions.append(
+            {
+                "symbol": p.get("symbol", ""),
+                "strategy": p.get("strategy", ""),
+                "grade": p.get("grade", ""),
+                "quantity": qty,
+                "entry_price": round(entry, 2),
+                "stop_price": round(float(p.get("stop_price", 0) or 0), 2),
+                "target_price": round(float(p.get("target_price", 0) or 0), 2),
+                "currency": currency,
+                "cost_basis": round(cost, 2),
+                "risk_amount": round(float(p.get("risk_amount", 0) or 0), 2),
+                "entry_time": str(p.get("entry_time", ""))[:19].replace("T", " "),
+            }
+        )
+    positions.sort(key=lambda x: x["symbol"])
+
+    balances = []
+    for currency, allocated in settings.CAPITAL_BY_CURRENCY.items():
+        used = committed.get(currency.upper(), 0.0)
+        balances.append(
+            {
+                "currency": currency.upper(),
+                "allocated": round(allocated, 2),
+                "committed": round(used, 2),
+                "available": round(allocated - used, 2),
+            }
+        )
+
+    realized = float(summary.get("total_pnl", 0.0) or 0.0)
+    return {
+        "mode": settings.TRADING_MODE,
+        "is_live": settings.IS_LIVE_TRADING,
+        "broker": settings.BROKER,
+        "paper_backend": settings.paper_broker_label,
+        "starting_capital": round(settings.TOTAL_CAPITAL, 2),
+        "realized_pnl": round(realized, 2),
+        "today_pnl": round(_paper_today_pnl(data_dir), 2),
+        "account_equity": round(settings.TOTAL_CAPITAL + realized, 2),
+        "open_count": len(positions),
+        "total_trades": summary.get("total_trades", 0),
+        "win_rate": summary.get("win_rate", 0.0),
+        "profit_factor": summary.get("profit_factor"),
+        "balances": balances,
+        "positions": positions,
+        "recent_trades": _slim_trades(report.recent_trades),
+    }
+
+
+def _build_help() -> Dict[str, Any]:
+    """Static how-to content for the dashboard help section."""
+    settings = get_settings()
+    return {
+        "is_live": settings.IS_LIVE_TRADING,
+        "broker": settings.BROKER,
+        "getting_started": [
+            "Paper trading is the DEFAULT — no brokerage account or API keys needed.",
+            "Start the bot:  python engine.py  (it runs the simulated broker).",
+            "Open this dashboard:  uvicorn dashboard.app:app --port 8501",
+            "Watch the Paper Trading section below fill with positions and P&L.",
+            "Trades are simulated with realistic slippage & commissions — no real money moves.",
+        ],
+        "switch_to_live": [
+            "1. Open a funded Interactive Brokers account and run TWS/Gateway.",
+            "2. In your .env set  BROKER=ibkr  and  IBKR_PORT=7496  (the LIVE port).",
+            "3. Restart the bot. The banner above will turn red and read LIVE.",
+            "Tip: IBKR_PORT=7497 connects to IBKR's *paper* gateway — still paper trading.",
+        ],
+        "switch_to_paper": [
+            "Set  BROKER=paper  in your .env (or remove the BROKER line entirely — "
+            "paper is the default) and restart. No keys required.",
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 
@@ -373,6 +533,8 @@ async def dashboard(request: Request, _user: str = Depends(require_auth)):
         "dashboard.html",
         {
             "status": _build_system_status(),
+            "paper": _build_paper_trading(),
+            "help": _build_help(),
             "strategies": _build_strategies(),
             "scores": _build_sample_scores(),
             "risk": _build_risk_rules(),
@@ -384,8 +546,52 @@ async def dashboard(request: Request, _user: str = Depends(require_auth)):
 
 @app.get("/health")
 async def health():
-    """Simple health-check endpoint."""
-    return {"status": "ok", "timestamp": datetime.now().isoformat()}
+    """Simple health-check endpoint (also reports the trading mode)."""
+    settings = get_settings()
+    return {
+        "status": "ok",
+        "trading_mode": settings.TRADING_MODE,
+        "broker": settings.BROKER,
+        "timestamp": datetime.now().isoformat(),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Mode + paper-trading API
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/mode")
+async def api_mode():
+    """Report the current trading mode (public — safe, read-only)."""
+    settings = get_settings()
+    return {
+        "trading_mode": settings.TRADING_MODE,
+        "is_live": settings.IS_LIVE_TRADING,
+        "is_paper": not settings.IS_LIVE_TRADING,
+        "broker": settings.BROKER,
+        "paper_backend": settings.paper_broker_label,
+    }
+
+
+@app.get("/api/paper/summary")
+async def api_paper_summary(_user: str = Depends(require_auth)):
+    """Paper account balance, realized/today P&L, and headline stats."""
+    paper = _build_paper_trading()
+    return {k: v for k, v in paper.items() if k not in ("positions", "recent_trades")}
+
+
+@app.get("/api/paper/positions")
+async def api_paper_positions(_user: str = Depends(require_auth)):
+    """Current open paper positions."""
+    paper = _build_paper_trading()
+    return {"open_count": paper["open_count"], "positions": paper["positions"]}
+
+
+@app.get("/api/paper/trades")
+async def api_paper_trades(_user: str = Depends(require_auth)):
+    """Recent completed paper trades."""
+    return {"trades": _build_paper_trading()["recent_trades"]}
 
 
 # ---------------------------------------------------------------------------
