@@ -4,22 +4,27 @@ FastAPI web dashboard for the US Trading Bot.
 Provides a read-only browser view of system configuration, strategy
 parameters, demo signal scoring, and risk management rules.
 
+All pages are protected by HTTP Basic Auth (credentials come from
+``DASHBOARD_USERNAME`` / ``DASHBOARD_PASSWORD``); only ``/health`` is public
+so external monitors can probe liveness.  Bind to localhost by default and put
+a TLS-terminating reverse proxy in front for remote access.
+
 Start with::
 
-    uvicorn dashboard.app:app --host 0.0.0.0 --port 8501 --reload
+    uvicorn dashboard.app:app --host 127.0.0.1 --port 8501 --reload
 """
 
 from __future__ import annotations
 
-import os
+import secrets
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 # ---------------------------------------------------------------------------
 # Ensure project root is on sys.path so we can import config / signals / risk
@@ -28,8 +33,9 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from config.settings import Settings, momentum_weights, swing_weights
+from config.settings import Settings, get_settings, momentum_weights, swing_weights
 from config.universe import ALL_SYMBOLS, CA_WATCHLIST, US_WATCHLIST
+from fastapi.templating import Jinja2Templates
 from signals.signal_types import Grade
 
 # ---------------------------------------------------------------------------
@@ -39,6 +45,70 @@ app = FastAPI(title="US Trading Bot Dashboard", version="0.1.0")
 
 _TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
+
+# ---------------------------------------------------------------------------
+# Authentication — HTTP Basic Auth guarding every page except /health
+# ---------------------------------------------------------------------------
+# auto_error=False so we can honour DASHBOARD_AUTH_ENABLED=False (allow with no
+# header) and still return a proper 401 challenge when auth is on.
+_security = HTTPBasic(auto_error=False)
+
+
+def require_auth(
+    credentials: Optional[HTTPBasicCredentials] = Depends(_security),
+) -> str:
+    """Validate HTTP Basic credentials against the configured dashboard user.
+
+    Uses :func:`secrets.compare_digest` for both the username and password so
+    the comparison is constant-time (no early-exit timing side channel).
+
+    * When ``DASHBOARD_AUTH_ENABLED`` is ``False`` the check is skipped
+      entirely (intended for trusted local development only).
+    * When auth is enabled but ``DASHBOARD_PASSWORD`` is empty the app is
+      misconfigured; it fails closed with HTTP 500 rather than granting access.
+
+    Returns:
+        The authenticated username.
+
+    Raises:
+        HTTPException: 401 when credentials are missing/invalid, 500 when auth
+        is enabled but no password is configured.
+    """
+    settings = get_settings()
+    if not settings.DASHBOARD_AUTH_ENABLED:
+        return credentials.username if credentials else "anonymous"
+
+    expected_user = settings.DASHBOARD_USERNAME
+    expected_pass = settings.DASHBOARD_PASSWORD
+
+    if not expected_pass:
+        # Fail closed: never serve protected content without a real password.
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Dashboard auth is enabled but DASHBOARD_PASSWORD is not set.",
+        )
+
+    if credentials is None:
+        # Auth required but no Authorization header was supplied.
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
+    user_ok = secrets.compare_digest(
+        credentials.username.encode("utf-8"), expected_user.encode("utf-8")
+    )
+    pass_ok = secrets.compare_digest(
+        credentials.password.encode("utf-8"), expected_pass.encode("utf-8")
+    )
+    if not (user_ok and pass_ok):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
 
 # ---------------------------------------------------------------------------
 # Helpers — build data dicts consumed by the template
@@ -295,8 +365,8 @@ def _build_risk_rules() -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 @app.get("/", response_class=HTMLResponse)
-async def dashboard(request: Request):
-    """Render the main dashboard page."""
+async def dashboard(request: Request, _user: str = Depends(require_auth)):
+    """Render the main dashboard page (requires HTTP Basic Auth)."""
     return templates.TemplateResponse(
         request,
         "dashboard.html",

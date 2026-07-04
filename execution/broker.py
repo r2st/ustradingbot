@@ -64,6 +64,10 @@ class Broker(Protocol):
 
     def disconnect(self) -> None: ...
 
+    def is_connected(self) -> bool:
+        """Return whether the broker session is currently live."""
+        ...
+
     def get_positions(self) -> Dict[str, int]:
         """Return live share counts keyed by symbol."""
         ...
@@ -82,6 +86,10 @@ class Broker(Protocol):
         """Detect and return any bracket legs (stop/target) that have filled."""
 
     def modify_stop(self, symbol: str, new_stop: float) -> bool: ...
+
+    def force_close(self, symbol: str, reason: ExitReason) -> Optional[ExitEvent]:
+        """Close *symbol* at market and return the resulting exit event."""
+        ...
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +167,10 @@ class PaperBroker:
 
     def disconnect(self) -> None:
         self._save()
+
+    def is_connected(self) -> bool:
+        # The paper broker has no external session; it is always available.
+        return True
 
     # ------------------------------------------------------------- positions
 
@@ -349,19 +361,30 @@ class PaperBroker:
 class IBKRBroker:
     """Interactive Brokers adapter (optional).
 
-    This is a thin wrapper that connects to a running TWS/Gateway via
-    ib_insync and places native bracket orders.  ib_insync is imported lazily
-    inside :meth:`connect` so importing this module never requires the package.
+    A thin wrapper that connects to a running TWS/Gateway via ib_insync and
+    places native bracket orders.  ib_insync is imported lazily inside the
+    methods that need it so importing this module never requires the package.
 
-    Only the subset the engine needs is implemented; richer server-side fill
-    reconciliation (``reqExecutions`` across sessions) is left as a documented
-    extension point.  For unattended server deployments prefer
-    :class:`PaperBroker`.
+    **Bracket tracking.**  Every bracket order placed in a session is recorded
+    in :attr:`_brackets` (keyed by symbol) together with the live ib_insync
+    ``Trade`` objects for its take-profit and stop-loss legs.  This is what
+    lets :meth:`poll_exits` detect when a stop or target leg fills,
+    :meth:`modify_stop` ratchet the stop, and :meth:`force_close` cancel the
+    resting legs before a market exit.
+
+    **Restart caveat.**  Tracking is in-memory, so bracket legs placed in a
+    previous process are not re-attached on restart.  The exchange-side bracket
+    still protects the position (IBKR keeps the OCA group alive), but the bot
+    will not emit an :class:`ExitEvent` for a leg that filled while it was
+    down.  Cross-session reconciliation via ``reqExecutions()`` is a documented
+    follow-up; for unattended deployments prefer :class:`PaperBroker`.
     """
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._ib = None
+        # symbol -> bracket record (contract, quantity, prices, leg trades)
+        self._brackets: Dict[str, Dict[str, Any]] = {}
         self._log = log.bind(component="IBKRBroker")
 
     def connect(self) -> bool:
@@ -390,6 +413,15 @@ class IBKRBroker:
             except Exception:  # noqa: BLE001
                 pass
 
+    def is_connected(self) -> bool:
+        """Return whether the underlying ib_insync session is live."""
+        if self._ib is None:
+            return False
+        try:
+            return bool(self._ib.isConnected())
+        except Exception:  # noqa: BLE001
+            return False
+
     def get_positions(self) -> Dict[str, int]:
         if self._ib is None:
             return {}
@@ -414,6 +446,7 @@ class IBKRBroker:
 
             contract = Stock(symbol, "SMART", currency)
             self._ib.qualifyContracts(contract)
+            # ib_insync returns BracketOrder(parent, takeProfit, stopLoss).
             bracket = self._ib.bracketOrder(
                 "BUY",
                 quantity,
@@ -421,8 +454,18 @@ class IBKRBroker:
                 takeProfitPrice=round(target_price, 2),
                 stopLossPrice=round(stop_price, 2),
             )
-            for order in bracket:
-                self._ib.placeOrder(contract, order)
+            trades = [self._ib.placeOrder(contract, order) for order in bracket]
+            # Track the resting legs so we can detect fills / modify / cancel.
+            self._brackets[symbol] = {
+                "contract": contract,
+                "quantity": int(quantity),
+                "entry_price": round(entry_price, 4),
+                "stop_price": round(stop_price, 2),
+                "target_price": round(target_price, 2),
+                "parent_trade": trades[0],
+                "target_trade": trades[1] if len(trades) > 1 else None,
+                "stop_trade": trades[2] if len(trades) > 2 else None,
+            }
             return BracketResult(
                 accepted=True,
                 fill_price=entry_price,
@@ -433,13 +476,168 @@ class IBKRBroker:
             self._log.error("ibkr.place_failed", symbol=symbol, error=str(exc))
             return BracketResult(False, reason=f"error:{exc}")
 
+    # ------------------------------------------------------------- poll exits
+
     def poll_exits(self) -> List[ExitEvent]:
-        # A full implementation would reconcile reqExecutions() against a local
-        # journal.  Not implemented for the optional live path.
-        return []
+        """Detect bracket legs that filled and emit matching exit events.
+
+        For every tracked bracket the stop leg is checked before the target
+        leg (the conservative assumption when both could have triggered).  A
+        filled leg produces an :class:`ExitEvent`, the sibling (OCA) leg is
+        cancelled defensively, and the bracket is dropped from tracking.
+        """
+        if self._ib is None:
+            return []
+        events: List[ExitEvent] = []
+        for symbol in list(self._brackets.keys()):
+            bracket = self._brackets[symbol]
+            event = self._detect_bracket_fill(symbol, bracket)
+            if event is not None:
+                events.append(event)
+                del self._brackets[symbol]
+        return events
+
+    def _detect_bracket_fill(
+        self, symbol: str, bracket: Dict[str, Any]
+    ) -> Optional[ExitEvent]:
+        """Return an :class:`ExitEvent` if the stop or target leg has filled."""
+        # (leg key, exit reason, fallback price key) — stop checked first.
+        legs = (
+            ("stop_trade", ExitReason.STOP_HIT, "stop_price"),
+            ("target_trade", ExitReason.TARGET_HIT, "target_price"),
+        )
+        for leg_key, reason, price_key in legs:
+            trade = bracket.get(leg_key)
+            filled, fill_price = self._leg_fill(trade)
+            if not filled:
+                continue
+            exit_price = fill_price or float(bracket[price_key])
+            entry = float(bracket["entry_price"])
+            qty = int(bracket["quantity"])
+            self._cancel_sibling(bracket, leg_key)
+            self._log.info(
+                "ibkr.exit_detected",
+                symbol=symbol,
+                reason=reason.value,
+                exit_price=exit_price,
+            )
+            return ExitEvent(
+                symbol=symbol,
+                exit_price=round(exit_price, 4),
+                exit_reason=reason,
+                exit_date=datetime.now(),
+                pnl_gross=round((exit_price - entry) * qty, 2),
+                fill_details={
+                    "order_id": str(getattr(getattr(trade, "order", None), "orderId", "")),
+                    "quantity": qty,
+                },
+            )
+        return None
+
+    @staticmethod
+    def _leg_fill(trade: Any) -> tuple[bool, float]:
+        """Return ``(is_filled, avg_fill_price)`` for an ib_insync ``Trade``."""
+        if trade is None:
+            return False, 0.0
+        status = getattr(trade, "orderStatus", None)
+        if status is None:
+            return False, 0.0
+        if getattr(status, "status", "") == "Filled":
+            return True, float(getattr(status, "avgFillPrice", 0.0) or 0.0)
+        return False, 0.0
+
+    def _cancel_sibling(self, bracket: Dict[str, Any], filled_leg: str) -> None:
+        """Cancel the resting sibling leg once one side of the bracket fills."""
+        sibling_key = (
+            "target_trade" if filled_leg == "stop_trade" else "stop_trade"
+        )
+        trade = bracket.get(sibling_key)
+        if trade is None or self._ib is None:
+            return
+        try:
+            self._ib.cancelOrder(trade.order)
+        except Exception as exc:  # noqa: BLE001
+            self._log.warning("ibkr.cancel_sibling_failed", error=str(exc))
+
+    # ------------------------------------------------------------- modify stop
 
     def modify_stop(self, symbol: str, new_stop: float) -> bool:
-        return False
+        """Ratchet the stop-loss leg upward (never down).
+
+        The existing stop order is re-placed with the same ``orderId`` and a
+        higher ``auxPrice``.  Re-placing (rather than cancel-then-new) is the
+        idiomatic ib_insync modification and avoids leaving the position
+        unprotected in the window between a cancel and a fresh placement.
+        """
+        if self._ib is None:
+            return False
+        bracket = self._brackets.get(symbol)
+        if bracket is None:
+            return False
+        new_stop = round(new_stop, 2)
+        if new_stop <= float(bracket["stop_price"]):
+            return False
+        stop_trade = bracket.get("stop_trade")
+        order = getattr(stop_trade, "order", None)
+        if order is None:
+            return False
+        try:
+            order.auxPrice = new_stop  # STP orders carry the trigger in auxPrice
+            self._ib.placeOrder(bracket["contract"], order)
+        except Exception as exc:  # noqa: BLE001
+            self._log.error("ibkr.modify_stop_failed", symbol=symbol, error=str(exc))
+            return False
+        bracket["stop_price"] = new_stop
+        self._log.info("ibkr.stop_modified", symbol=symbol, new_stop=new_stop)
+        return True
+
+    # ------------------------------------------------------------- force close
+
+    def force_close(self, symbol: str, reason: ExitReason) -> Optional[ExitEvent]:
+        """Cancel the resting bracket legs and market-sell the position."""
+        if self._ib is None:
+            return None
+        bracket = self._brackets.get(symbol)
+        if bracket is None:
+            return None
+        # Cancel both resting legs first so the market order is the only exit.
+        for leg_key in ("stop_trade", "target_trade"):
+            trade = bracket.get(leg_key)
+            if trade is not None:
+                try:
+                    self._ib.cancelOrder(trade.order)
+                except Exception as exc:  # noqa: BLE001
+                    self._log.warning("ibkr.cancel_leg_failed", error=str(exc))
+        try:
+            from ib_insync import MarketOrder  # type: ignore
+
+            order = MarketOrder("SELL", int(bracket["quantity"]))
+            trade = self._ib.placeOrder(bracket["contract"], order)
+        except Exception as exc:  # noqa: BLE001
+            self._log.error("ibkr.force_close_failed", symbol=symbol, error=str(exc))
+            return None
+
+        _, fill_price = self._leg_fill(trade)
+        if not fill_price:
+            # Market order not filled synchronously — fall back to last price.
+            fill_price = fetch_current_price(symbol) or float(bracket["entry_price"])
+        entry = float(bracket["entry_price"])
+        qty = int(bracket["quantity"])
+        del self._brackets[symbol]
+        self._log.info(
+            "ibkr.force_closed",
+            symbol=symbol,
+            reason=reason.value,
+            exit_price=round(fill_price, 4),
+        )
+        return ExitEvent(
+            symbol=symbol,
+            exit_price=round(fill_price, 4),
+            exit_reason=reason,
+            exit_date=datetime.now(),
+            pnl_gross=round((fill_price - entry) * qty, 2),
+            fill_details={"quantity": qty},
+        )
 
 
 # ---------------------------------------------------------------------------

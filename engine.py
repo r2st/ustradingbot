@@ -88,7 +88,15 @@ class TradingEngine:
 
         # Broker (paper by default; ibkr when configured).
         self.broker = make_broker(self.settings)
-        self.broker.connect()
+        if not self.broker.connect():
+            # Do not crash on a failed initial connect: the run loop will retry
+            # with exponential backoff before each cycle.  Log loudly so the
+            # failure is visible.
+            log.error(
+                "engine.broker_connect_failed",
+                broker=self.settings.BROKER,
+                message="initial broker connect failed; will retry with backoff",
+            )
 
         # Exit management coordinator.
         self.exit_manager = ExitManager(
@@ -134,7 +142,16 @@ class TradingEngine:
         while self.running:
             try:
                 if self.is_market_open():
-                    await self.run_cycle()
+                    # Guard every cycle behind a live broker connection; a
+                    # dropped session is transparently re-established (with
+                    # exponential backoff) before we scan or manage exits.
+                    if await self._ensure_broker_connected():
+                        await self.run_cycle()
+                    else:
+                        log.error(
+                            "engine.cycle_skipped_no_broker",
+                            message="broker unavailable after retries; skipping cycle",
+                        )
                 else:
                     now_et = datetime.now(tz=ET)
                     log.info(
@@ -187,6 +204,11 @@ class TradingEngine:
         """
         cycle_start = datetime.now(tz=ET)
         log.info("engine.cycle_start", time_et=cycle_start.strftime("%H:%M:%S"))
+
+        # Day-boundary detection: reset the daily P&L accumulator when we cross
+        # into a new US trading day so the daily loss limit measures today only.
+        if self.risk_manager.maybe_reset_daily_pnl():
+            log.info("engine.daily_pnl_reset", date=cycle_start.strftime("%Y-%m-%d"))
 
         # ── Exit phase ────────────────────────────────────────────────
         # A single coordinator runs broker reconciliation, time-based exits,
@@ -380,6 +402,71 @@ class TradingEngine:
         )
         await self.notifier.notify_entry(order, result.fill_price)
         return True
+
+    # ------------------------------------------------------------------
+    # Broker connection management
+    # ------------------------------------------------------------------
+
+    async def _ensure_broker_connected(self) -> bool:
+        """Ensure the broker session is live, reconnecting with backoff.
+
+        If the broker reports a healthy connection this returns immediately.
+        Otherwise it retries ``connect()`` up to
+        ``RECONNECT_MAX_ATTEMPTS`` times with exponential backoff
+        (``BASE * 2**(attempt-1)`` seconds, capped at ``MAX_DELAY``),
+        disconnecting first to clear any half-open session.
+
+        Returns:
+            ``True`` once connected, ``False`` if every attempt failed.
+        """
+        if self.broker.is_connected():
+            return True
+
+        log.warning("engine.broker_disconnected", broker=self.settings.BROKER)
+
+        max_attempts = self.settings.RECONNECT_MAX_ATTEMPTS
+        base_delay = self.settings.RECONNECT_BASE_DELAY_SECONDS
+        max_delay = self.settings.RECONNECT_MAX_DELAY_SECONDS
+
+        for attempt in range(1, max_attempts + 1):
+            # Clear any half-open session before retrying.
+            try:
+                self.broker.disconnect()
+            except Exception:  # noqa: BLE001 -- disconnect must never raise up
+                pass
+
+            connected = False
+            try:
+                connected = self.broker.connect()
+            except Exception:  # noqa: BLE001 -- treat as a failed attempt
+                log.exception("engine.broker_reconnect_error", attempt=attempt)
+
+            if connected and self.broker.is_connected():
+                log.info("engine.broker_reconnected", attempt=attempt)
+                await self.notifier.send(
+                    f"🟢 Broker reconnected after {attempt} attempt(s)."
+                )
+                return True
+
+            if attempt < max_attempts:
+                delay = min(base_delay * (2 ** (attempt - 1)), max_delay)
+                log.warning(
+                    "engine.broker_reconnect_retry",
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                    next_retry_seconds=delay,
+                )
+                try:
+                    await asyncio.sleep(delay)
+                except asyncio.CancelledError:
+                    return False
+
+        log.error("engine.broker_reconnect_failed", attempts=max_attempts)
+        await self.notifier.send(
+            f"🔴 Broker reconnection FAILED after {max_attempts} attempts. "
+            "Trading is halted until the connection recovers."
+        )
+        return False
 
     # ------------------------------------------------------------------
     # Market hours

@@ -78,6 +78,14 @@ class Settings(BaseSettings):
     SIGNAL_FRESHNESS_TOLERANCE_PCT: float = 0.01
     SIGNAL_MAX_AGE_MINUTES: int = 15
 
+    # ── Broker reconnection (exponential backoff) ───────────────────────────
+    # When the broker session drops, the engine retries connect() with
+    # exponential backoff: delay = BASE * 2**(attempt-1), capped at MAX_DELAY,
+    # for up to MAX_ATTEMPTS tries before giving up on the cycle.
+    RECONNECT_MAX_ATTEMPTS: int = 5
+    RECONNECT_BASE_DELAY_SECONDS: float = 2.0
+    RECONNECT_MAX_DELAY_SECONDS: float = 60.0
+
     # ── Position management ─────────────────────────────────────────────────
     HOLD_MAX_DAYS: int = 20
     REENTRY_COOLDOWN_MINUTES: int = 90
@@ -118,6 +126,18 @@ class Settings(BaseSettings):
     # ── Telegram notifications ──────────────────────────────────────────────
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_CHAT_ID: str = ""
+
+    # ── Dashboard (FastAPI) ─────────────────────────────────────────────────
+    # HTTP Basic Auth guards the dashboard.  Auth is ENABLED by default; if no
+    # password is configured the app refuses to start (fail-closed) so the
+    # dashboard is never accidentally exposed without credentials.  Set
+    # DASHBOARD_AUTH_ENABLED=False only for trusted local development.
+    DASHBOARD_AUTH_ENABLED: bool = True
+    DASHBOARD_USERNAME: str = "admin"
+    DASHBOARD_PASSWORD: str = ""
+    # Default bind host for the dashboard (documented for the run command).
+    DASHBOARD_HOST: str = "127.0.0.1"
+    DASHBOARD_PORT: int = 8501
 
     # ── Broker selection ────────────────────────────────────────────────────
     # "paper" runs the built-in simulated broker (no TWS needed, works

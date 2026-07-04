@@ -22,6 +22,7 @@ import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from zoneinfo import ZoneInfo
 
 import structlog
 
@@ -37,6 +38,15 @@ from signals.signal_types import (
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
+
+# US Eastern timezone anchors the trading-day boundary for the daily P&L
+# accumulator (the daily loss limit resets on the US market calendar day).
+_ET = ZoneInfo("America/New_York")
+
+
+def _trading_day() -> str:
+    """Return the current US-Eastern trading date as an ISO string."""
+    return datetime.now(tz=_ET).date().isoformat()
 
 
 # ---------------------------------------------------------------------------
@@ -95,8 +105,10 @@ class RiskManager:
         # Positions keyed by symbol
         self._positions: Dict[str, Dict[str, Any]] = self._load_positions()
 
-        # Daily P&L accumulator (reset at start of each trading day)
-        self._daily_pnl: float = 0.0
+        # Daily P&L accumulator, persisted to disk so it survives a mid-day
+        # restart.  It is tagged with the trading day it belongs to and reset
+        # automatically when the day rolls over (see ``maybe_reset_daily_pnl``).
+        self._daily_pnl, self._pnl_date = self._load_daily_pnl()
 
         # Exit history: list of dicts with symbol, exit_reason, exit_ts
         self._exit_history: List[Dict[str, Any]] = self._load_exit_history()
@@ -106,6 +118,8 @@ class RiskManager:
             "risk_manager.initialised",
             open_positions=len(self._positions),
             exit_history_entries=len(self._exit_history),
+            daily_pnl=round(self._daily_pnl, 2),
+            pnl_date=self._pnl_date,
         )
 
     # -------------------------------------------------------------- pre_check
@@ -125,6 +139,10 @@ class RiskManager:
         """
         symbol = signal.symbol
         strategy = signal.strategy
+
+        # Roll the daily P&L accumulator over if we have crossed into a new
+        # trading day, so a prior day's loss can never block today's entries.
+        self.maybe_reset_daily_pnl()
 
         # (a) Already holding same symbol
         if symbol in self._positions:
@@ -494,26 +512,63 @@ class RiskManager:
 
     # ------------------------------------------------------- daily P&L
 
+    @property
+    def daily_pnl(self) -> float:
+        """Current accumulated P&L for today's trading session (dollars)."""
+        return self._daily_pnl
+
     def record_daily_pnl(self, pnl: float) -> None:
         """Accumulate a P&L amount to the daily tracker.
+
+        Rolls the accumulator over first if the trading day has changed, then
+        adds *pnl* and persists the result so it survives a restart.
 
         Args:
             pnl: Dollar P&L to add (negative for losses).
         """
+        self.maybe_reset_daily_pnl()
         self._daily_pnl += pnl
+        self._save_daily_pnl()
         self._log.debug(
             "daily_pnl.recorded",
             pnl_delta=round(pnl, 2),
             daily_pnl=round(self._daily_pnl, 2),
         )
 
-    def reset_daily_pnl(self) -> None:
-        """Reset the daily P&L accumulator.
+    def maybe_reset_daily_pnl(self) -> bool:
+        """Reset the accumulator if the US trading day has rolled over.
 
-        Call this at the start of each trading day.
+        Called at the start of each cycle (and before every P&L read/write) so
+        the daily loss limit is measured against *today* only.  Persisted state
+        is updated so the reset survives a restart.
+
+        Returns:
+            ``True`` if a rollover reset occurred, ``False`` otherwise.
+        """
+        today = _trading_day()
+        if today == self._pnl_date:
+            return False
+        prev = self._daily_pnl
+        self._daily_pnl = 0.0
+        self._pnl_date = today
+        self._save_daily_pnl()
+        self._log.info(
+            "daily_pnl.rolled_over",
+            previous=round(prev, 2),
+            new_date=today,
+        )
+        return True
+
+    def reset_daily_pnl(self) -> None:
+        """Force-reset the daily P&L accumulator to zero for the current day.
+
+        Call this at the start of each trading day.  Prefer
+        :meth:`maybe_reset_daily_pnl` for automatic day-boundary handling.
         """
         prev = self._daily_pnl
         self._daily_pnl = 0.0
+        self._pnl_date = _trading_day()
+        self._save_daily_pnl()
         self._log.info("daily_pnl.reset", previous=round(prev, 2))
 
     # ------------------------------------------------------- private helpers
@@ -570,6 +625,62 @@ class RiskManager:
         except OSError as exc:
             self._log.error(
                 "save_positions.failed",
+                path=str(target),
+                error=str(exc),
+            )
+
+    def _load_daily_pnl(self) -> Tuple[float, str]:
+        """Load the persisted daily P&L, honouring the trading-day boundary.
+
+        Returns a ``(pnl, date)`` tuple.  If the persisted record belongs to a
+        previous trading day (or is missing/corrupt), the accumulator starts at
+        ``0.0`` for today -- a prior day's loss is never carried forward.
+        """
+        today = _trading_day()
+        path = self._data_dir / "daily_pnl.json"
+        if not path.exists():
+            return 0.0, today
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            stored_date = str(data["date"])
+            stored_pnl = float(data["pnl"])
+        except (json.JSONDecodeError, OSError, KeyError, TypeError, ValueError) as exc:
+            log.error("load_daily_pnl.failed", path=str(path), error=str(exc))
+            return 0.0, today
+        if stored_date != today:
+            # Stale record from a previous day -- start today fresh.
+            log.info(
+                "load_daily_pnl.stale_reset",
+                stored_date=stored_date,
+                today=today,
+                stored_pnl=round(stored_pnl, 2),
+            )
+            return 0.0, today
+        return stored_pnl, stored_date
+
+    def _save_daily_pnl(self) -> None:
+        """Persist the daily P&L accumulator (with its date) via atomic write."""
+        target = self._data_dir / "daily_pnl.json"
+        payload = {"date": self._pnl_date, "pnl": round(self._daily_pnl, 4)}
+        try:
+            fd, tmp_path = tempfile.mkstemp(
+                dir=str(self._data_dir),
+                prefix=".daily_pnl_",
+                suffix=".tmp",
+            )
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(payload, f, indent=2)
+                os.replace(tmp_path, str(target))
+            except BaseException:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                raise
+        except OSError as exc:
+            self._log.error(
+                "save_daily_pnl.failed",
                 path=str(target),
                 error=str(exc),
             )

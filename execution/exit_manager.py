@@ -30,7 +30,7 @@ import structlog
 
 from config.settings import Settings
 from data.fetcher import fetch_current_price, fetch_ohlcv
-from execution.broker import Broker, PaperBroker
+from execution.broker import Broker
 from journal.trade_logger import TradeLogger
 from risk.manager import RiskManager
 from signals.combined_filter import score_symbol
@@ -223,11 +223,11 @@ class ExitManager:
 
     def _force_exit(self, symbol: str, reason: ExitReason) -> None:
         """Close *symbol* at market via the broker and finalise it."""
-        event: Optional[ExitEvent] = None
-        if isinstance(self._broker, PaperBroker):
-            event = self._broker.force_close(symbol, reason)
+        # Both PaperBroker and IBKRBroker implement force_close; use it on
+        # either so forced exits actually hit the market on the live path.
+        event: Optional[ExitEvent] = self._broker.force_close(symbol, reason)
         if event is None:
-            # Broker had no position (or live broker): synthesise from state.
+            # Broker had no tracked position: synthesise from risk state.
             pos = self._risk.get_open_positions().get(symbol)
             price = fetch_current_price(symbol)
             entry = float(pos.get("entry_price", 0) or 0) if pos else 0.0
