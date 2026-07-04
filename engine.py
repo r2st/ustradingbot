@@ -106,6 +106,28 @@ class TradingEngine:
         # Unified alerts (Telegram + email + threshold monitors).
         self.notifier = AlertManager(self.settings)
 
+        # News-sentiment entry filter (feature 4) — fail-open when disabled.
+        from data.news_sentiment import NewsSentimentFilter
+
+        self.news_filter = NewsSentimentFilter(self.settings)
+
+        # Market-regime + auto-tune state (features 12, 13); refreshed each
+        # cycle.  Start neutral so a data outage never blocks entries.
+        from analytics.regime import RegimeResult
+        from automation.autotune import TuneResult
+
+        self._regime: RegimeResult = RegimeResult()
+        self._autotune: TuneResult = TuneResult(
+            enabled=False, applied=False, trades_considered=0, win_rate=0.0,
+            delta=0.0, thresholds={}, reason="not yet run",
+        )
+
+        # In-process scheduler for P&L reports + nightly backtests (features 10,
+        # 11).  ``None`` when SCHEDULER_ENABLED is off.
+        from automation.scheduler import build_scheduler
+
+        self._scheduler = build_scheduler(self.settings)
+
         # Resting entry orders (scale-in tranches / limit / MOC) awaiting a
         # fill, keyed by the broker order id -> the built TradeOrder.  Filled
         # tranches are journaled and registered when poll_pending_entries
@@ -157,6 +179,10 @@ class TradingEngine:
 
         log.info("engine.started")
         self._emit_heartbeat("starting")
+
+        # Kick off the background scheduler (P&L reports, nightly backtests).
+        if self._scheduler is not None:
+            self._scheduler.start()
 
         while self.running:
             # A dashboard mode switch drops a restart sentinel; when we see it
@@ -324,6 +350,10 @@ class TradingEngine:
         if self.risk_manager.maybe_reset_daily_pnl():
             log.info("engine.daily_pnl_reset", date=cycle_start.strftime("%Y-%m-%d"))
 
+        # Refresh market regime + adaptive thresholds for this cycle (both are
+        # best-effort and never raise into the loop).
+        self._refresh_regime_and_autotune()
+
         # ── Pending-entry reconciliation ──────────────────────────────
         # Fill/expire resting entry orders (scale-in tranches, limit, MOC)
         # placed on prior cycles before doing anything else.
@@ -353,6 +383,11 @@ class TradingEngine:
         # drawdown and daily-loss threshold monitors.
         for event in exit_summary.events:
             await self.notifier.notify_exit(event)
+            self._push_notify(
+                f"Exit: {event.symbol}",
+                f"Closed {event.symbol} @ {event.exit_price:.2f} "
+                f"({event.exit_reason.value}), P&L {event.pnl_gross:+.2f}",
+            )
         await self._check_risk_alerts()
 
         # ── Entry phase ───────────────────────────────────────────────
@@ -466,6 +501,22 @@ class TradingEngine:
             self.rejected_logger.log_rejection(sig, "ai_veto", decision.reasoning)
             return False
 
+        # (d2) News-sentiment veto (feature 4) — reject on strong negative news.
+        news = await asyncio.to_thread(self.news_filter.check, sig.symbol)
+        if not news.approved:
+            bound_log.info("engine.rejected", gate="news_sentiment", reason=news.reason)
+            self.rejected_logger.log_rejection(sig, "news_sentiment", news.reason)
+            return False
+
+        # (d3) Market-regime + auto-tune floor (features 12, 13).  In a regime
+        #      that disfavours this strategy family, or when a cold streak has
+        #      raised the adaptive bar, only the strongest setups get through.
+        ok, reason = self._regime_autotune_gate(sig)
+        if not ok:
+            bound_log.info("engine.rejected", gate="regime_autotune", reason=reason)
+            self.rejected_logger.log_rejection(sig, "regime_autotune", reason)
+            return False
+
         # (e) Build the sized order.
         order = self.risk_manager.build_order(
             sig, decision.decision, decision.reasoning, decision.cost_usd
@@ -513,7 +564,21 @@ class TradingEngine:
             return False
 
         await self.notifier.notify_entry(order, order.signal.entry_price)
+        self._push_notify(
+            f"Entry: {sig.symbol}",
+            f"Bought {order.quantity} {sig.symbol} @ {order.signal.entry_price:.2f} "
+            f"({sig.strategy}, grade {sig.grade.value})",
+        )
         return True
+
+    def _push_notify(self, title: str, body: str) -> None:
+        """Enqueue a PWA push notification (feature 17).  Best-effort."""
+        try:
+            from dashboard.push import publish
+
+            publish(title, body, self.settings.DATA_DIR)
+        except Exception:  # noqa: BLE001 -- notifications must never break trading
+            pass
 
     # ------------------------------------------------------------------
     # Order-type selection
@@ -623,6 +688,60 @@ class TradingEngine:
         await self.notifier.check_daily_loss(
             self.risk_manager.daily_pnl, self.settings.TOTAL_CAPITAL, day=today
         )
+
+    # ------------------------------------------------------------------
+    # Regime detection + adaptive auto-tuning (features 12, 13)
+    # ------------------------------------------------------------------
+
+    def _refresh_regime_and_autotune(self) -> None:
+        """Recompute the market regime and adaptive thresholds for this cycle."""
+        try:
+            from analytics.regime import current_regime
+
+            self._regime = current_regime(self.settings)
+        except Exception:  # noqa: BLE001 -- keep the previous (or neutral) regime
+            pass
+        try:
+            from automation.autotune import tune_from_journal
+
+            self._autotune = tune_from_journal(self.settings)
+            if self._autotune.applied:
+                log.info(
+                    "engine.autotune",
+                    win_rate=self._autotune.win_rate,
+                    delta=self._autotune.delta,
+                    thresholds=self._autotune.thresholds,
+                )
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _regime_autotune_gate(self, sig) -> Tuple[bool, str]:
+        """Reject weaker (grade-B) signals when regime / auto-tune disfavour them.
+
+        * Regime: when the strategy family's regime multiplier is below 0.8
+          (bear/high-vol), only grade-A setups are taken.
+        * Auto-tune: when a cold streak has raised the adaptive bar, the
+          signal's strength must clear the tuned grade-B threshold.
+        """
+        from analytics.regime import multiplier_for_strategy
+        from signals.signal_types import Grade
+
+        if self.settings.REGIME_DETECTION_ENABLED:
+            mult = multiplier_for_strategy(sig.strategy, self._regime)
+            if mult < 0.8 and sig.grade != Grade.A:
+                return False, (
+                    f"{self._regime.regime} regime (x{mult:.2f}) — grade "
+                    f"{sig.grade.value} below required A"
+                )
+
+        if self.settings.AUTOTUNE_ENABLED and self._autotune.applied:
+            floor = self._autotune.thresholds.get("B")
+            if floor is not None and sig.signal_strength < floor:
+                return False, (
+                    f"auto-tune floor {floor:.3f} > strength "
+                    f"{sig.signal_strength:.3f}"
+                )
+        return True, "ok"
 
     async def _reconcile_pending_entries(self) -> int:
         """Journal + register filled resting entries; drop expired ones.
@@ -896,6 +1015,8 @@ class TradingEngine:
         self.running = False
         if self._stop_event is not None:
             self._stop_event.set()
+        if self._scheduler is not None:
+            self._scheduler.stop()
 
 
 # ----------------------------------------------------------------------

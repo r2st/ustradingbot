@@ -19,11 +19,27 @@ from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
-from config.settings import get_settings
-
 # auto_error=False so we can honour DASHBOARD_AUTH_ENABLED=False (allow with no
 # header) and still return a proper 401 challenge when auth is on.
 _security = HTTPBasic(auto_error=False)
+
+
+def get_settings():
+    """Resolve settings, preferring ``dashboard.app.get_settings`` when present.
+
+    The dashboard's test-suite monkeypatches ``dashboard.app.get_settings`` to
+    point at a controlled ``Settings``; honouring that binding here keeps the
+    auth guard consistent with the rest of the app under test.  Falls back to
+    the canonical singleton otherwise.
+    """
+    try:
+        from dashboard import app as _app  # local import avoids an import cycle
+
+        return _app.get_settings()
+    except Exception:  # noqa: BLE001
+        from config.settings import get_settings as _get
+
+        return _get()
 
 
 def require_auth(
