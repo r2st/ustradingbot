@@ -8,11 +8,23 @@ All trading parameters, risk limits, and API credentials are centralised here.
 from __future__ import annotations
 
 import functools
+import os
 from pathlib import Path
 from typing import Any, ClassVar, Dict
 
-from pydantic import Field, computed_field
+from pydantic import Field, computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# ── Loose key files (keys/ directory) ───────────────────────────────────────
+# Some credentials are kept as loose files under ``keys/`` (gitignored) rather
+# than inline in ``.env``.  When the corresponding setting is not supplied via
+# an environment variable or ``.env``, its value is read from the mapped file.
+# Set the ``USTB_SKIP_KEY_FILES`` environment variable to disable this fallback
+# (the test suite does so to stay hermetic).
+_KEYS_DIR: Path = Path(__file__).resolve().parent.parent / "keys"
+_KEY_FILES: Dict[str, str] = {
+    "POLYGON_API_KEY": "polygon_api_key",
+}
 
 
 class Settings(BaseSettings):
@@ -207,6 +219,30 @@ class Settings(BaseSettings):
     def polygon_key_present(self) -> bool:
         """Return whether a Polygon.io API key is configured."""
         return bool(self.POLYGON_API_KEY)
+
+    @model_validator(mode="after")
+    def _load_keys_from_files(self) -> "Settings":
+        """Fill mapped API-key settings from ``keys/`` files when unset.
+
+        An explicit environment variable or ``.env`` value always wins; the
+        loose file is only consulted when the setting is still empty.  Disabled
+        when ``USTB_SKIP_KEY_FILES`` is set (keeps tests independent of the
+        developer's ``keys/`` directory).
+        """
+        if os.environ.get("USTB_SKIP_KEY_FILES"):
+            return self
+        for field_name, filename in _KEY_FILES.items():
+            if getattr(self, field_name, ""):
+                continue  # env / .env / explicit value takes precedence
+            path = _KEYS_DIR / filename
+            try:
+                if path.is_file():
+                    value = path.read_text(encoding="utf-8").strip()
+                    if value:
+                        setattr(self, field_name, value)
+            except OSError:
+                continue
+        return self
 
     # ── Data cache TTLs (seconds) ───────────────────────────────────────────
     # Fetched data is memoised in a thread-safe TTL cache to eliminate the

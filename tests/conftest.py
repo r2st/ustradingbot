@@ -22,10 +22,13 @@ from signals.signal_types import ExitEvent, ExitReason, Grade, Signal, TradeOrde
 
 @pytest.fixture(autouse=True)
 def _isolate_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ensure tests don't load the real .env file."""
+    """Ensure tests don't load the real .env file or keys/ credential files."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
+    # Keep Settings independent of the developer's loose keys/ files (e.g.
+    # keys/polygon_api_key) so provider tests are hermetic.
+    monkeypatch.setenv("USTB_SKIP_KEY_FILES", "1")
 
 
 # ---------------------------------------------------------------------------
