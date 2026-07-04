@@ -54,66 +54,9 @@ templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
 # ---------------------------------------------------------------------------
 # Authentication — HTTP Basic Auth guarding every page except /health
 # ---------------------------------------------------------------------------
-# auto_error=False so we can honour DASHBOARD_AUTH_ENABLED=False (allow with no
-# header) and still return a proper 401 challenge when auth is on.
-_security = HTTPBasic(auto_error=False)
-
-
-def require_auth(
-    credentials: Optional[HTTPBasicCredentials] = Depends(_security),
-) -> str:
-    """Validate HTTP Basic credentials against the configured dashboard user.
-
-    Uses :func:`secrets.compare_digest` for both the username and password so
-    the comparison is constant-time (no early-exit timing side channel).
-
-    * When ``DASHBOARD_AUTH_ENABLED`` is ``False`` the check is skipped
-      entirely (intended for trusted local development only).
-    * When auth is enabled but ``DASHBOARD_PASSWORD`` is empty the app is
-      misconfigured; it fails closed with HTTP 500 rather than granting access.
-
-    Returns:
-        The authenticated username.
-
-    Raises:
-        HTTPException: 401 when credentials are missing/invalid, 500 when auth
-        is enabled but no password is configured.
-    """
-    settings = get_settings()
-    if not settings.DASHBOARD_AUTH_ENABLED:
-        return credentials.username if credentials else "anonymous"
-
-    expected_user = settings.DASHBOARD_USERNAME
-    expected_pass = settings.DASHBOARD_PASSWORD
-
-    if not expected_pass:
-        # Fail closed: never serve protected content without a real password.
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Dashboard auth is enabled but DASHBOARD_PASSWORD is not set.",
-        )
-
-    if credentials is None:
-        # Auth required but no Authorization header was supplied.
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-
-    user_ok = secrets.compare_digest(
-        credentials.username.encode("utf-8"), expected_user.encode("utf-8")
-    )
-    pass_ok = secrets.compare_digest(
-        credentials.password.encode("utf-8"), expected_pass.encode("utf-8")
-    )
-    if not (user_ok and pass_ok):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    return credentials.username
+# The implementation lives in dashboard.auth so the feature routers can share
+# the exact same guard without importing this module (which would be circular).
+from dashboard.auth import require_auth  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Helpers — build data dicts consumed by the template

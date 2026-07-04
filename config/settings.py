@@ -407,6 +407,82 @@ class Settings(BaseSettings):
     # ── Minimum OHLCV rows for indicator calculation ────────────────────────
     MIN_OHLCV_ROWS: int = 200
 
+    # ── Watchlist management ────────────────────────────────────────────────
+    # When enabled the engine scans the user-managed watchlists persisted to
+    # ``DATA_DIR/watchlists.json`` (organised into named lists such as "tech" or
+    # "energy") instead of the hard-coded universe.  If the file is missing the
+    # store seeds itself from the built-in US/CA universe, so behaviour is
+    # unchanged until the user edits their lists from the dashboard.
+    USE_WATCHLIST_FILE: bool = True
+
+    # ── News sentiment filter (Finnhub) ─────────────────────────────────────
+    # A free-tier Finnhub key (https://finnhub.io) fetches recent company news;
+    # the built-in headline scorer rejects an entry when the average sentiment
+    # over the lookback window is below NEWS_SENTIMENT_MIN_SCORE.  Disabled by
+    # default so the bot runs with zero extra configuration.
+    NEWS_SENTIMENT_ENABLED: bool = False
+    FINNHUB_API_KEY: str = ""
+    NEWS_LOOKBACK_DAYS: int = 3
+    NEWS_SENTIMENT_MIN_SCORE: float = -0.15
+    NEWS_MIN_ARTICLES: int = 2
+    NEWS_CACHE_TTL_MINUTES: float = 30.0
+
+    # ── Market regime detection ─────────────────────────────────────────────
+    # Classify the broad market as bull / bear / sideways from a benchmark's
+    # moving-average structure and realised volatility, then scale each
+    # strategy family's weight (momentum favoured in bull regimes, mean
+    # reversion in bear/sideways).  Applied only when enabled.
+    REGIME_DETECTION_ENABLED: bool = True
+    REGIME_BENCHMARK: str = "SPY"
+    REGIME_FAST_MA: int = 50
+    REGIME_SLOW_MA: int = 200
+    REGIME_VOL_WINDOW: int = 20
+    REGIME_HIGH_VOL_PCT: float = 0.018
+
+    # ── Strategy auto-tuning ────────────────────────────────────────────────
+    # Nudge the grade thresholds up or down based on the recent hit-rate of the
+    # last AUTOTUNE_LOOKBACK_TRADES closed trades: a cold streak raises the bar
+    # (fewer, higher-quality entries); a hot streak relaxes it slightly.  The
+    # adjustment is clamped to +/- AUTOTUNE_MAX_GRADE_ADJUST.  Off by default.
+    AUTOTUNE_ENABLED: bool = False
+    AUTOTUNE_LOOKBACK_TRADES: int = 30
+    AUTOTUNE_MIN_TRADES: int = 15
+    AUTOTUNE_MAX_GRADE_ADJUST: float = 0.08
+
+    # ── Scheduler + automated reports ───────────────────────────────────────
+    # A lightweight in-process scheduler (no external deps) that fires daily and
+    # weekly P&L email reports and nightly backtests.  Each job is independently
+    # toggleable; times are local "HH:MM" strings.
+    SCHEDULER_ENABLED: bool = False
+    PNL_REPORT_ENABLED: bool = False
+    PNL_REPORT_DAILY_TIME: str = "17:00"
+    PNL_REPORT_WEEKLY_ENABLED: bool = True
+    PNL_REPORT_WEEKLY_DAY: str = "FRI"
+    SCHEDULED_BACKTEST_ENABLED: bool = False
+    SCHEDULED_BACKTEST_TIME: str = "02:00"
+    SCHEDULED_BACKTEST_LOOKBACK_DAYS: int = 180
+
+    # ── Pre-market scanner ──────────────────────────────────────────────────
+    # Flag symbols gapping more than PREMARKET_GAP_PCT off the prior close or
+    # trading at more than PREMARKET_VOLUME_RATIO times their average volume.
+    PREMARKET_GAP_PCT: float = 0.02
+    PREMARKET_VOLUME_RATIO: float = 1.5
+
+    # ── Monte Carlo projection ──────────────────────────────────────────────
+    MONTE_CARLO_RUNS: int = 1000
+    MONTE_CARLO_HORIZON: int = 50
+
+    # ── Multi-user support ──────────────────────────────────────────────────
+    # When enabled the dashboard exposes registration/login and stores per-user
+    # accounts (with their own strategies, capital, and watchlists) in
+    # ``DATA_DIR/users.json``.  The HTTP Basic admin remains a superuser.
+    MULTI_USER_ENABLED: bool = False
+
+    # ── REST API ────────────────────────────────────────────────────────────
+    # A documented, API-key-authenticated JSON API under /api/v1.  Keys are
+    # minted from the dashboard and stored (hashed) in ``DATA_DIR/api_keys.json``.
+    REST_API_ENABLED: bool = True
+
 
 @functools.lru_cache(maxsize=1)
 def get_settings() -> Settings:

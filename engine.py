@@ -37,7 +37,7 @@ import logging_config
 from agent.alerts import AlertManager
 from ai.analyst import AIAnalyst
 from config.settings import Settings, get_settings
-from config.universe import ALL_SYMBOLS
+from config.watchlist import scan_symbols_for
 from data.fetcher import fetch_current_price
 from execution.broker import make_broker
 from execution.exit_manager import ExitManager
@@ -368,8 +368,10 @@ class TradingEngine:
             )
             return
 
-        # Step 6: Run the screener.
-        signals: List[Signal] = run_full_scan(ALL_SYMBOLS, min_grade="B")
+        # Step 6: Run the screener over the user-managed watchlist (falls back
+        # to the built-in universe when the watchlist feature is disabled/empty).
+        scan_symbols = scan_symbols_for(self.settings)
+        signals: List[Signal] = run_full_scan(scan_symbols, min_grade="B")
 
         # Step 7: Process each signal through the entry pipeline.
         trades_placed: int = 0
