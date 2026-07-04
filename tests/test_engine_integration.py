@@ -149,3 +149,28 @@ def test_restart_requested_consumes_sentinel(eng) -> None:
     assert eng._restart_requested() is True
     # Consumed — a second check is False.
     assert eng._restart_requested() is False
+
+
+# --------------------------------------------------------------------------- #
+# graceful shutdown
+# --------------------------------------------------------------------------- #
+
+
+async def test_shutdown_interrupts_sleep(eng) -> None:
+    """shutdown() wakes the between-cycle sleep so the loop exits promptly.
+
+    Without this, a SIGTERM during the 60-minute between-scan sleep would hang
+    ``systemctl stop/restart`` until systemd's stop timeout forces a SIGKILL.
+    """
+    import asyncio
+    import time
+
+    eng._stop_event = asyncio.Event()
+    asyncio.get_running_loop().call_later(0.1, eng.shutdown)
+
+    started = time.monotonic()
+    await eng._interruptible_sleep(10)  # would block 10s if not interrupted
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 1.0
+    assert eng.running is False

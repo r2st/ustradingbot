@@ -117,6 +117,11 @@ class TradingEngine:
         self._last_cycle_at: str | None = None
         self._next_scan_at: str | None = None
 
+        # Set by shutdown() to interrupt the between-cycle sleep immediately, so
+        # SIGTERM (e.g. a dashboard-triggered `systemctl stop/restart`) is
+        # honoured within a second instead of waiting out a 60-minute sleep.
+        self._stop_event: asyncio.Event | None = None
+
         log.info(
             "engine.init",
             broker=self.settings.BROKER,
@@ -143,8 +148,10 @@ class TradingEngine:
         Registers ``SIGINT`` and ``SIGTERM`` handlers for graceful
         shutdown.
         """
-        # Register OS signal handlers.
+        # Register OS signal handlers.  The stop event must be created inside
+        # the running loop so shutdown() can wake the sleep from a signal.
         loop = asyncio.get_running_loop()
+        self._stop_event = asyncio.Event()
         for sig in (signal.SIGINT, signal.SIGTERM):
             loop.add_signal_handler(sig, self.shutdown)
 
@@ -253,13 +260,13 @@ class TradingEngine:
         ``SCAN_INTERVAL_MINUTES`` cadence.
         """
         if not self._realtime_exits_enabled():
-            await asyncio.sleep(sleep_seconds)
+            await self._interruptible_sleep(sleep_seconds)
             return
 
         poll = max(1.0, float(self.settings.REALTIME_EXIT_POLL_SECONDS))
         elapsed = 0.0
         while elapsed < sleep_seconds and self.running:
-            await asyncio.sleep(min(poll, sleep_seconds - elapsed))
+            await self._interruptible_sleep(min(poll, sleep_seconds - elapsed))
             elapsed += poll
             if not self.running or not self.is_market_open():
                 continue
@@ -268,6 +275,22 @@ class TradingEngine:
                     self.exit_manager.manage_exits()
                 except Exception:
                     log.exception("engine.realtime_exit_error")
+
+    async def _interruptible_sleep(self, seconds: float) -> None:
+        """Sleep for *seconds*, returning early if shutdown is requested.
+
+        Waits on the stop event with a timeout: a normal wait times out and the
+        sleep completes, but ``shutdown()`` sets the event to return at once so
+        the loop exits promptly on SIGINT/SIGTERM.
+        """
+        stop_event = getattr(self, "_stop_event", None)
+        if stop_event is None:
+            await asyncio.sleep(seconds)
+            return
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=seconds)
+        except asyncio.TimeoutError:
+            pass  # the full interval elapsed — a normal, uninterrupted sleep
 
     # ------------------------------------------------------------------
     # Single cycle
@@ -863,12 +886,14 @@ class TradingEngine:
     def shutdown(self) -> None:
         """Request a graceful shutdown of the trading loop.
 
-        Sets the :attr:`running` flag to ``False``, which causes the
-        main loop in :meth:`run` to exit after the current sleep or
-        cycle completes.
+        Sets the :attr:`running` flag to ``False`` and wakes the between-cycle
+        sleep so the main loop in :meth:`run` exits promptly rather than waiting
+        out the remaining sleep interval.
         """
         log.info("engine.shutdown_requested")
         self.running = False
+        if self._stop_event is not None:
+            self._stop_event.set()
 
 
 # ----------------------------------------------------------------------
