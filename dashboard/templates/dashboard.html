@@ -2203,6 +2203,39 @@
     }, 1500);
   }
 
+  // On page load, re-attach to the most recent backtest job.  The dashboard
+  // reloads itself periodically (and users reload manually), which used to
+  // orphan an in-flight run and silently discard finished results — the page
+  // came back as a bare form even though the server had the answer.
+  (async function () {
+    var status = document.getElementById("btStatus");
+    var btn = document.getElementById("btRunBtn");
+    try {
+      var resp = await fetch("/api/backtest/latest");
+      if (!resp.ok) return;
+      var data = await resp.json();
+      var job = data && data.job;
+      if (!job) return;
+      var when = job.finished_at
+        ? " (finished " + new Date(job.finished_at).toLocaleString() + ")" : "";
+      if (job.state === "running") {
+        window.__pauseAutoRefresh = true;  // don't reload out from under the run
+        btn.disabled = true;
+        status.className = "bt-status-line";
+        status.innerHTML = '<span class="spinner"></span>' +
+          (job.message || "Backtest still running…");
+        _pollBacktest(job.id);
+      } else if (job.state === "done" && job.result) {
+        status.className = "bt-status-line pos";
+        status.textContent = "Latest backtest" + when + " — results below.";
+        renderBacktest(job.result);
+      } else if (job.state === "error") {
+        status.className = "bt-status-line neg";
+        status.textContent = (job.message || "Backtest failed.") + when;
+      }
+    } catch (e) { /* no saved run to restore — leave the form pristine */ }
+  })();
+
   function _money(v) {
     if (v === null || v === undefined || isNaN(v)) return "—";
     var n = Number(v);

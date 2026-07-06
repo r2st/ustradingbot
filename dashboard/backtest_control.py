@@ -268,3 +268,17 @@ def get_job(job_id: str) -> Dict[str, Any] | None:
     with _lock:
         job = _jobs.get(job_id)
         return dict(job) if job is not None else None
+
+
+def latest_job() -> Dict[str, Any] | None:
+    """Return a copy of the most recently started job, or ``None``.
+
+    The dashboard reloads itself periodically, which used to orphan an
+    in-flight backtest (the page lost the job id) and silently discard
+    finished results.  On load the UI asks for the latest job so it can
+    resume polling a running job or re-render the last completed results.
+    """
+    with _lock:
+        if not _jobs:
+            return None
+        return dict(next(reversed(_jobs.values())))

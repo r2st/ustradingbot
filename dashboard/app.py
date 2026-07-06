@@ -907,6 +907,16 @@ async def backtest_run_api(request: Request, _user: str = Depends(require_auth))
     return start_backtest(body)
 
 
+@app.get("/api/backtest/latest")
+async def backtest_latest_api(_user: str = Depends(require_auth)):
+    """The most recently started backtest job, so the UI can resume after
+    a page reload instead of losing the run/results."""
+    from dashboard.backtest_control import latest_job
+
+    job = latest_job()
+    return {"ok": True, "job": job}
+
+
 @app.get("/api/backtest/status/{job_id}")
 async def backtest_status_api(job_id: str, _user: str = Depends(require_auth)):
     """Poll a backtest job: state, message, and results when complete."""
