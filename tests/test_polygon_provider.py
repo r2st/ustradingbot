@@ -21,7 +21,12 @@ class FakeResponse:
 
 
 def test_make_provider_selects_polygon() -> None:
-    s = Settings(MARKET_DATA_PROVIDER="polygon", POLYGON_API_KEY="k")
+    # Disable the fallback wrapper to assert the raw primary selection.
+    s = Settings(
+        MARKET_DATA_PROVIDER="polygon",
+        POLYGON_API_KEY="k",
+        MARKET_DATA_FALLBACK_PROVIDER="",
+    )
     assert isinstance(make_provider(s), PolygonProvider)
 
 

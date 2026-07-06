@@ -195,6 +195,11 @@ class BacktestResult:
     summary: Dict[str, Any]
     by_strategy: List[Dict[str, Any]]
     by_symbol: List[Dict[str, Any]]
+    #: Chronological event log (signals generated, entries, exits, rejections)
+    #: — the "what happened and why" trace surfaced by the dashboard log viewer.
+    events: List[Dict[str, Any]] = field(default_factory=list)
+    #: Total events produced (``events`` may be truncated to a cap).
+    events_total: int = 0
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -204,6 +209,8 @@ class BacktestResult:
             "by_symbol": self.by_symbol,
             "equity_curve": self.equity_curve,
             "trades": [t.to_record() for t in self.trades],
+            "events": self.events,
+            "events_total": self.events_total,
         }
 
     def trades_frame(self) -> pd.DataFrame:
@@ -240,6 +247,10 @@ class BacktestResult:
 
 _GRADE_RANK = {"A": 0, "B": 1, "C": 2, "F": 3}
 
+#: Cap the retained event log so a large universe over a long window cannot
+#: balloon the result payload.  The total count is preserved separately.
+_MAX_EVENTS = 5000
+
 
 class Backtester:
     """Runs a single backtest over pre-loaded price data."""
@@ -271,6 +282,43 @@ class Backtester:
         self._cooldown_until: Dict[str, pd.Timestamp] = {}
         self._trades: List[BacktestTrade] = []
         self._equity_curve: List[Dict[str, Any]] = []
+        # Structured event trace for the dashboard log viewer.
+        self._events: List[Dict[str, Any]] = []
+        self._events_total: int = 0
+
+    # -------------------------------------------------------------- event log
+
+    def _log_event(
+        self,
+        t: pd.Timestamp,
+        kind: str,
+        symbol: str,
+        message: str,
+        **detail: Any,
+    ) -> None:
+        """Append one entry to the backtest event trace.
+
+        Args:
+            t: The trading day the event occurred on.
+            kind: Event category — ``signal`` (a qualifying setup was found),
+                ``entry`` (a position was opened), ``exit`` (a position was
+                closed), or ``reject`` (a candidate was skipped, with a reason).
+            symbol: The ticker the event concerns.
+            message: A short human-readable summary.
+            **detail: Extra structured fields (prices, sizes, counts) rendered
+                as columns/tooltips in the UI.
+        """
+        self._events_total += 1
+        if len(self._events) >= _MAX_EVENTS:
+            return
+        record = {
+            "date": str(t.date()) if hasattr(t, "date") else str(t),
+            "kind": kind,
+            "symbol": symbol,
+            "message": message,
+        }
+        record.update({k: v for k, v in detail.items() if v is not None})
+        self._events.append(record)
 
     # ------------------------------------------------------------------ run
 
@@ -390,6 +438,23 @@ class Backtester:
             )
         )
 
+        self._log_event(
+            t,
+            "exit",
+            sym,
+            f"{reason} — exit {exit_price:.2f}, {pnl_net:+.2f} net "
+            f"({r_multiple:+.2f}R, {pos.bars_held} bars)",
+            strategy=pos.strategy,
+            exit_price=round(exit_price, 4),
+            entry_price=round(pos.entry_price, 4),
+            stop_price=round(pos.stop_price, 4),
+            target_price=round(pos.target_price, 4),
+            quantity=pos.quantity,
+            pnl_net=round(pnl_net, 2),
+            r_multiple=round(r_multiple, 2),
+            bars_held=pos.bars_held,
+        )
+
         # Re-entry cooldown: block same-symbol re-entry for a day after a
         # stop-out (mirrors the live long-cooldown intent on a daily grid).
         if reason in ("STOP_HIT", "SETUP_BROKEN"):
@@ -420,12 +485,32 @@ class Backtester:
                 continue
             signal = self._detect(sym, history)
             if signal is not None:
+                self._log_event(
+                    t,
+                    "signal",
+                    sym,
+                    f"{signal.strategy} {signal.grade.value}-grade "
+                    f"({signal.signal_strength:.2f}) entry {signal.entry_price:.2f}",
+                    strategy=signal.strategy,
+                    grade=signal.grade.value,
+                    signal_strength=round(signal.signal_strength, 3),
+                    entry_price=round(signal.entry_price, 4),
+                    stop_price=round(signal.stop_price, 4),
+                    target_price=round(signal.target_price, 4),
+                )
                 candidates.append(signal)
 
         # Strongest signals first.
         candidates.sort(key=lambda s: s.signal_strength, reverse=True)
         for signal in candidates:
             if len(self._positions) >= self._config.max_positions:
+                self._log_event(
+                    t,
+                    "reject",
+                    signal.symbol,
+                    f"skipped — max positions ({self._config.max_positions}) reached",
+                    strategy=signal.strategy,
+                )
                 break
             self._try_enter(signal, t)
 
@@ -455,13 +540,30 @@ class Backtester:
 
     def _try_enter(self, signal: Signal, t: pd.Timestamp) -> None:
         if not self._strategy_has_room(signal.strategy):
+            self._log_event(
+                t, "reject", signal.symbol,
+                f"skipped — {_family(signal.strategy)} strategy cap full",
+                strategy=signal.strategy,
+            )
             return
         risk_per_share = signal.entry_price - signal.stop_price
         if risk_per_share <= 0 or signal.entry_price <= 0:
+            self._log_event(
+                t, "reject", signal.symbol,
+                "skipped — invalid risk (stop >= entry or non-positive price)",
+                strategy=signal.strategy,
+                entry_price=round(signal.entry_price, 4),
+                stop_price=round(signal.stop_price, 4),
+            )
             return
 
         shares = self._size(signal)
         if shares <= 0:
+            self._log_event(
+                t, "reject", signal.symbol,
+                "skipped — position size rounded to zero shares",
+                strategy=signal.strategy,
+            )
             return
 
         fill_price = apply_entry_slippage(signal.entry_price, self._config.slippage_bps)
@@ -473,10 +575,22 @@ class Backtester:
             affordable = int((self._cash - commission) / fill_price) if fill_price else 0
             shares = min(shares, max(0, affordable))
             if shares <= 0:
+                self._log_event(
+                    t, "reject", signal.symbol,
+                    f"skipped — insufficient cash "
+                    f"(need {fill_price:.2f}/sh, have {self._cash:.2f})",
+                    strategy=signal.strategy,
+                )
                 return
             commission = commission_for(shares, self._config.commission_per_share)
             cost = fill_price * shares + commission
             if cost > self._cash:
+                self._log_event(
+                    t, "reject", signal.symbol,
+                    f"skipped — insufficient cash (need {cost:.2f}, "
+                    f"have {self._cash:.2f})",
+                    strategy=signal.strategy,
+                )
                 return
 
         self._cash -= cost
@@ -491,6 +605,19 @@ class Backtester:
             target_price=signal.target_price,
             original_stop=signal.stop_price,
             entry_date=t,
+        )
+        self._log_event(
+            t, "entry", signal.symbol,
+            f"BUY {shares} @ {fill_price:.2f} ({signal.strategy}, "
+            f"grade {signal.grade.value}) stop {signal.stop_price:.2f} / "
+            f"target {signal.target_price:.2f}",
+            strategy=signal.strategy,
+            grade=signal.grade.value,
+            quantity=shares,
+            entry_price=round(fill_price, 4),
+            stop_price=round(signal.stop_price, 4),
+            target_price=round(signal.target_price, 4),
+            cash_after=round(self._cash, 2),
         )
 
     def _size(self, signal: Signal) -> int:
@@ -554,6 +681,7 @@ class Backtester:
             trades=len(self._trades),
             total_pnl=summary.get("total_pnl"),
             win_rate=summary.get("win_rate"),
+            events=self._events_total,
         )
         return BacktestResult(
             config=self._config,
@@ -562,6 +690,8 @@ class Backtester:
             summary=summary,
             by_strategy=by_strategy,
             by_symbol=by_symbol,
+            events=self._events,
+            events_total=self._events_total,
         )
 
 

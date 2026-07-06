@@ -210,6 +210,22 @@ class Settings(BaseSettings):
     ALPACA_DATA_FEED: str = "iex"  # "iex" (free) or "sip" (paid)
     POLYGON_API_KEY: str = ""
 
+    # ── Fallback market-data provider ───────────────────────────────────────
+    # The primary provider (above) is wrapped so that when it fails or is
+    # rate-limited, the fetch transparently falls back to this secondary
+    # backend.  This is essential on free API tiers: Polygon's free plan caps
+    # at ~5 requests/minute and returns HTTP 429 well before a 41-symbol scan
+    # completes, which starves the screener of data and produces ZERO signals
+    # (and therefore zero trades).  Yahoo Finance has no such per-minute cap,
+    # so it makes a reliable free fallback.  Set empty ("") to disable the
+    # fallback entirely.  Ignored when it equals the primary provider.
+    MARKET_DATA_FALLBACK_PROVIDER: str = "yfinance"
+    # After this many *consecutive* primary failures the circuit breaker trips
+    # and routes every fetch straight to the fallback for a cooldown, so a
+    # rate-limited primary is not hammered once per symbol for the whole scan.
+    PROVIDER_FALLBACK_TRIP_THRESHOLD: int = 3
+    PROVIDER_FALLBACK_COOLDOWN_SECONDS: float = 300.0  # 5 minutes
+
     @property
     def alpaca_keys_present(self) -> bool:
         """Return whether both Alpaca API credentials are configured."""
@@ -406,6 +422,14 @@ class Settings(BaseSettings):
 
     # ── Minimum OHLCV rows for indicator calculation ────────────────────────
     MIN_OHLCV_ROWS: int = 200
+
+    # ── OHLCV look-back window fetched per symbol ───────────────────────────
+    # The screener needs at least MIN_OHLCV_ROWS bars (EMA-200 is the longest
+    # indicator).  A "6mo" window only yields ~123 trading days — BELOW the
+    # 200-row minimum — which silently rejected *every* symbol at the row check
+    # and produced zero signals (and therefore zero trades).  "2y" (~500 bars)
+    # gives comfortable headroom above the minimum for all strategies.
+    OHLCV_FETCH_PERIOD: str = "2y"
 
     # ── Watchlist management ────────────────────────────────────────────────
     # When enabled the engine scans the user-managed watchlists persisted to

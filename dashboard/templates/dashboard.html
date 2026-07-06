@@ -626,6 +626,34 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
+  /* ── Backtest event-log viewer ────────────────────────────────────────── */
+  .bt-log-toolbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+    margin: 6px 0 10px; }
+  .bt-log-filter { background: var(--bg); color: var(--text-muted);
+    border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px;
+    font-size: 12px; font-family: inherit; cursor: pointer; }
+  .bt-log-filter:hover { color: var(--text); }
+  .bt-log-filter.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .bt-log-wrap { background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    max-height: 340px; overflow-y: auto; overflow-x: auto; }
+  .bt-log-table { width: 100%; border-collapse: collapse; font-size: 12.5px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .bt-log-table th { position: sticky; top: 0; background: var(--surface-2);
+    text-align: left; padding: 7px 10px; font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.4px; color: var(--text-muted); border-bottom: 1px solid var(--border); }
+  .bt-log-table td { padding: 5px 10px; border-bottom: 1px solid var(--border);
+    white-space: nowrap; vertical-align: top; }
+  .bt-log-table td.msg { white-space: normal; color: var(--text); }
+  .bt-log-table tr:last-child td { border-bottom: none; }
+  .ev-badge { display: inline-block; min-width: 52px; text-align: center; padding: 1px 8px;
+    border-radius: 5px; font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.4px; }
+  .ev-signal { background: #123a5b; color: var(--cyan); }
+  .ev-entry  { background: #16351f; color: #4ade80; }
+  .ev-exit   { background: #3a2333; color: #f0a8d0; }
+  .ev-reject { background: #3a2418; color: #f0a060; }
+  .bt-log-empty { padding: 18px; text-align: center; color: var(--text-muted); font-size: 13px; }
+
   @media (max-width: 600px) {
     .engine-controls .btn-primary, .engine-controls .btn-secondary,
     .engine-controls .btn-danger { flex: 1 1 44%; }
@@ -1137,10 +1165,39 @@
       <div class="table-wrap">
         <table class="data-table">
           <thead>
-            <tr><th>Symbol</th><th>Strategy</th><th>Entry</th><th>Exit</th>
+            <tr><th>Symbol</th><th>Strategy</th>
+              <th>Entry Date</th><th>Entry $</th>
+              <th>Exit Date</th><th>Exit $</th>
+              <th>Stop</th><th>Target</th>
               <th>Reason</th><th>Qty</th><th>Net P&amp;L</th><th>R</th></tr>
           </thead>
           <tbody id="btTrades"></tbody>
+        </table>
+      </div>
+
+      <h4 style="margin:18px 0 2px;">Backtest log
+        <span id="btEventCount" class="bt-hint"></span></h4>
+      <p class="bt-hint">Chronological trace of what the backtester did: which
+        signals fired, which were entered or skipped (and why), and how each
+        position exited.</p>
+      <div class="bt-log-toolbar" id="btLogFilters">
+        <button type="button" class="bt-log-filter active" data-kind="all"
+                onclick="filterBtLog('all', this)">All</button>
+        <button type="button" class="bt-log-filter" data-kind="signal"
+                onclick="filterBtLog('signal', this)">Signals</button>
+        <button type="button" class="bt-log-filter" data-kind="entry"
+                onclick="filterBtLog('entry', this)">Entries</button>
+        <button type="button" class="bt-log-filter" data-kind="exit"
+                onclick="filterBtLog('exit', this)">Exits</button>
+        <button type="button" class="bt-log-filter" data-kind="reject"
+                onclick="filterBtLog('reject', this)">Rejections</button>
+      </div>
+      <div class="bt-log-wrap">
+        <table class="bt-log-table">
+          <thead>
+            <tr><th>Date</th><th>Event</th><th>Symbol</th><th>Detail</th></tr>
+          </thead>
+          <tbody id="btLog"></tbody>
         </table>
       </div>
     </div>
@@ -2188,14 +2245,82 @@
       tr.innerHTML =
         "<td>" + t.symbol + "</td><td>" + t.strategy + "</td>" +
         "<td>" + _dateShort(t.entry_time) + "</td>" +
+        "<td>" + _num(t.entry_fill_price, 2) + "</td>" +
         "<td>" + _dateShort(t.exit_time) + "</td>" +
+        "<td>" + _num(t.exit_price, 2) + "</td>" +
+        "<td>" + _num(t.stop_price, 2) + "</td>" +
+        "<td>" + _num(t.target_price, 2) + "</td>" +
         "<td>" + (t.exit_reason || "") + "</td><td>" + t.quantity + "</td>" +
         '<td class="' + (t.pnl_net >= 0 ? "pos" : "neg") + '">' +
         _money(t.pnl_net) + "</td><td>" + _num(t.r_multiple, 2) + "</td>";
       tbody.appendChild(tr);
     });
 
+    renderBacktestLog(result);
+
     document.getElementById("btResults").classList.add("show");
+  }
+
+  // ── Backtest event-log viewer ─────────────────────────────────────────────
+  var _btEvents = [];
+  var _btLogFilter = "all";
+
+  function renderBacktestLog(result) {
+    _btEvents = result.events || [];
+    _btLogFilter = "all";
+    document.querySelectorAll("#btLogFilters .bt-log-filter").forEach(function (b) {
+      b.classList.toggle("active", b.getAttribute("data-kind") === "all");
+    });
+    var total = (result.events_total !== undefined) ? result.events_total : _btEvents.length;
+    var label = "(" + total + " events";
+    if (result.events_truncated || (total > _btEvents.length)) {
+      label += ", showing first " + _btEvents.length;
+    }
+    label += ")";
+    document.getElementById("btEventCount").textContent = label;
+    _drawBtLog();
+  }
+
+  function filterBtLog(kind, btn) {
+    _btLogFilter = kind;
+    document.querySelectorAll("#btLogFilters .bt-log-filter").forEach(function (b) {
+      b.classList.remove("active");
+    });
+    if (btn) btn.classList.add("active");
+    _drawBtLog();
+  }
+
+  function _drawBtLog() {
+    var tbody = document.getElementById("btLog");
+    tbody.innerHTML = "";
+    var rows = _btEvents.filter(function (e) {
+      return _btLogFilter === "all" || e.kind === _btLogFilter;
+    });
+    if (!rows.length) {
+      var tr = document.createElement("tr");
+      tr.innerHTML = '<td colspan="4" class="bt-log-empty">No ' +
+        (_btLogFilter === "all" ? "" : _btLogFilter + " ") + "events.</td>";
+      tbody.appendChild(tr);
+      return;
+    }
+    var frag = document.createDocumentFragment();
+    rows.forEach(function (e) {
+      var tr = document.createElement("tr");
+      tr.innerHTML =
+        "<td>" + _esc(e.date) + "</td>" +
+        '<td><span class="ev-badge ev-' + _esc(e.kind) + '">' +
+        _esc(e.kind) + "</span></td>" +
+        "<td>" + _esc(e.symbol || "") + "</td>" +
+        '<td class="msg">' + _esc(e.message || "") + "</td>";
+      frag.appendChild(tr);
+    });
+    tbody.appendChild(frag);
+  }
+
+  function _esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
+      return {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c];
+    });
   }
 
   function drawEquityCurve(curve) {

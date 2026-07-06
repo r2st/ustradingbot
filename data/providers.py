@@ -20,6 +20,7 @@ so the caller (:mod:`data.fetcher`) can retry with backoff.
 
 from __future__ import annotations
 
+import time
 from datetime import datetime, timedelta
 from typing import Callable, List, Optional, Protocol, runtime_checkable
 
@@ -437,15 +438,156 @@ class PolygonProvider:
 
 
 # ---------------------------------------------------------------------------
+# Fallback provider (primary -> secondary chaining with a circuit breaker)
+# ---------------------------------------------------------------------------
+
+
+class FallbackProvider:
+    """Chain two providers: use *primary*, fall back to *fallback* on failure.
+
+    A provider "fails" for a call when it raises an exception *or* returns
+    ``None``.  This exists because free market-data tiers are unreliable at
+    scan volume -- most importantly Polygon's free plan, which caps at ~5
+    requests/minute and returns HTTP 429 for the rest of a 41-symbol scan.
+    Without a fallback the screener receives no data and generates zero
+    signals, so the engine places no trades at all.
+
+    A lightweight circuit breaker prevents pointlessly hammering a
+    rate-limited primary once per symbol: after ``trip_threshold`` consecutive
+    primary failures the breaker "trips" and every call goes straight to the
+    fallback for ``cooldown_seconds``.  Any later primary success resets it.
+    """
+
+    def __init__(
+        self,
+        primary: MarketDataProvider,
+        fallback: MarketDataProvider,
+        *,
+        trip_threshold: int = 3,
+        cooldown_seconds: float = 300.0,
+    ) -> None:
+        self._primary = primary
+        self._fallback = fallback
+        self._trip_threshold = max(1, int(trip_threshold))
+        self._cooldown = max(0.0, float(cooldown_seconds))
+        self._consecutive_failures = 0
+        self._tripped_until = 0.0
+        self.name = f"{primary.name}->{fallback.name}"
+        self._log = logger.bind(provider=self.name)
+
+    # ---------------------------------------------------------- breaker state
+
+    def _breaker_open(self) -> bool:
+        """Return whether the primary is currently being skipped."""
+        return time.monotonic() < self._tripped_until
+
+    def _record_primary_success(self) -> None:
+        self._consecutive_failures = 0
+        self._tripped_until = 0.0
+
+    def _record_primary_failure(self) -> None:
+        self._consecutive_failures += 1
+        if self._consecutive_failures >= self._trip_threshold and not self._breaker_open():
+            self._tripped_until = time.monotonic() + self._cooldown
+            self._log.warning(
+                "provider.fallback_breaker_tripped",
+                primary=self._primary.name,
+                fallback=self._fallback.name,
+                consecutive_failures=self._consecutive_failures,
+                cooldown_seconds=self._cooldown,
+            )
+
+    # ---------------------------------------------------------------- dispatch
+
+    def _call(self, method: str, symbol: str, *args) -> Optional[object]:
+        """Invoke *method* on the primary, falling back on failure.
+
+        Only the fallback is allowed to raise (so :func:`data.fetcher._with_retry`
+        can still retry a genuinely-down fallback); primary errors are swallowed
+        and turned into a fallback attempt.
+        """
+        if not self._breaker_open():
+            try:
+                result = getattr(self._primary, method)(symbol, *args)
+                if result is not None:
+                    self._record_primary_success()
+                    return result
+                # Empty result counts as a soft failure -> try the fallback.
+                self._record_primary_failure()
+            except Exception as exc:  # noqa: BLE001 -- classified as transient
+                self._record_primary_failure()
+                self._log.warning(
+                    "provider.fallback_primary_error",
+                    method=method,
+                    symbol=symbol,
+                    primary=self._primary.name,
+                    error=str(exc),
+                )
+
+        result = getattr(self._fallback, method)(symbol, *args)
+        if result is not None:
+            self._log.info(
+                "provider.fallback_used",
+                method=method,
+                symbol=symbol,
+                fallback=self._fallback.name,
+                breaker_open=self._breaker_open(),
+            )
+        return result
+
+    def get_ohlcv(self, symbol: str, period: str = "6mo") -> Optional[pd.DataFrame]:
+        return self._call("get_ohlcv", symbol, period)  # type: ignore[return-value]
+
+    def get_current_price(self, symbol: str) -> Optional[float]:
+        return self._call("get_current_price", symbol)  # type: ignore[return-value]
+
+    def supports_streaming(self) -> bool:
+        # Streaming exits key off the primary's capabilities; the fallback is
+        # only used for one-shot REST fetches.
+        return self._primary.supports_streaming()
+
+
+# ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
 
 
-def make_provider(settings: object) -> MarketDataProvider:
-    """Return the provider selected by ``settings.MARKET_DATA_PROVIDER``."""
-    provider = str(getattr(settings, "MARKET_DATA_PROVIDER", "yfinance")).lower()
-    if provider == "alpaca":
+def _make_single_provider(name: str, settings: object) -> MarketDataProvider:
+    """Construct one concrete provider by short name."""
+    if name == "alpaca":
         return AlpacaProvider(settings)  # type: ignore[return-value]
-    if provider == "polygon":
+    if name == "polygon":
         return PolygonProvider(settings)  # type: ignore[return-value]
     return YFinanceProvider(settings)  # type: ignore[return-value]
+
+
+def make_provider(settings: object) -> MarketDataProvider:
+    """Return the provider selected by ``settings.MARKET_DATA_PROVIDER``.
+
+    When ``MARKET_DATA_FALLBACK_PROVIDER`` names a *different* provider, the
+    primary is wrapped in a :class:`FallbackProvider` so rate-limit/outage
+    failures on the primary transparently fall back to the secondary backend.
+    """
+    primary_name = str(getattr(settings, "MARKET_DATA_PROVIDER", "yfinance")).lower()
+    primary = _make_single_provider(primary_name, settings)
+
+    fallback_name = str(
+        getattr(settings, "MARKET_DATA_FALLBACK_PROVIDER", "") or ""
+    ).lower()
+    if not fallback_name or fallback_name == primary_name:
+        return primary
+
+    fallback = _make_single_provider(fallback_name, settings)
+    logger.info(
+        "provider.fallback_enabled",
+        primary=primary_name,
+        fallback=fallback_name,
+    )
+    return FallbackProvider(  # type: ignore[return-value]
+        primary,
+        fallback,
+        trip_threshold=int(getattr(settings, "PROVIDER_FALLBACK_TRIP_THRESHOLD", 3)),
+        cooldown_seconds=float(
+            getattr(settings, "PROVIDER_FALLBACK_COOLDOWN_SECONDS", 300.0)
+        ),
+    )

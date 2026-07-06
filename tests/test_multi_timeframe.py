@@ -132,7 +132,7 @@ def test_screener_weekly_veto(monkeypatch) -> None:
     from signals.signal_types import Grade, Signal
 
     df = _downtrend()
-    monkeypatch.setattr(screener, "fetch_ohlcv", lambda s: df)
+    monkeypatch.setattr(screener, "fetch_ohlcv", lambda s, period=None: df)
 
     good_signal = Signal(symbol="AAPL", strategy="momentum", entry_price=100.0,
                          stop_price=95.0, target_price=115.0,
@@ -152,7 +152,7 @@ def test_screener_weekly_allows_when_disabled(monkeypatch) -> None:
     from signals.signal_types import Grade, Signal
 
     df = _downtrend()
-    monkeypatch.setattr(screener, "fetch_ohlcv", lambda s: df)
+    monkeypatch.setattr(screener, "fetch_ohlcv", lambda s, period=None: df)
     good_signal = Signal(symbol="AAPL", strategy="momentum", entry_price=100.0,
                          stop_price=95.0, target_price=115.0,
                          signal_strength=0.85, grade=Grade.A, direction="long")

@@ -12,6 +12,8 @@ import pytest
 from config.settings import Settings
 from data.providers import (
     AlpacaProvider,
+    FallbackProvider,
+    PolygonProvider,
     YFinanceProvider,
     clean_ohlcv,
     make_provider,
@@ -89,13 +91,109 @@ def test_period_to_start_max_and_unknown() -> None:
 
 
 def test_make_provider_default_is_yfinance() -> None:
+    # Default primary and fallback are both yfinance, so the factory returns the
+    # bare provider (no self-wrapping when primary == fallback).
     assert isinstance(make_provider(Settings()), YFinanceProvider)
 
 
 def test_make_provider_alpaca() -> None:
+    # Disable the fallback to assert the raw primary selection.
     assert isinstance(
-        make_provider(Settings(MARKET_DATA_PROVIDER="alpaca")), AlpacaProvider
+        make_provider(
+            Settings(MARKET_DATA_PROVIDER="alpaca", MARKET_DATA_FALLBACK_PROVIDER="")
+        ),
+        AlpacaProvider,
     )
+
+
+def test_make_provider_wraps_primary_with_fallback() -> None:
+    # A non-yfinance primary with the default yfinance fallback is wrapped so a
+    # rate-limited/erroring primary transparently falls back to Yahoo.
+    from data.providers import FallbackProvider
+
+    provider = make_provider(Settings(MARKET_DATA_PROVIDER="polygon"))
+    assert isinstance(provider, FallbackProvider)
+    assert isinstance(provider._primary, PolygonProvider)
+    assert isinstance(provider._fallback, YFinanceProvider)
+
+
+def test_make_provider_no_fallback_when_disabled() -> None:
+    provider = make_provider(
+        Settings(MARKET_DATA_PROVIDER="polygon", MARKET_DATA_FALLBACK_PROVIDER="")
+    )
+    assert isinstance(provider, PolygonProvider)
+
+
+def test_fallback_provider_uses_fallback_on_primary_error() -> None:
+    """Primary raising -> fallback result is returned and no error propagates."""
+    from data.providers import FallbackProvider
+
+    class _Boom:
+        name = "boom"
+
+        def get_ohlcv(self, symbol, period="6mo"):
+            raise RuntimeError("429 Too Many Requests")
+
+        def get_current_price(self, symbol):
+            raise RuntimeError("429")
+
+        def supports_streaming(self):
+            return False
+
+    class _Good:
+        name = "good"
+
+        def get_ohlcv(self, symbol, period="6mo"):
+            return "DATA"
+
+        def get_current_price(self, symbol):
+            return 123.0
+
+        def supports_streaming(self):
+            return False
+
+    fb = FallbackProvider(_Boom(), _Good(), trip_threshold=3, cooldown_seconds=300)
+    assert fb.get_ohlcv("AAPL") == "DATA"
+    assert fb.get_current_price("AAPL") == 123.0
+
+
+def test_fallback_provider_breaker_trips_after_threshold() -> None:
+    """After N consecutive primary failures, the primary is skipped entirely."""
+    from data.providers import FallbackProvider
+
+    class _Counter:
+        name = "counter"
+        calls = 0
+
+        def get_ohlcv(self, symbol, period="6mo"):
+            _Counter.calls += 1
+            raise RuntimeError("429")
+
+        def get_current_price(self, symbol):
+            return None
+
+        def supports_streaming(self):
+            return False
+
+    class _Good:
+        name = "good"
+
+        def get_ohlcv(self, symbol, period="6mo"):
+            return "DATA"
+
+        def get_current_price(self, symbol):
+            return 1.0
+
+        def supports_streaming(self):
+            return False
+
+    primary = _Counter()
+    fb = FallbackProvider(primary, _Good(), trip_threshold=3, cooldown_seconds=300)
+    for _ in range(20):
+        assert fb.get_ohlcv("X") == "DATA"
+    # Primary is only tried up to the trip threshold, then the breaker opens.
+    assert _Counter.calls == 3
+    assert fb._breaker_open() is True
 
 
 def test_yfinance_supports_streaming_false() -> None:

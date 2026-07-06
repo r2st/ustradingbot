@@ -193,6 +193,12 @@ def test_provider_selection_from_settings(monkeypatch) -> None:
     assert isinstance(fetcher.get_provider(), YFinanceProvider)
 
     fetcher.set_provider(None)
-    monkeypatch.setattr(fetcher, "get_settings", lambda: Settings(MARKET_DATA_PROVIDER="alpaca"))
+    monkeypatch.setattr(
+        fetcher,
+        "get_settings",
+        lambda: Settings(
+            MARKET_DATA_PROVIDER="alpaca", MARKET_DATA_FALLBACK_PROVIDER=""
+        ),
+    )
     assert isinstance(fetcher.get_provider(), AlpacaProvider)
     fetcher.set_provider(None)

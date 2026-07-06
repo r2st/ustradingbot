@@ -90,8 +90,10 @@ def _scan_symbol(
     """
     settings = get_settings()
 
-    # Fetch OHLCV data once — shared across all strategy attempts.
-    df = fetch_ohlcv(symbol)
+    # Fetch OHLCV data once — shared across all strategy attempts.  The window
+    # must be long enough to clear settings.MIN_OHLCV_ROWS (EMA-200 needs 200
+    # bars); the default "6mo" (~123 bars) is too short and rejects everything.
+    df = fetch_ohlcv(symbol, period=settings.OHLCV_FETCH_PERIOD)
     if df is None:
         log.debug("scan_symbol.no_data", symbol=symbol)
         return None

@@ -38,6 +38,9 @@ _MAX_SYMBOLS = 40
 #: Cap the trade rows returned to the UI so the JSON payload stays reasonable.
 _MAX_TRADES_RETURNED = 1000
 
+#: Cap the event-log rows returned to the UI (the log viewer paginates these).
+_MAX_EVENTS_RETURNED = 3000
+
 #: Strategies the backtester supports, as ``(value, label, default_on)`` for the
 #: UI.  PEAD defaults off: it fetches live earnings data per symbol per bar, so
 #: it is markedly slower than the price-only strategies.
@@ -239,6 +242,17 @@ def _summarize(result) -> Dict[str, Any]:
         payload["truncated"] = True
     else:
         payload["truncated"] = False
+
+    # Event log for the dashboard log viewer.  events_total counts everything
+    # the engine produced; events may already be capped at the engine's limit,
+    # and we cap again for the UI payload.
+    events = payload.get("events", [])
+    payload["events_total"] = payload.get("events_total", len(events))
+    if len(events) > _MAX_EVENTS_RETURNED:
+        payload["events"] = events[:_MAX_EVENTS_RETURNED]
+        payload["events_truncated"] = True
+    else:
+        payload["events_truncated"] = False
     return payload
 
 

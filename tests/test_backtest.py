@@ -151,6 +151,52 @@ def test_backtester_ignores_symbols_without_data() -> None:
     assert isinstance(result, BacktestResult)
 
 
+# ------------------------------------------------------------ event log
+
+
+def test_backtest_produces_event_log(bt_config, synthetic_data) -> None:
+    """The run records a structured event trace for the dashboard log viewer."""
+    result = _run(bt_config, synthetic_data)
+    assert result.events_total >= 1
+    assert result.events, "expected at least one event"
+
+    kinds = {e["kind"] for e in result.events}
+    assert kinds <= {"signal", "entry", "exit", "reject"}
+    # Every completed trade must have a matching entry and exit event.
+    entries = [e for e in result.events if e["kind"] == "entry"]
+    exits = [e for e in result.events if e["kind"] == "exit"]
+    assert len(entries) == len(result.trades)
+    assert len(exits) == len(result.trades)
+
+    # Each event carries the fields the UI renders.
+    for ev in result.events:
+        assert {"date", "kind", "symbol", "message"} <= set(ev)
+
+    # to_dict() exposes the log for the API/UI payload.
+    d = result.to_dict()
+    assert d["events_total"] == result.events_total
+    assert d["events"] == result.events
+
+
+def test_backtest_event_log_is_capped(monkeypatch, synthetic_data) -> None:
+    """A tiny cap truncates the retained log but preserves the true total."""
+    import backtest.engine as engine
+
+    monkeypatch.setattr(engine, "_MAX_EVENTS", 3)
+    df = synthetic_data["AAA"]
+    config = BacktestConfig(
+        symbols=list(synthetic_data),
+        start=df.index[250],
+        end=df.index[-1],
+        min_grade="C",
+    )
+    result = engine.Backtester(config, synthetic_data, settings=Settings()).run()
+    if result.events_total <= 3:
+        pytest.skip("seed produced too few events to exercise the cap")
+    assert len(result.events) == 3
+    assert result.events_total > len(result.events)
+
+
 # ------------------------------------------------------------ CLI
 
 
