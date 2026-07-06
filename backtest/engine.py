@@ -280,6 +280,7 @@ class Backtester:
         self._positions: Dict[str, _OpenPosition] = {}
         self._last_close: Dict[str, float] = {}
         self._cooldown_until: Dict[str, pd.Timestamp] = {}
+        self._short_history_logged: set[str] = set()
         self._trades: List[BacktestTrade] = []
         self._equity_curve: List[Dict[str, Any]] = []
         # Structured event trace for the dashboard log viewer.
@@ -482,6 +483,16 @@ class Backtester:
                 continue
             history = df.loc[:t]
             if len(history) < self._settings.MIN_OHLCV_ROWS:
+                # Surface this once per symbol — a silently skipped symbol made
+                # zero-event runs look like the log viewer was broken.
+                if sym not in self._short_history_logged:
+                    self._short_history_logged.add(sym)
+                    self._log_event(
+                        t, "reject", sym,
+                        f"skipped — only {len(history)} bars of history "
+                        f"(need {self._settings.MIN_OHLCV_ROWS}); "
+                        "will retry as more bars accumulate",
+                    )
                 continue
             signal = self._detect(sym, history)
             if signal is not None:

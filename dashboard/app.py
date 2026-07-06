@@ -536,7 +536,10 @@ async def dashboard(request: Request, _user: str = Depends(require_auth)):
     return templates.TemplateResponse(
         request,
         "dashboard.html",
-        {
+        # no-store: the page embeds live state and its JS/UI changes on every
+        # deploy — a heuristically-cached copy kept showing pre-deploy UI.
+        headers={"Cache-Control": "no-store"},
+        context={
             "status": _build_system_status(),
             "paper": _build_paper_trading(),
             "providers": _build_provider_status(),

@@ -2103,6 +2103,16 @@
   // ══════════════════════ Backtesting ══════════════════════
   var _btPollTimer = null;
 
+  // Once the user starts configuring a backtest, stop the periodic full-page
+  // reload — it was wiping their symbol/strategy selections mid-setup.
+  (function () {
+    var sec = document.getElementById("nav-backtest");
+    if (!sec) return;
+    function pause() { window.__pauseAutoRefresh = true; }
+    sec.addEventListener("change", pause);
+    sec.addEventListener("input", pause);
+  })();
+
   function _selectedSymbols() {
     var out = [], sel = document.getElementById("btSymbols");
     for (var i = 0; i < sel.options.length; i++) {
@@ -2298,8 +2308,15 @@
     });
     if (!rows.length) {
       var tr = document.createElement("tr");
-      tr.innerHTML = '<td colspan="4" class="bt-log-empty">No ' +
-        (_btLogFilter === "all" ? "" : _btLogFilter + " ") + "events.</td>";
+      var msg;
+      if (_btLogFilter !== "all") {
+        msg = "No " + _btLogFilter + " events.";
+      } else {
+        msg = "No events — the selected strategies found no qualifying " +
+          "setups for these symbols in this date range. Try more symbols, " +
+          "a wider date range, or minimum grade C.";
+      }
+      tr.innerHTML = '<td colspan="4" class="bt-log-empty">' + msg + "</td>";
       tbody.appendChild(tr);
       return;
     }
