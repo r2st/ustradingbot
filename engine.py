@@ -736,11 +736,24 @@ class TradingEngine:
         except Exception:  # noqa: BLE001 -- rationale must never block entry
             log.debug("engine.rationale_build_failed", exc_info=True)
             criteria = []
+        # TA1: the scorer attached the full indicator snapshot (series +
+        # S/R levels + state) computed from the exact df it scored.  Its
+        # bars are used verbatim so candles and series stay bar-aligned;
+        # only v1 records fall back to a fresh snapshot_bars() fetch.
+        indicators = None
+        bars = []
         try:
-            bars = snapshot_bars(sig.symbol)
+            indicators = sig.raw_data.get("indicators") or None
+            if indicators and indicators.get("bars"):
+                bars = indicators["bars"]
         except Exception:  # noqa: BLE001
-            bars = []
-        return {"criteria": criteria, "bars": bars}
+            indicators = None
+        if not bars:
+            try:
+                bars = snapshot_bars(sig.symbol)
+            except Exception:  # noqa: BLE001
+                bars = []
+        return {"criteria": criteria, "bars": bars, "indicators": indicators}
 
     def _record_rationale(
         self, sig: Signal, rationale: dict, quantity: int, fill_price: float
@@ -753,6 +766,7 @@ class TradingEngine:
             entry_price=fill_price,
             entry_time=datetime.now().isoformat(),
             bars=rationale.get("bars", []),
+            indicators=rationale.get("indicators"),
         )
 
     def _push_notify(self, title: str, body: str) -> None:

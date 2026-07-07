@@ -533,7 +533,9 @@ class Backtester:
                 signal = (
                     detector(symbol, history)
                     if detector is not None
-                    else score_symbol(symbol, strategy, history)
+                    else score_symbol(
+                        symbol, strategy, history, capture_series=False
+                    )
                 )
             except Exception:  # noqa: BLE001 -- a bad symbol never aborts the run
                 log.exception("backtest.detect_error", symbol=symbol, strategy=strategy)

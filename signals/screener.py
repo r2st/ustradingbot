@@ -137,6 +137,24 @@ def _scan_symbol(
                     grade=signal.grade.value,
                 )
                 continue
+            # Dedicated detectors (VCP/PEAD/mean-reversion) build their own
+            # Signal — attach the TA1 indicator snapshot from the same df
+            # here so every winning signal carries it (best-effort).
+            if "indicators" not in signal.raw_data:
+                try:
+                    from signals.indicator_snapshot import (
+                        build_indicator_snapshot,
+                    )
+
+                    snapshot = build_indicator_snapshot(df)
+                    if snapshot is not None:
+                        signal.raw_data["indicators"] = snapshot
+                except Exception:  # noqa: BLE001
+                    log.debug(
+                        "scan_symbol.snapshot_failed",
+                        symbol=symbol,
+                        exc_info=True,
+                    )
             log.debug(
                 "scan_symbol.hit",
                 symbol=symbol,

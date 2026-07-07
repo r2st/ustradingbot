@@ -205,6 +205,7 @@ def score_symbol(
     symbol: str,
     strategy: str,
     df: pd.DataFrame,
+    capture_series: bool = True,
 ) -> Optional[Signal]:
     """Run all five indicators, apply hard vetoes, and compute weighted score.
 
@@ -225,6 +226,11 @@ def score_symbol(
             ``"vcp_breakout"``, ``"pead"``, ``"mean_reversion"``).
         df: OHLCV DataFrame with columns ``Open``, ``High``, ``Low``,
             ``Close``, ``Volume`` and a ``DatetimeIndex``.
+        capture_series: Attach the full per-bar indicator snapshot
+            (:mod:`signals.indicator_snapshot`) to ``Signal.raw_data``
+            so the TA chart can show exactly what the scorer saw.  Only
+            computed for signals that pass every veto; disable in tight
+            loops (backtests) where the snapshot is never persisted.
 
     Returns:
         A fully populated :class:`Signal`, or ``None`` if a hard veto
@@ -334,6 +340,17 @@ def score_symbol(
         ripster_score=round(rip_score, 4),
         obv_confirming=volume_state.is_obv_confirming,
     )
+
+    # Persist the full indicator series (TA1) — best-effort, never blocks.
+    if capture_series:
+        try:
+            from signals.indicator_snapshot import build_indicator_snapshot
+
+            snapshot = build_indicator_snapshot(df)
+            if snapshot is not None:
+                signal.raw_data["indicators"] = snapshot
+        except Exception:  # noqa: BLE001
+            log.debug("score_symbol.snapshot_failed", symbol=symbol, exc_info=True)
 
     log.info(
         "score_symbol.scored",

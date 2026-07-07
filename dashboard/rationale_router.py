@@ -32,14 +32,19 @@ async def rationale_list(
     ``include_bars=false`` drops the bar snapshots for lightweight listings.
     """
     settings = get_settings()
+    # The F9 modal never renders the v2 indicator series — that is the TA
+    # chart's job (``/api/trade/{symbol}/ta-chart``) — so drop the heavy
+    # ``indicators`` key from every response here.
+    drop = {"indicators"} if include_bars else {"indicators", "bars"}
     if symbol:
         record = find_rationale(settings.DATA_DIR, symbol, entry_time or None)
-        if record is not None and not include_bars:
-            record = {k: v for k, v in record.items() if k != "bars"}
+        if record is not None:
+            record = {k: v for k, v in record.items() if k not in drop}
         return {"record": record}
     records = read_rationales(
         settings.DATA_DIR, limit=max(1, min(int(limit), 500))
     )
-    if not include_bars:
-        records = [{k: v for k, v in r.items() if k != "bars"} for r in records]
+    records = [
+        {k: v for k, v in r.items() if k not in drop} for r in records
+    ]
     return {"records": records, "count": len(records)}

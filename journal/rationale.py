@@ -27,9 +27,10 @@ log = structlog.get_logger(__name__)
 
 RATIONALE_FILE = "trade_rationale.jsonl"
 
-#: Rotate the rationale JSONL when it exceeds this size (~20 MB — records
-#: carry a bar snapshot, so they are bigger than activity events).
-MAX_RATIONALE_BYTES = 20 * 1024 * 1024
+#: Rotate the rationale JSONL when it exceeds this size (~50 MB — v2 records
+#: carry a bar snapshot *and* the full indicator series, so they are much
+#: bigger than activity events; ~25-40 KB per trade).
+MAX_RATIONALE_BYTES = 50 * 1024 * 1024
 
 #: How many daily bars to snapshot around the entry for the pattern chart.
 CHART_BARS = 90
@@ -238,8 +239,15 @@ class RationaleStore:
         entry_price: Optional[float] = None,
         entry_time: Optional[str] = None,
         bars: Optional[List[Dict[str, Any]]] = None,
+        indicators: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Persist one rationale record. Never raises."""
+        """Persist one rationale record. Never raises.
+
+        *indicators* is the optional v2 payload from
+        :func:`signals.indicator_snapshot.build_indicator_snapshot`
+        (series + ATR + S/R levels + state flags); v1 records without it
+        keep working everywhere.
+        """
         try:
             strength = float(getattr(signal, "signal_strength", 0.0) or 0.0)
             rec = {
@@ -261,6 +269,13 @@ class RationaleStore:
                 "criteria": criteria,
                 "bars": bars if bars is not None else [],
             }
+            if indicators:
+                # v2: full indicator series for the TA chart.  The snapshot's
+                # own bars are dropped — the top-level ``bars`` key (aligned
+                # to the same window) remains the single source of candles.
+                rec["indicators"] = {
+                    k: v for k, v in indicators.items() if k != "bars"
+                }
             self._path.parent.mkdir(parents=True, exist_ok=True)
             self._maybe_rotate()
             with open(self._path, "a", encoding="utf-8") as f:
