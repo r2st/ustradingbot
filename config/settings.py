@@ -132,6 +132,24 @@ class Settings(BaseSettings):
     # Reject signals whose earnings fall within this many days (Tier-1 filter).
     AI_EARNINGS_BLACKOUT_DAYS: int = 14
 
+    # ── AI commentary dashboard (TA2) ───────────────────────────────────────
+    # Display-only "live analyst" commentary over open positions, watchlist
+    # setups, and market conditions.  Unlike the AI veto (fail-closed), this
+    # layer is fail-OPEN: on any error it renders deterministic template prose
+    # from the same computed facts, because commentary influences no order.
+    # Uses OpenRouter free models; at most 3 LLM calls per refresh cycle
+    # (one batched prompt per panel), hard-capped per day.
+    AI_COMMENTARY_ENABLED: bool = True
+    AI_COMMENTARY_MODEL: str = "openai/gpt-oss-20b:free"
+    AI_COMMENTARY_INTERVAL_MINUTES: int = 5
+    AI_COMMENTARY_MAX_CALLS_PER_DAY: int = 150
+    # Only the top-N watchlist symbols (ranked signal > near_entry > rejected)
+    # get indicator recomputation + LLM prose; the rest render computed data.
+    AI_COMMENTARY_WATCHLIST_LIMIT: int = 10
+    # Skip scheduled refreshes when no client has polled within this window
+    # (no browser open -> no provider/LLM spend).
+    AI_COMMENTARY_IDLE_SUPPRESS_MINUTES: int = 15
+
     # ── Legacy Anthropic key (unused; kept for backward compat) ─────────────
     ANTHROPIC_API_KEY: str = ""
 
