@@ -123,6 +123,23 @@ class TestPreCheck:
         assert passed is False
         assert "rr_too_low" in reason
 
+    def test_accepts_rr_at_minimum_despite_rounding(self, settings: Settings) -> None:
+        """Signals built to hit RISK_REWARD_MIN exactly must survive rounding.
+
+        combined_filter sets target = entry + risk * RISK_REWARD_MIN, then
+        rounds prices to 4 decimals -- the resulting R:R can land a hair below
+        the minimum (e.g. 1.79999) and must not be rejected.
+        """
+        rm = RiskManager(settings)
+        entry, stop = 231.5921, 227.1158
+        risk = entry - stop
+        target = round(entry + risk * settings.RISK_REWARD_MIN, 4)
+        signal = _make_signal(
+            entry=round(entry, 4), stop=round(stop, 4), target=target
+        )
+        passed, reason = rm.pre_check(signal)
+        assert passed is True, reason
+
     def test_reentry_cooldown_stop_hit(self, settings: Settings) -> None:
         """STOP_HIT exits should enforce 24-hour cooldown."""
         rm = RiskManager(settings)

@@ -183,9 +183,12 @@ class RiskManager:
                 f"<=entry={signal.entry_price:.4f}"
             )
 
-        # (g) Risk/reward ratio
+        # (g) Risk/reward ratio.  Signals built to hit the minimum exactly
+        # (target = entry + risk * RISK_REWARD_MIN) land a hair below it after
+        # prices are rounded to 4 decimals, so allow a small tolerance instead
+        # of a strict comparison ("rr_too_low:1.80<1.8" rejections).
         rr = signal.risk_reward_ratio
-        if rr < self._settings.RISK_REWARD_MIN:
+        if rr < self._settings.RISK_REWARD_MIN - 1e-3:
             return False, (
                 f"rr_too_low:{rr:.2f}<{self._settings.RISK_REWARD_MIN}"
             )

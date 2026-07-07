@@ -54,7 +54,20 @@ def test_resample_weekly_reduces_rows() -> None:
 
 
 def test_resample_weekly_ohlc_semantics() -> None:
-    daily = _daily([10, 11, 12, 13, 14])  # one partial week
+    # Anchor to a fixed Friday so all 5 business days land in ONE calendar
+    # week; ending at datetime.now() splits the week on any other weekday.
+    prices = np.asarray([10, 11, 12, 13, 14], dtype=float)
+    idx = pd.bdate_range(end=datetime(2026, 1, 9), periods=5)  # Mon..Fri
+    daily = pd.DataFrame(
+        {
+            "Open": prices,
+            "High": prices * 1.01,
+            "Low": prices * 0.99,
+            "Close": prices,
+            "Volume": np.ones(5) * 1_000_000,
+        },
+        index=idx,
+    )
     weekly = resample_weekly(daily)
     row = weekly.iloc[-1]
     assert row["Open"] == 10

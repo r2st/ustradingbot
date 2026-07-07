@@ -51,9 +51,10 @@ def test_get_ohlcv_calls_polygon(monkeypatch) -> None:
 
     captured = {}
 
-    def fake_get(url, params=None, timeout=None):
+    def fake_get(url, params=None, timeout=None, headers=None):
         captured["url"] = url
         captured["params"] = params
+        captured["headers"] = headers
         # 210 rows so clean_ohlcv doesn't warn about insufficient data
         results = [
             {"o": 100 + i, "h": 101 + i, "l": 99 + i, "c": 100 + i,
@@ -66,7 +67,24 @@ def test_get_ohlcv_calls_polygon(monkeypatch) -> None:
     df = provider.get_ohlcv("AAPL", period="1y")
     assert df is not None and len(df) == 210
     assert "AAPL" in captured["url"]
-    assert captured["params"]["apiKey"] == "secret-key"
+    # Key travels in the Authorization header, never the URL/query string,
+    # so httpx error messages can't leak it into logs.
+    assert captured["headers"]["Authorization"] == "Bearer secret-key"
+    assert "apiKey" not in (captured["params"] or {})
+
+
+def test_polygon_skips_non_us_symbols(monkeypatch) -> None:
+    """Canadian listings must not consume Polygon's rate-limit budget."""
+    provider = PolygonProvider(Settings(POLYGON_API_KEY="k"))
+
+    def fail_get(*a, **k):  # pragma: no cover - must never run
+        raise AssertionError("httpx.get should not be called for .TO symbols")
+
+    monkeypatch.setattr("httpx.get", fail_get)
+    assert provider.supports_symbol("AAPL") is True
+    assert provider.supports_symbol("SHOP.TO") is False
+    assert provider.get_ohlcv("SHOP.TO") is None
+    assert provider.get_current_price("RY.TO") is None
 
 
 def test_get_current_price_new_schema(monkeypatch) -> None:

@@ -68,6 +68,21 @@ def test_clean_ohlcv_missing_columns_returns_none() -> None:
     assert clean_ohlcv(bad, "AAPL", log) is None
 
 
+def test_clean_ohlcv_insufficient_rows_warning_is_period_aware() -> None:
+    """Short windows can never hold 200 bars, so no warning for them."""
+    from data.providers import _period_can_hold
+
+    # A 6-month request tops out around ~126 trading days -- warning is noise.
+    assert _period_can_hold("6mo", 200) is False
+    assert _period_can_hold("5d", 200) is False
+    assert _period_can_hold("3mo", 200) is False
+    # A 1y/2y request genuinely should contain 200+ bars -- keep warning.
+    assert _period_can_hold("1y", 200) is True
+    assert _period_can_hold("2y", 200) is True
+    # Unknown period keeps the conservative (warn) behaviour.
+    assert _period_can_hold(None, 200) is True
+
+
 # ------------------------------------------------------------------ period_to_start
 
 
@@ -194,6 +209,95 @@ def test_fallback_provider_breaker_trips_after_threshold() -> None:
     # Primary is only tried up to the trip threshold, then the breaker opens.
     assert _Counter.calls == 3
     assert fb._breaker_open() is True
+
+
+def test_fallback_provider_breaker_trips_immediately_on_429() -> None:
+    """A rate-limit response opens the breaker on the first failure."""
+    from data.providers import FallbackProvider
+
+    class _Resp:
+        status_code = 429
+
+    class _RateLimited(Exception):
+        response = _Resp()
+
+    class _Limited:
+        name = "limited"
+        calls = 0
+
+        def get_ohlcv(self, symbol, period="6mo"):
+            _Limited.calls += 1
+            raise _RateLimited("429 Too Many Requests")
+
+        def get_current_price(self, symbol):
+            return None
+
+        def supports_streaming(self):
+            return False
+
+    class _Good:
+        name = "good"
+
+        def get_ohlcv(self, symbol, period="6mo"):
+            return "DATA"
+
+        def get_current_price(self, symbol):
+            return 1.0
+
+        def supports_streaming(self):
+            return False
+
+    fb = FallbackProvider(_Limited(), _Good(), trip_threshold=3, cooldown_seconds=300)
+    for _ in range(10):
+        assert fb.get_ohlcv("X") == "DATA"
+    # One 429 is enough -- no point burning two more requests on a dead window.
+    assert _Limited.calls == 1
+    assert fb._breaker_open() is True
+
+
+def test_fallback_provider_skips_primary_for_unsupported_symbols() -> None:
+    """Unsupported symbols go straight to the fallback without breaker impact."""
+    from data.providers import FallbackProvider
+
+    class _USOnly:
+        name = "us-only"
+        calls = 0
+
+        def supports_symbol(self, symbol):
+            return not symbol.endswith(".TO")
+
+        def get_ohlcv(self, symbol, period="6mo"):
+            _USOnly.calls += 1
+            return "US_DATA"
+
+        def get_current_price(self, symbol):
+            return 1.0
+
+        def supports_streaming(self):
+            return False
+
+    class _Good:
+        name = "good"
+
+        def get_ohlcv(self, symbol, period="6mo"):
+            return "CA_DATA"
+
+        def get_current_price(self, symbol):
+            return 2.0
+
+        def supports_streaming(self):
+            return False
+
+    fb = FallbackProvider(_USOnly(), _Good(), trip_threshold=3, cooldown_seconds=300)
+    for _ in range(10):
+        assert fb.get_ohlcv("SHOP.TO") == "CA_DATA"
+    # The primary was never touched and the breaker never accumulated failures.
+    assert _USOnly.calls == 0
+    assert fb._breaker_open() is False
+    assert fb._consecutive_failures == 0
+    # US symbols still hit the primary.
+    assert fb.get_ohlcv("AAPL") == "US_DATA"
+    assert _USOnly.calls == 1
 
 
 def test_yfinance_supports_streaming_false() -> None:

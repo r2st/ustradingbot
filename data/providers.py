@@ -73,6 +73,7 @@ def clean_ohlcv(
     df: Optional[pd.DataFrame],
     symbol: str,
     log: "structlog.stdlib.BoundLogger",
+    period: Optional[str] = None,
 ) -> Optional[pd.DataFrame]:
     """Normalise a raw OHLCV frame to the canonical schema.
 
@@ -80,6 +81,11 @@ def clean_ohlcv(
     :class:`~pandas.DatetimeIndex`, and warns when there are too few rows for
     long-period indicators.  Returns ``None`` when the frame is empty or
     missing required columns.
+
+    When *period* is given, the too-few-rows warning only fires if the
+    requested window could actually contain ``_MIN_ROWS_FOR_EMA200`` trading
+    days -- a 6-month request can never yield 200 daily bars, so warning about
+    it is pure noise.
     """
     if df is None or df.empty:
         log.warning("provider.empty_data", symbol=symbol)
@@ -99,7 +105,7 @@ def clean_ohlcv(
     if not isinstance(df.index, pd.DatetimeIndex):
         df.index = pd.to_datetime(df.index)
 
-    if len(df) < _MIN_ROWS_FOR_EMA200:
+    if len(df) < _MIN_ROWS_FOR_EMA200 and _period_can_hold(period, _MIN_ROWS_FOR_EMA200):
         log.warning(
             "provider.insufficient_rows",
             symbol=symbol,
@@ -107,6 +113,19 @@ def clean_ohlcv(
             minimum=_MIN_ROWS_FOR_EMA200,
         )
     return df
+
+
+def _period_can_hold(period: Optional[str], rows: int) -> bool:
+    """Return whether *period* could plausibly contain *rows* trading days.
+
+    Unknown/absent periods return ``True`` so the caller keeps warning (the
+    conservative pre-existing behaviour).  ~252 trading days per 365 calendar
+    days.
+    """
+    if not period:
+        return True
+    calendar_days = (datetime.now() - period_to_start(period)).days
+    return calendar_days * 252 / 365 >= rows
 
 
 def period_to_start(period: str, *, now: Optional[datetime] = None) -> datetime:
@@ -153,7 +172,7 @@ class YFinanceProvider:
         log = self._log.bind(symbol=symbol, period=period)
         ticker = yf.Ticker(symbol)
         raw = ticker.history(period=period, auto_adjust=True)
-        return clean_ohlcv(raw, symbol, log)
+        return clean_ohlcv(raw, symbol, log, period=period)
 
     def get_current_price(self, symbol: str) -> Optional[float]:
         import yfinance as yf
@@ -239,7 +258,7 @@ class AlpacaProvider:
         )
         bars = self._client().get_stock_bars(request)
         raw = self._bars_to_frame(bars, symbol)
-        return clean_ohlcv(raw, symbol, log)
+        return clean_ohlcv(raw, symbol, log, period=period)
 
     @staticmethod
     def _bars_to_frame(bars: object, symbol: str) -> Optional[pd.DataFrame]:
@@ -333,16 +352,32 @@ class PolygonProvider:
 
     name = "polygon"
     _BASE = "https://api.polygon.io"
+    # Non-US exchange suffixes Polygon can never serve (TSX, TSX-V, CSE, NEO).
+    # Requesting them just burns the free tier's ~5 req/min budget on
+    # guaranteed-empty responses, starving the US symbols into HTTP 429.
+    _UNSUPPORTED_SUFFIXES = (".TO", ".V", ".CN", ".NE")
 
     def __init__(self, settings: object) -> None:
         self._settings = settings
         self._key = getattr(settings, "POLYGON_API_KEY", "")
         self._log = logger.bind(provider="polygon")
 
+    def supports_symbol(self, symbol: str) -> bool:
+        """Return whether Polygon covers *symbol* (US listings only)."""
+        return not symbol.upper().endswith(self._UNSUPPORTED_SUFFIXES)
+
+    def _auth_headers(self) -> dict:
+        # Bearer header instead of an ``apiKey`` query param so the key never
+        # appears in URLs echoed back by httpx error messages / logs.
+        return {"Authorization": f"Bearer {self._key}"}
+
     def get_ohlcv(self, symbol: str, period: str = "6mo") -> Optional[pd.DataFrame]:
         import httpx
 
         log = self._log.bind(symbol=symbol, period=period)
+        if not self.supports_symbol(symbol):
+            log.debug("provider.symbol_unsupported", symbol=symbol)
+            return None
         start = period_to_start(period).strftime("%Y-%m-%d")
         end = datetime.now().strftime("%Y-%m-%d")
         url = (
@@ -350,14 +385,14 @@ class PolygonProvider:
         )
         resp = httpx.get(
             url,
-            params={"adjusted": "true", "sort": "asc", "limit": 50000,
-                    "apiKey": self._key},
+            params={"adjusted": "true", "sort": "asc", "limit": 50000},
+            headers=self._auth_headers(),
             timeout=30.0,
         )
         resp.raise_for_status()
         results = resp.json().get("results") or []
         raw = self._aggs_to_frame(results)
-        return clean_ohlcv(raw, symbol, log)
+        return clean_ohlcv(raw, symbol, log, period=period)
 
     @staticmethod
     def _aggs_to_frame(results: list) -> Optional[pd.DataFrame]:
@@ -386,9 +421,12 @@ class PolygonProvider:
         import httpx
 
         log = self._log.bind(symbol=symbol)
+        if not self.supports_symbol(symbol):
+            log.debug("provider.symbol_unsupported", symbol=symbol)
+            return None
         url = f"{self._BASE}/v2/last/trade/{symbol}"
         try:
-            resp = httpx.get(url, params={"apiKey": self._key}, timeout=15.0)
+            resp = httpx.get(url, headers=self._auth_headers(), timeout=15.0)
             resp.raise_for_status()
             body = resp.json()
             # Newer schema: {"results": {"p": price}}; older: {"last": {"price": ...}}
@@ -419,7 +457,8 @@ class PolygonProvider:
         url = f"{self._BASE}/v2/aggs/ticker/{symbol}/prev"
         try:
             resp = httpx.get(
-                url, params={"adjusted": "true", "apiKey": self._key},
+                url, params={"adjusted": "true"},
+                headers=self._auth_headers(),
                 timeout=15.0,
             )
             resp.raise_for_status()
@@ -485,8 +524,14 @@ class FallbackProvider:
         self._consecutive_failures = 0
         self._tripped_until = 0.0
 
-    def _record_primary_failure(self) -> None:
+    def _record_primary_failure(self, *, rate_limited: bool = False) -> None:
         self._consecutive_failures += 1
+        # A rate-limit response means every further call this window will also
+        # fail, so don't wait for the threshold -- trip immediately.
+        if rate_limited:
+            self._consecutive_failures = max(
+                self._consecutive_failures, self._trip_threshold
+            )
         if self._consecutive_failures >= self._trip_threshold and not self._breaker_open():
             self._tripped_until = time.monotonic() + self._cooldown
             self._log.warning(
@@ -506,7 +551,10 @@ class FallbackProvider:
         can still retry a genuinely-down fallback); primary errors are swallowed
         and turned into a fallback attempt.
         """
-        if not self._breaker_open():
+        supports = getattr(self._primary, "supports_symbol", None)
+        primary_eligible = supports(symbol) if callable(supports) else True
+
+        if primary_eligible and not self._breaker_open():
             try:
                 result = getattr(self._primary, method)(symbol, *args)
                 if result is not None:
@@ -515,7 +563,8 @@ class FallbackProvider:
                 # Empty result counts as a soft failure -> try the fallback.
                 self._record_primary_failure()
             except Exception as exc:  # noqa: BLE001 -- classified as transient
-                self._record_primary_failure()
+                status = getattr(getattr(exc, "response", None), "status_code", None)
+                self._record_primary_failure(rate_limited=status == 429)
                 self._log.warning(
                     "provider.fallback_primary_error",
                     method=method,
