@@ -177,6 +177,7 @@ class Broker(Protocol):
         currency: str = "USD",
         partial_take_pct: float = 0.0,
         partial_take_target_r: float = 0.0,
+        side: str = "long",
     ) -> BracketResult: ...
 
     def place_manual_bracket(
@@ -471,25 +472,34 @@ class PaperBroker:
         currency: str = "USD",
         partial_take_pct: float = 0.0,
         partial_take_target_r: float = 0.0,
+        side: str = "long",
     ) -> BracketResult:
         """Simulate a bracket order filling immediately with slippage + commission.
 
         The entry fills at *entry_price* plus ``PAPER_SLIPPAGE_BPS`` of adverse
-        slippage, and a per-share commission is charged and returned on the
-        :class:`BracketResult`.
+        slippage (upward for a buy, downward for a short sale), and a per-share
+        commission is charged and returned on the :class:`BracketResult`.
 
         When *partial_take_pct* is in ``(0, 1)`` the position is armed for
-        one-shot partial profit-taking at ``entry + target_r * risk`` (see
-        :meth:`poll_exits`).
+        one-shot partial profit-taking at ``target_r * risk`` beyond the entry
+        in the trade's favourable direction (see :meth:`poll_exits`).
         """
+        side = str(side).lower()
+        if side not in ("long", "short"):
+            return BracketResult(False, reason=f"invalid_side:{side}")
         if quantity <= 0:
             return BracketResult(False, reason="zero_quantity")
         if symbol in self._positions:
             return BracketResult(False, reason="already_open")
 
-        fill_price = apply_entry_slippage(
-            entry_price, self._settings.PAPER_SLIPPAGE_BPS
-        )
+        if side == "short":
+            fill_price = short_entry_slippage(
+                entry_price, self._settings.PAPER_SLIPPAGE_BPS
+            )
+        else:
+            fill_price = apply_entry_slippage(
+                entry_price, self._settings.PAPER_SLIPPAGE_BPS
+            )
         commission = commission_for(
             quantity, self._settings.PAPER_COMMISSION_PER_SHARE
         )
@@ -498,8 +508,19 @@ class PaperBroker:
         order_id = f"PAPER-{self._order_seq:06d}"
         pt_price = 0.0
         if 0.0 < partial_take_pct < 1.0:
-            computed = partial_take_price(fill_price, stop_price, partial_take_target_r)
-            pt_price = computed if computed is not None else 0.0
+            if side == "short":
+                # Mirror of the long maths: risk = stop - entry (buy-stop
+                # above), first take target_r * risk BELOW the entry.
+                risk = stop_price - fill_price
+                if risk > 0 and partial_take_target_r > 0:
+                    pt_price = round(
+                        fill_price - partial_take_target_r * risk, 4
+                    )
+            else:
+                computed = partial_take_price(
+                    fill_price, stop_price, partial_take_target_r
+                )
+                pt_price = computed if computed is not None else 0.0
         self._positions[symbol] = _PaperPosition(
             symbol=symbol,
             quantity=quantity,
@@ -511,6 +532,7 @@ class PaperBroker:
             opened_at=datetime.now().isoformat(),
             partial_take_price=pt_price,
             partial_take_pct=partial_take_pct if pt_price > 0 else 0.0,
+            side=side,
         )
         self._save()
         self._log.info(
@@ -946,6 +968,8 @@ class PaperBroker:
 
         Priority order (at most one transition per sweep): full stop (closes),
         then partial-take (does not close), then full target (closes).
+        Side-aware: a short's stop is a buy-stop hit by the bar HIGH, and its
+        target/partial-take are buy-to-cover limits hit by the bar LOW.
         """
         bar = self._latest_bar(pos.symbol)
         if bar is None:
@@ -953,25 +977,42 @@ class PaperBroker:
         bar_open, bar_low, bar_high = bar
 
         slippage_bps = self._settings.PAPER_SLIPPAGE_BPS
+        is_long = pos.side != "short"
 
         # Stop assumed to fill first when both are touched (conservative).
         # A gap-through open fills at the (worse) open price, not the stop.
-        if bar_low <= pos.stop_price:
-            fill = stop_exit_fill(pos.stop_price, bar_open, slippage_bps)
+        stop_hit = (
+            bar_low <= pos.stop_price if is_long else bar_high >= pos.stop_price
+        )
+        if stop_hit:
+            fill = (
+                stop_exit_fill(pos.stop_price, bar_open, slippage_bps)
+                if is_long
+                else short_stop_exit_fill(pos.stop_price, bar_open, slippage_bps)
+            )
             return self._build_exit(pos, fill, ExitReason.STOP_HIT, pos.quantity), True
 
-        # Partial profit-taking: sell a slice at the first target, keep runner.
+        # Partial profit-taking: exit a slice at the first target, keep runner.
+        pt_hit = (
+            bar_high >= pos.partial_take_price
+            if is_long
+            else bar_low <= pos.partial_take_price
+        )
         if (
             not pos.partial_taken
             and pos.partial_take_price > 0
             and pos.partial_take_pct > 0
-            and bar_high >= pos.partial_take_price
+            and pt_hit
         ):
             take_qty, runner_qty = partial_take_split(
                 pos.quantity, pos.partial_take_pct
             )
             if take_qty > 0 and runner_qty > 0:
-                fill = target_exit_fill(pos.partial_take_price, bar_open)
+                fill = (
+                    target_exit_fill(pos.partial_take_price, bar_open)
+                    if is_long
+                    else short_target_exit_fill(pos.partial_take_price, bar_open)
+                )
                 event = self._build_exit(
                     pos, fill, ExitReason.PARTIAL_TAKE, take_qty
                 )
@@ -979,8 +1020,15 @@ class PaperBroker:
                 pos.partial_taken = True
                 return event, False
 
-        if bar_high >= pos.target_price:
-            fill = target_exit_fill(pos.target_price, bar_open)
+        target_hit = (
+            bar_high >= pos.target_price if is_long else bar_low <= pos.target_price
+        )
+        if target_hit:
+            fill = (
+                target_exit_fill(pos.target_price, bar_open)
+                if is_long
+                else short_target_exit_fill(pos.target_price, bar_open)
+            )
             return self._build_exit(pos, fill, ExitReason.TARGET_HIT, pos.quantity), True
         return None
 
@@ -1034,20 +1082,28 @@ class PaperBroker:
         return event
 
     def modify_stop(self, symbol: str, new_stop: float) -> bool:
-        """Ratchet the stop for *symbol* (only ever moves up)."""
+        """Ratchet the stop for *symbol*, protectively per side.
+
+        A long stop only ever moves UP; a short's buy-stop only ever moves
+        DOWN.  Either way protection never loosens.
+        """
         pos = self._positions.get(symbol)
         if pos is None:
             return False
         # Laddered manual positions own their exit levels; the single-stop
         # ratchet does not apply (future dynamic stops will re-price the
         # ladder itself via execution.levels.reprice_stop_levels).
-        if pos.levels or pos.side == "short":
+        if pos.levels:
             return False
-        if new_stop <= pos.stop_price:
+        if pos.side == "short":
+            if new_stop >= pos.stop_price or new_stop <= 0:
+                return False
+        elif new_stop <= pos.stop_price:
             return False
         pos.stop_price = round(new_stop, 4)
         self._save()
-        self._log.info("paper_broker.stop_modified", symbol=symbol, new_stop=new_stop)
+        self._log.info("paper_broker.stop_modified", symbol=symbol,
+                       new_stop=new_stop, side=pos.side)
         return True
 
     # ------------------------------------------------------------- internals
@@ -1199,7 +1255,16 @@ class IBKRBroker:
         currency: str = "USD",
         partial_take_pct: float = 0.0,
         partial_take_target_r: float = 0.0,
+        side: str = "long",
     ) -> BracketResult:
+        if str(side).lower() == "short":
+            # Same precedent as manual multi-level orders: short brackets are
+            # paper-broker-only until an IBKR short path is implemented.
+            return BracketResult(
+                False,
+                reason="short bracket orders are not supported on the IBKR "
+                       "broker yet — use the paper broker",
+            )
         if self._ib is None:
             return BracketResult(False, reason="not_connected")
         try:

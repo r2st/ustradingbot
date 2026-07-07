@@ -80,11 +80,12 @@ class AIDecision:
 # ---------------------------------------------------------------------------
 
 _SYSTEM_PROMPT = (
-    "You are a risk-analyst gatekeeper for an automated long-only US/Canadian "
-    "equity trading bot. A technical model has already produced a bullish "
-    "signal. Your ONLY job is to VETO the trade if there is a fundamental or "
-    "news-based reason it is likely to fail. Be conservative but do not veto "
-    "for normal market noise. Respond with STRICT JSON only, no prose, in the "
+    "You are a risk-analyst gatekeeper for an automated US/Canadian equity "
+    "trading bot that takes both long and short positions. A technical model "
+    "has already produced a directional signal. Your ONLY job is to VETO the "
+    "trade if there is a fundamental or news-based reason it is likely to "
+    "fail. Be conservative but do not veto for normal market noise. Respond "
+    "with STRICT JSON only, no prose, in the "
     'form {"decision": "APPROVE" | "REJECT", "reason": "<one sentence>"}.'
 )
 
@@ -108,6 +109,15 @@ def _strategy_guidance(strategy: str) -> str:
             "pure panic/market-wide selling. REJECT if fundamental; APPROVE "
             "only if it looks like a panic selloff likely to bounce."
         )
+    if s.startswith("short_"):
+        return (
+            "This is a SHORT SALE betting on further downside. REJECT if "
+            "there is a plausible upside catalyst that could squeeze the "
+            "short: takeover/acquisition interest or rumours, activist "
+            "involvement, a major pending positive announcement, heavy "
+            "insider buying, or an obviously crowded short. Otherwise "
+            "APPROVE."
+        )
     # vcp_breakout / momentum / swing
     return (
         "Standard news check. Only REJECT for MAJOR negative news in roughly "
@@ -128,8 +138,8 @@ def _build_user_prompt(signal: Signal) -> str:
         f"RSI: {signal.rsi_value}\n\n"
         f"{_strategy_guidance(signal.strategy)}\n\n"
         "Based on your knowledge of this company and any recent material "
-        "developments, should this long trade be APPROVED or REJECTED? "
-        "Return strict JSON."
+        f"developments, should this {signal.direction} trade be APPROVED or "
+        "REJECTED? Return strict JSON."
     )
 
 

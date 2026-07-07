@@ -476,11 +476,24 @@ class TradingEngine:
             min_grade=selection.effective_min_grade("B"),
             allowed_strategies=selection.allowed_strategies(),
         )
+
+        # Step 6b: Short-side scan (short_strategies module).  Short signals
+        # join the same list and flow through the identical entry pipeline —
+        # every gate below is direction-aware.  Best-effort: a failure in the
+        # short module must never cost the long scan.
+        try:
+            short_signals = self._run_short_scan(scan_symbols, selection)
+            signals.extend(short_signals)
+        except Exception:  # noqa: BLE001
+            log.exception("engine.short_scan_error")
+            short_signals = []
+
         self.activity.log(
             "scan_complete",
             cycle_id=self._cycle_id,
             symbols_scanned=len(scan_symbols),
             signals_found=len(signals),
+            short_signals=len(short_signals),
         )
         # Persist the scan's signal list for the watchlist monitor (F8).
         from journal.activity_log import write_last_scan
@@ -525,6 +538,29 @@ class TradingEngine:
             trades_placed=trades_placed,
             exits=total_exits,
             open_positions=open_positions,
+        )
+
+    def _run_short_scan(self, scan_symbols, selection) -> List[Signal]:
+        """Run the short-strategy scan for this cycle (empty when disabled).
+
+        The trade-selection strategy whitelist is honoured: when the operator
+        pinned specific strategies, only whitelisted ``short_*`` ids run (a
+        whitelist of long-only strategies disables shorts for the cycle).
+        """
+        from short_strategies import get_short_config, run_short_scan
+
+        if not get_short_config().enabled:
+            return []
+        allowed = selection.allowed_strategies()
+        if allowed is not None:
+            allowed = [s for s in allowed if str(s).startswith("short_")]
+            if not allowed:
+                return []
+        return run_short_scan(
+            scan_symbols,
+            min_grade=selection.effective_min_grade("B"),
+            allowed_strategies=allowed,
+            open_positions=self.risk_manager.get_open_positions(),
         )
 
     # ------------------------------------------------------------------
@@ -659,9 +695,10 @@ class TradingEngine:
             return False
 
         await self.notifier.notify_entry(order, order.signal.entry_price)
+        action = "Shorted" if sig.direction.lower() == "short" else "Bought"
         self._push_notify(
             f"Entry: {sig.symbol}",
-            f"Bought {order.quantity} {sig.symbol} @ {order.signal.entry_price:.2f} "
+            f"{action} {order.quantity} {sig.symbol} @ {order.signal.entry_price:.2f} "
             f"({sig.strategy}, grade {sig.grade.value})",
         )
         return True
@@ -799,9 +836,16 @@ class TradingEngine:
             self.settings.PARTIAL_TAKE_PCT if self.settings.ENABLE_PARTIAL_TAKE else 0.0
         )
         pt_r = self.settings.PARTIAL_TAKE_TARGET_R
+        is_short = sig.direction.lower() == "short"
 
         # Market-on-close: used when we are inside the cutoff window.
-        if self.settings.ENABLE_MOC_ENTRIES and self._is_past_order_cutoff():
+        # Long-only path — the resting-order fill logic assumes a buy, so
+        # shorts always take the immediate bracket below.
+        if (
+            self.settings.ENABLE_MOC_ENTRIES
+            and not is_short
+            and self._is_past_order_cutoff()
+        ):
             res = self.broker.place_moc_order(
                 sig.symbol, order.quantity, sig.stop_price, sig.target_price,
                 currency=currency, partial_take_pct=pt_pct, partial_take_target_r=pt_r,
@@ -819,7 +863,9 @@ class TradingEngine:
             return True, res.accepted
 
         # Scale-in: split into tranches at successively lower limit prices.
-        if self.settings.ENABLE_SCALE_IN:
+        # Long-only path (a resting limit that fills when the market trades
+        # AT OR BELOW it models a buy); shorts use the immediate bracket.
+        if self.settings.ENABLE_SCALE_IN and not is_short:
             from execution.advanced_orders import compute_scale_in_tranches
 
             tranches = compute_scale_in_tranches(
@@ -852,7 +898,8 @@ class TradingEngine:
                 )
             return True, any_accepted
 
-        # Default: immediate bracket order.
+        # Default: immediate bracket order (side-aware: short sale for
+        # short_strategies signals).
         result = self.broker.place_bracket_order(
             symbol=sig.symbol,
             quantity=order.quantity,
@@ -862,6 +909,7 @@ class TradingEngine:
             currency=currency,
             partial_take_pct=pt_pct,
             partial_take_target_r=pt_r,
+            side=sig.direction,
         )
         if not result.accepted:
             bound_log.warning(

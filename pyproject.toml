@@ -45,7 +45,7 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests"]
+testpaths = ["tests", "short_strategies/tests"]
 pythonpath = ["."]
 
 [tool.setuptools.packages.find]
@@ -62,4 +62,5 @@ include = [
     "dashboard*",
     "analytics*",
     "backtest*",
+    "short_strategies*",
 ]

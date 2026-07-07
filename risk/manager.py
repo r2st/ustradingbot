@@ -61,6 +61,10 @@ def _strategy_family(strategy: str) -> str:
     s = strategy.lower()
     if s in _MOMENTUM_FAMILY:
         return "momentum"
+    # Every short_strategies detector id is prefixed "short_"; they share
+    # one position-cap family so the short book stays bounded as a whole.
+    if s.startswith("short_"):
+        return "short"
     return s
 
 
@@ -173,19 +177,30 @@ class RiskManager:
                 f"/{self._settings.MAX_OPEN_POSITIONS}"
             )
 
-        # (e) Invalid stop (stop >= entry)
-        if signal.stop_price >= signal.entry_price:
-            return False, (
-                f"invalid_stop:stop={signal.stop_price:.4f}"
-                f">=entry={signal.entry_price:.4f}"
-            )
-
-        # (f) Invalid target (target <= entry)
-        if signal.target_price <= signal.entry_price:
-            return False, (
-                f"invalid_target:target={signal.target_price:.4f}"
-                f"<=entry={signal.entry_price:.4f}"
-            )
+        # (e)/(f) Structural stop/target validation, direction-aware: a long
+        # needs stop < entry < target; a short mirrors (target < entry < stop).
+        if signal.is_short:
+            if signal.stop_price <= signal.entry_price:
+                return False, (
+                    f"invalid_stop:stop={signal.stop_price:.4f}"
+                    f"<=entry={signal.entry_price:.4f} (short)"
+                )
+            if signal.target_price >= signal.entry_price:
+                return False, (
+                    f"invalid_target:target={signal.target_price:.4f}"
+                    f">=entry={signal.entry_price:.4f} (short)"
+                )
+        else:
+            if signal.stop_price >= signal.entry_price:
+                return False, (
+                    f"invalid_stop:stop={signal.stop_price:.4f}"
+                    f">=entry={signal.entry_price:.4f}"
+                )
+            if signal.target_price <= signal.entry_price:
+                return False, (
+                    f"invalid_target:target={signal.target_price:.4f}"
+                    f"<=entry={signal.entry_price:.4f}"
+                )
 
         # (g) Risk/reward ratio.  Signals built to hit the minimum exactly
         # (target = entry + risk * RISK_REWARD_MIN) land a hair below it after
@@ -241,6 +256,8 @@ class RiskManager:
             cap = self._settings.MAX_PEAD_POSITIONS
         elif family == "mean_reversion":
             cap = 1
+        elif family == "short":
+            cap = self._short_positions_cap()
         else:
             # Unknown strategy -- allow but log a warning
             self._log.warning("strategy_cap.unknown_strategy", strategy=strategy)
@@ -250,6 +267,20 @@ class RiskManager:
             return False, f"strategy_cap_reached:{family}:{count}/{cap}"
 
         return True, "passed"
+
+    @staticmethod
+    def _short_positions_cap() -> int:
+        """Position cap for the short strategy family.
+
+        Sourced from the short module's config (env-overridable via
+        ``SHORT_MAX_POSITIONS``); falls back to 5 if the module is absent.
+        """
+        try:
+            from short_strategies.common.config import get_short_config
+
+            return int(get_short_config().filters.max_short_positions)
+        except Exception:  # noqa: BLE001 -- missing module must not block longs
+            return 5
 
     # -------------------------------------------------------- build_order
 
@@ -288,7 +319,15 @@ class RiskManager:
         ai_size_modifier = 1.0
 
         # Strategy modifier
-        strategy_modifier = 0.5 if signal.strategy.lower() == "mean_reversion" else 1.0
+        strategy_lower = signal.strategy.lower()
+        if strategy_lower == "mean_reversion":
+            strategy_modifier = 0.5
+        elif strategy_lower.startswith("short_"):
+            # Short-side risk modifier (spec 7.5): scales the risk budget to
+            # ~0.5-1% of the pool.  Env-overridable via SHORT_RISK_MODIFIER.
+            strategy_modifier = self._short_risk_modifier()
+        else:
+            strategy_modifier = 1.0
 
         max_risk_dollars = (
             capital_pool
@@ -297,7 +336,8 @@ class RiskManager:
             * strategy_modifier
         )
 
-        risk_per_share = signal.entry_price - signal.stop_price
+        # Direction-aware: entry-stop for longs, stop-entry for shorts.
+        risk_per_share = signal.risk_per_share
         if risk_per_share <= 0:
             self._log.warning(
                 "build_order.non_positive_risk",
@@ -349,6 +389,16 @@ class RiskManager:
             strategy=signal.strategy,
         )
         return order
+
+    @staticmethod
+    def _short_risk_modifier() -> float:
+        """Risk-budget scale for short trades (from the short module config)."""
+        try:
+            from short_strategies.common.config import get_short_config
+
+            return float(get_short_config().risk_modifier)
+        except Exception:  # noqa: BLE001 -- missing module must not block sizing
+            return 0.65
 
     # -------------------------------------------------------- validate_stop
 

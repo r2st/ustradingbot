@@ -100,10 +100,13 @@ class Signal:
         strategy: Strategy that generated this signal
             (``"momentum"``, ``"swing"``, ``"vcp_breakout"``,
             ``"pead"``, ``"mean_reversion"``).
-        direction: Trade direction.  Currently always ``"long"``.
-        entry_price: Proposed limit-buy price.
-        stop_price: Initial stop-loss price (must be below entry).
-        target_price: Take-profit target (must be above entry).
+        direction: Trade direction: ``"long"`` (default) or ``"short"``
+            (emitted by the ``short_strategies`` module).
+        entry_price: Proposed entry price (limit buy, or short-sale price).
+        stop_price: Initial stop-loss price (below entry for longs, above
+            entry for shorts).
+        target_price: Take-profit target (above entry for longs, below for
+            shorts).
         signal_strength: Combined weighted score in [0.0, 1.0].
         grade: Quality grade derived from ``signal_strength``.
         rsi_value: Raw RSI(14) value at signal time.
@@ -151,22 +154,33 @@ class Signal:
     # --- derived helpers ---------------------------------------------------
 
     @property
+    def is_short(self) -> bool:
+        """Whether this is a short-side signal (``direction="short"``)."""
+        return self.direction.lower() == "short"
+
+    @property
     def risk_per_share(self) -> float:
-        """Dollar risk per share: entry minus stop.
+        """Dollar risk per share, direction-aware.
+
+        Long: entry minus stop (stop below entry).
+        Short: stop minus entry (buy-stop above entry).
 
         Returns:
-            Positive float when stop is correctly below entry,
-            otherwise a non-positive value indicating an invalid setup.
+            Positive float for a structurally valid setup, otherwise a
+            non-positive value indicating an invalid one.
         """
+        if self.is_short:
+            return self.stop_price - self.entry_price
         return self.entry_price - self.stop_price
 
     @property
     def reward_per_share(self) -> float:
-        """Dollar reward per share: target minus entry.
+        """Dollar reward per share, direction-aware.
 
-        Returns:
-            Positive float when target is correctly above entry.
+        Long: target minus entry.  Short: entry minus target (cover below).
         """
+        if self.is_short:
+            return self.entry_price - self.target_price
         return self.target_price - self.entry_price
 
     @property

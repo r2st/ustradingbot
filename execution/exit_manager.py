@@ -140,6 +140,11 @@ class ExitManager:
     # --------------------------------------------------- 2. time-based exits
 
     @staticmethod
+    def _is_short(pos: Dict[str, Any]) -> bool:
+        """Whether *pos* is a short position (``direction == "short"``)."""
+        return str(pos.get("direction", "long")).lower() == "short"
+
+    @staticmethod
     def _is_manual(pos: Dict[str, Any]) -> bool:
         """Whether *pos* was entered by hand from the dashboard.
 
@@ -171,7 +176,12 @@ class ExitManager:
             entry = float(pos.get("entry_price", 0) or 0)
             if current is None or entry <= 0:
                 continue
-            unrealized_pct = (current - entry) / entry
+            # Direction-aware unrealised move: a short profits as price falls.
+            is_short = self._is_short(pos)
+            if is_short:
+                unrealized_pct = (entry - current) / entry
+            else:
+                unrealized_pct = (current - entry) / entry
 
             # Zombie: held at least 2x the max hold -> exit regardless.
             if days_held >= 2 * max_hold:
@@ -189,6 +199,8 @@ class ExitManager:
                 count += 1
             elif unrealized_pct <= 0.08:
                 # Moderate profit: move stop to breakeven, keep holding.
+                # (modify_stop ratchets protectively per side: up for longs,
+                # down for a short's buy-stop.)
                 self._raise_stop(symbol, entry)
             else:
                 # Strong runner: trail stop to lock in half the gains.
@@ -203,6 +215,11 @@ class ExitManager:
         count = 0
         for symbol, pos in list(self._risk.get_open_positions().items()):
             if self._is_manual(pos):
+                continue
+            # The health re-score uses the LONG scoring engine (a high score
+            # means a healthy long setup), which is meaningless for a short —
+            # shorts are protected by their ATR buy-stop and the time exits.
+            if self._is_short(pos):
                 continue
             df = fetch_ohlcv(symbol)
             if df is None or len(df) < self._settings.MIN_OHLCV_ROWS:
@@ -242,6 +259,11 @@ class ExitManager:
         count = 0
         for symbol, pos in list(self._risk.get_open_positions().items()):
             if self._is_manual(pos):
+                continue
+            # The dynamic-stop engine only ratchets stops UP (long
+            # protection); shorts keep their ATR buy-stop plus the
+            # direction-aware time-exit trailing above.
+            if self._is_short(pos):
                 continue
             df = fetch_ohlcv(symbol, period="3mo")
             if df is None or len(df) < 20:
@@ -297,12 +319,16 @@ class ExitManager:
             qty = int(pos.get("quantity", 0) or 0) if pos else 0
             if price is None:
                 price = entry
+            if pos is not None and self._is_short(pos):
+                pnl = (entry - price) * qty
+            else:
+                pnl = (price - entry) * qty
             event = ExitEvent(
                 symbol=symbol,
                 exit_price=round(price, 4),
                 exit_reason=reason,
                 exit_date=datetime.now(),
-                pnl_gross=round((price - entry) * qty, 2),
+                pnl_gross=round(pnl, 2),
             )
         self._finalise_exit(event)
 
