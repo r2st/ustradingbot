@@ -51,6 +51,14 @@ app = FastAPI(title="US Trading Bot Dashboard", version="0.1.0")
 _TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
 
+# Self-hosted static assets (Chart.js for the monitoring charts — no CDN so
+# the dashboard works on a locked-down server).
+from fastapi.staticfiles import StaticFiles  # noqa: E402
+
+_STATIC_DIR = Path(__file__).resolve().parent / "static"
+if _STATIC_DIR.is_dir():
+    app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+
 # ---------------------------------------------------------------------------
 # Authentication — HTTP Basic Auth guarding every page except /health
 # ---------------------------------------------------------------------------
@@ -774,9 +782,46 @@ async def analytics_by_symbol(_user: str = Depends(require_auth)):
 
 
 @app.get("/api/analytics/equity-curve")
-async def analytics_equity_curve(_user: str = Depends(require_auth)):
-    """Cumulative equity curve, one point per completed trade."""
-    return {"equity_curve": _analytics_report().equity_curve}
+async def analytics_equity_curve(
+    granularity: str = "trade", _user: str = Depends(require_auth)
+):
+    """Cumulative equity curve with per-point drawdown.
+
+    ``granularity=trade`` (default) returns one point per completed trade;
+    ``granularity=daily`` buckets closed trades by exit date so a large
+    journal doesn't render hundreds of x-axis points (monitoring F7).
+    """
+    curve = _analytics_report().equity_curve
+
+    if granularity == "daily" and curve:
+        by_day: Dict[str, Dict[str, Any]] = {}
+        order: List[str] = []
+        for point in curve:
+            day = str(point.get("date", ""))[:10]
+            if day not in by_day:
+                order.append(day)
+            # Last trade of the day wins (equity is cumulative).
+            prev = by_day.get(day, {})
+            by_day[day] = {
+                "date": day,
+                "equity": point.get("equity"),
+                "trade_pnl": round(
+                    float(prev.get("trade_pnl", 0.0) or 0.0)
+                    + float(point.get("trade_pnl", 0.0) or 0.0), 2),
+            }
+        curve = [by_day[d] for d in order]
+
+    # Per-point drawdown from the running peak, shared by all F7 charts.
+    peak = None
+    out = []
+    for point in curve:
+        eq = float(point.get("equity", 0.0) or 0.0)
+        peak = eq if peak is None or eq > peak else peak
+        dd = (peak - eq) / peak if peak and peak > 0 else 0.0
+        enriched = dict(point)
+        enriched["drawdown_pct"] = round(dd, 4)
+        out.append(enriched)
+    return {"equity_curve": out, "granularity": granularity}
 
 
 @app.get("/api/analytics/trades")
@@ -797,14 +842,33 @@ async def analytics_report(_user: str = Depends(require_auth)):
 
 
 def _risk_report():
-    """Build a :class:`RiskReport` from the live book and journal."""
+    """Build a :class:`RiskReport` from the live book and journal.
+
+    Live quotes are passed in best-effort (monitoring F5): with quotes the
+    exposure/open-risk figures are marked to market; without them the report
+    still renders, valued at cost.
+    """
     from analytics.risk_dashboard import build_risk_report
 
     settings = get_settings()
+    prices: Dict[str, float] = {}
+    try:
+        from dashboard import quotes as _quotes
+
+        positions = _load_open_positions(Path(settings.DATA_DIR))
+        symbols = [str(p.get("symbol", "")) for p in positions if p.get("symbol")]
+        if symbols:
+            for sym, q in _quotes.get_quotes(symbols).items():
+                if q.get("price") is not None:
+                    prices[sym] = float(q["price"])
+    except Exception:  # noqa: BLE001 -- quotes are an enhancement, never a dependency
+        prices = {}
     return build_risk_report(
         settings.DATA_DIR,
         dict(settings.CAPITAL_BY_CURRENCY),
         settings.TOTAL_CAPITAL,
+        prices=prices or None,
+        daily_loss_limit_pct=settings.DAILY_LOSS_LIMIT_PCT,
     )
 
 
@@ -953,6 +1017,11 @@ from dashboard.export_router import router as _export_router  # noqa: E402
 from dashboard.users_router import router as _users_router  # noqa: E402
 from dashboard.push_router import router as _push_router  # noqa: E402
 from dashboard.api_v1 import router as _api_v1_router  # noqa: E402
+from dashboard.live_router import router as _live_router  # noqa: E402
+from dashboard.history_router import router as _history_router  # noqa: E402
+from dashboard.activity_router import router as _activity_router  # noqa: E402
+from dashboard.alerts_router import router as _alerts_router  # noqa: E402
+from dashboard.rationale_router import router as _rationale_router  # noqa: E402
 
 for _r in (
     _watchlist_router,
@@ -964,5 +1033,10 @@ for _r in (
     _users_router,
     _push_router,
     _api_v1_router,
+    _live_router,
+    _history_router,
+    _activity_router,
+    _alerts_router,
+    _rationale_router,
 ):
     app.include_router(_r)

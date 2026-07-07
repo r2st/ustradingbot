@@ -779,6 +779,10 @@
     <a href="#nav-earnings" onclick="closeNav()">Earnings</a>
     <a href="#nav-backtest" onclick="closeNav()">Backtest</a>
     <a href="#nav-selection" onclick="closeNav()">Selection</a>
+    <a href="#nav-history" onclick="closeNav()">History</a>
+    <a href="#nav-charts" onclick="closeNav()">Charts</a>
+    <a href="#nav-activity" onclick="closeNav()">Activity</a>
+    <a href="#nav-alerts" onclick="closeNav()">Alerts</a>
     <a href="#nav-strategy" onclick="closeNav()">Strategies</a>
     <a href="#nav-risk" onclick="closeNav()">Risk</a>
     <a href="#nav-montecarlo" onclick="closeNav()">Monte&nbsp;Carlo</a>
@@ -931,6 +935,14 @@
         </div>
       </div>
       <div class="stat-card">
+        <div class="label">Unrealized P&amp;L</div>
+        <div class="value" id="paperUnrealized">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Today Total (open + closed)</div>
+        <div class="value" id="paperTodayTotal">—</div>
+      </div>
+      <div class="stat-card">
         <div class="label">Open Positions</div>
         <div class="value" id="paperOpenCount">{{ paper.open_count }}</div>
       </div>
@@ -946,6 +958,14 @@
         <div class="label">Profit Factor</div>
         <div class="value small" id="paperProfitFactor">{{ "%.2f"|format(paper.profit_factor) if paper.profit_factor is not none else "∞" if paper.total_trades else "—" }}</div>
       </div>
+    </div>
+
+    <!-- Live P&L status + intraday chart (monitoring F1) -->
+    <div class="muted-note" id="livePnlStatus" style="margin:6px 0 2px;">
+      Live P&amp;L: waiting for first quote…
+    </div>
+    <div style="max-width:820px; height:140px; margin:4px 0 10px;">
+      <canvas id="pnlIntradayChart" height="140"></canvas>
     </div>
 
     <!-- Cash balances per currency -->
@@ -978,9 +998,12 @@
         <thead>
           <tr>
             <th>Symbol</th><th>Strategy</th><th>Grade</th>
-            <th class="num">Qty</th><th class="num">Entry</th><th class="num">Stop</th>
-            <th class="num">Target</th><th class="num">Cost Basis</th><th class="num">Risk</th>
-            <th>Opened</th>
+            <th class="num">Qty</th><th class="num">Entry</th>
+            <th class="num">Current</th><th class="num">Unreal P&amp;L</th>
+            <th class="num">Stop</th><th class="num">Target</th>
+            <th>Stop ◄─● ─► Target</th>
+            <th class="num">Cost Basis</th>
+            <th>Opened</th><th></th>
           </tr>
         </thead>
         <tbody>
@@ -991,11 +1014,15 @@
             <td>{% if pos.grade %}<span class="grade grade-{{ pos.grade|lower }}">{{ pos.grade }}</span>{% endif %}</td>
             <td class="num">{{ pos.quantity }}</td>
             <td class="num">${{ "%.2f"|format(pos.entry_price) }}</td>
+            <td class="num">—</td>
+            <td class="num">—</td>
             <td class="num">${{ "%.2f"|format(pos.stop_price) }}</td>
             <td class="num">${{ "%.2f"|format(pos.target_price) }}</td>
+            <td>—</td>
             <td class="num">${{ "{:,.2f}".format(pos.cost_basis) }} {{ pos.currency }}</td>
-            <td class="num">${{ "%.2f"|format(pos.risk_amount) }}</td>
             <td>{{ pos.entry_time }}</td>
+            <td><button type="button" class="chip" style="cursor:pointer;"
+                        onclick="showRationale('{{ pos.symbol }}','')">Why?</button></td>
           </tr>
           {% endfor %}
         </tbody>
@@ -1279,6 +1306,207 @@
 </div>
 
 <!-- ═══════════════════ RISK DASHBOARD ═══════════════════ -->
+<!-- ═══════════════════ TRADE HISTORY (monitoring F2) ═══════════════════ -->
+<div class="section" id="nav-history">
+  <div class="section-header">
+    <div class="section-icon icon-paper">H</div>
+    <h2>Trade History &amp; Analytics</h2>
+  </div>
+  <div class="section-body">
+    <div class="stat-cards" id="histStatCards">
+      <div class="stat-card"><div class="label">Avg Hold</div>
+        <div class="value small" id="histAvgHold">—</div></div>
+      <div class="stat-card"><div class="label">Median Hold</div>
+        <div class="value small" id="histMedianHold">—</div></div>
+      <div class="stat-card"><div class="label">Best Trade</div>
+        <div class="value small" id="histBest">—</div></div>
+      <div class="stat-card"><div class="label">Worst Trade</div>
+        <div class="value small" id="histWorst">—</div></div>
+      <div class="stat-card"><div class="label">Current Streak</div>
+        <div class="value small" id="histStreak">—</div></div>
+    </div>
+    <div class="form-row">
+      <div class="form-field"><label>Strategy</label>
+        <select id="histStrategy"><option value="">All</option></select></div>
+      <div class="form-field"><label>Symbol</label>
+        <input type="text" id="histSymbol" placeholder="e.g. NVDA" autocomplete="off"></div>
+      <div class="form-field"><label>Exit reason</label>
+        <select id="histExitReason"><option value="">All</option></select></div>
+      <div class="form-field"><label>From</label>
+        <input type="date" id="histFrom"></div>
+      <div class="form-field"><label>To</label>
+        <input type="date" id="histTo"></div>
+      <button type="button" class="btn-primary" onclick="histApply()">Apply</button>
+      <a class="btn-secondary" href="/api/export/trades.csv" target="_blank"
+         rel="noopener" style="text-decoration:none;">Export CSV</a>
+    </div>
+    <div style="overflow-x:auto;">
+      <table class="data-table">
+        <thead><tr>
+          <th onclick="histSort('symbol')" style="cursor:pointer;">Symbol</th>
+          <th onclick="histSort('strategy')" style="cursor:pointer;">Strategy</th>
+          <th>Grade</th>
+          <th class="num">Entry</th><th class="num">Exit</th>
+          <th onclick="histSort('hold_duration_hours')" style="cursor:pointer;">Hold</th>
+          <th class="num" onclick="histSort('pnl_net')" style="cursor:pointer;">P&amp;L $</th>
+          <th class="num" onclick="histSort('pnl_pct')" style="cursor:pointer;">P&amp;L %</th>
+          <th class="num" onclick="histSort('r_multiple')" style="cursor:pointer;">R</th>
+          <th>Exit reason</th>
+          <th onclick="histSort('exit_time')" style="cursor:pointer;">Closed ▾</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="histRows"><tr><td colspan="12" class="empty-note">Loading…</td></tr></tbody>
+      </table>
+    </div>
+    <div class="form-row" style="align-items:center;">
+      <button type="button" class="btn-secondary" onclick="histPage(-1)">◀ Prev</button>
+      <span id="histPageInfo" class="bt-hint">—</span>
+      <button type="button" class="btn-secondary" onclick="histPage(1)">Next ▶</button>
+    </div>
+    <h4 style="margin-top:16px;">Rolling Win Rate
+      <select id="histWrWindow" onchange="loadWinRateTrend()" style="margin-left:8px;">
+        <option value="10">10 trades</option>
+        <option value="20" selected>20 trades</option>
+        <option value="50">50 trades</option>
+      </select></h4>
+    <div style="max-width:820px;height:180px;">
+      <canvas id="histWinRateChart" height="180"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ PERFORMANCE CHARTS (monitoring F7) ═══════════════════ -->
+<div class="section" id="nav-charts">
+  <div class="section-header">
+    <div class="section-icon icon-strategy">C</div>
+    <h2>Performance Charts</h2>
+  </div>
+  <div class="section-body">
+    <div class="risk-grid">
+      <div>
+        <h4>Equity Curve <span class="bt-hint" id="chartEquityHint"></span></h4>
+        <div style="height:220px;"><canvas id="chartEquity" height="220"></canvas></div>
+      </div>
+      <div>
+        <h4>Periodic Returns
+          <select id="chartReturnsFreq" onchange="renderReturnsChart()" style="margin-left:8px;">
+            <option value="daily" selected>Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+          </select></h4>
+        <div style="height:220px;"><canvas id="chartReturns" height="220"></canvas></div>
+      </div>
+    </div>
+    <div class="risk-grid">
+      <div>
+        <h4>Drawdown Over Time <span class="bt-hint" id="chartDrawdownHint"></span></h4>
+        <div style="height:220px;"><canvas id="chartDrawdown" height="220"></canvas></div>
+      </div>
+      <div>
+        <h4>Rolling Win Rate (20 trades)</h4>
+        <div style="height:220px;"><canvas id="chartWinRate" height="220"></canvas></div>
+      </div>
+    </div>
+    <div class="empty-note" id="chartsEmpty" style="display:none;">No closed trades yet —
+      charts appear after the first completed trade.</div>
+  </div>
+</div>
+
+<!-- ═══════════════════ ENGINE ACTIVITY (monitoring F4) ═══════════════════ -->
+<div class="section" id="nav-activity">
+  <div class="section-header">
+    <div class="section-icon icon-engine">A</div>
+    <h2>Engine Activity</h2>
+  </div>
+  <div class="section-body">
+    <p class="muted-note">What the engine did each cycle — scans, every gate rejection with
+      its reason (including AI-veto reasoning), trades placed, and exits. The single best
+      answer to “why didn’t the bot trade today?”.</p>
+    <h4>Recent Cycles</h4>
+    <div style="overflow-x:auto;">
+      <table class="data-table">
+        <thead><tr><th>Cycle</th><th class="num">Signals</th><th>Rejected by gate</th>
+          <th class="num">Placed</th><th class="num">Exits</th><th class="num">Elapsed</th></tr></thead>
+        <tbody id="actCycleRows"><tr><td colspan="6" class="empty-note">No cycles yet —
+          the feed fills once the engine runs a market-hours cycle.</td></tr></tbody>
+      </table>
+    </div>
+    <h4 style="margin-top:16px;">Event Feed
+      <span class="bt-hint" id="actNewBadge"></span></h4>
+    <div class="form-row">
+      <div id="actFilters">
+        <button type="button" class="chip act-filter" data-ev="" onclick="actFilter('',this)"
+                style="cursor:pointer;font-weight:bold;">All</button>
+        <button type="button" class="chip act-filter" data-ev="trade_placed"
+                onclick="actFilter('trade_placed',this)" style="cursor:pointer;">Trades</button>
+        <button type="button" class="chip act-filter" data-ev="signal_rejected"
+                onclick="actFilter('signal_rejected',this)" style="cursor:pointer;">Rejections</button>
+        <button type="button" class="chip act-filter" data-ev="exit"
+                onclick="actFilter('exit',this)" style="cursor:pointer;">Exits</button>
+        <button type="button" class="chip act-filter" data-ev="error"
+                onclick="actFilter('error',this)" style="cursor:pointer;">Errors</button>
+      </div>
+      <div class="form-field"><label>Symbol</label>
+        <input type="text" id="actSymbol" placeholder="filter…" autocomplete="off"
+               oninput="loadActivity()"></div>
+    </div>
+    <div id="actFeed" style="max-height:420px;overflow-y:auto;font-size:13px;">
+      <div class="empty-note">No activity yet.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ ALERTS & NOTIFICATIONS (monitoring F6) ═══════════════════ -->
+<div class="section" id="nav-alerts">
+  <div class="section-header">
+    <div class="section-icon icon-risk">!</div>
+    <h2>Alerts &amp; Notifications</h2>
+  </div>
+  <div class="section-body">
+    <h4>Channels</h4>
+    <div class="stat-cards" id="alertChannels">
+      <div class="stat-card"><div class="label">Telegram</div>
+        <div class="value small" id="alertChTelegram">—</div>
+        <button type="button" class="chip" style="cursor:pointer;"
+                onclick="alertTest('telegram')">Send test</button></div>
+      <div class="stat-card"><div class="label">Email</div>
+        <div class="value small" id="alertChEmail">—</div>
+        <button type="button" class="chip" style="cursor:pointer;"
+                onclick="alertTest('email')">Send test</button></div>
+      <div class="stat-card"><div class="label">Push (PWA)</div>
+        <div class="value small" id="alertChPush">—</div>
+        <button type="button" class="chip" style="cursor:pointer;"
+                onclick="alertTest('push')">Send test</button></div>
+    </div>
+    <div id="alertTestResult" class="modal-result"></div>
+
+    <h4 style="margin-top:16px;">Rules</h4>
+    <p class="muted-note">Choose which events alert and on which channels. Thresholds apply to
+      drawdown (fraction, e.g. 0.05), daily loss (fraction of capital), and proximity (%).
+      Changes take effect on the engine's next dispatch — no restart needed.</p>
+    <div style="overflow-x:auto;">
+      <table class="data-table">
+        <thead><tr><th>Event</th><th>Enabled</th><th>Telegram</th><th>Email</th>
+          <th>Push</th><th>Threshold</th></tr></thead>
+        <tbody id="alertRuleRows"><tr><td colspan="6" class="empty-note">Loading…</td></tr></tbody>
+      </table>
+    </div>
+    <div class="form-row">
+      <button type="button" class="btn-primary" onclick="saveAlertRules()">Save rules</button>
+      <div id="alertRulesResult" class="modal-result"></div>
+    </div>
+
+    <h4 style="margin-top:16px;">Alert History</h4>
+    <div class="form-row">
+      <div class="form-field"><label>Type</label>
+        <select id="alertHistType" onchange="loadAlertHistory()"><option value="">All</option></select></div>
+    </div>
+    <div id="alertHistFeed" style="max-height:320px;overflow-y:auto;font-size:13px;">
+      <div class="empty-note">No alerts dispatched yet.</div>
+    </div>
+  </div>
+</div>
+
 <div class="section" id="nav-risk">
   <div class="section-header">
     <div class="section-icon icon-risk">R</div>
@@ -1294,6 +1522,29 @@
         <div class="value" id="riskMaxDD">—</div></div>
       <div class="stat-card"><div class="label">Top Correlation</div>
         <div class="value" id="riskTopCorr">—</div></div>
+    </div>
+
+    <!-- Open risk + daily-loss budget (monitoring F5) -->
+    <h4 style="margin-top:14px;">Open Risk
+      <span class="pill" id="riskMtmBadge" style="margin-left:8px;">cost basis</span></h4>
+    <div class="stat-cards">
+      <div class="stat-card"><div class="label">$ At Risk to Stops</div>
+        <div class="value" id="riskOpenTotal">—</div></div>
+      <div class="stat-card"><div class="label">% of Capital at Risk</div>
+        <div class="value" id="riskOpenPct">—</div></div>
+      <div class="stat-card"><div class="label">Daily Loss Budget Used</div>
+        <div class="value" id="riskBudgetUsed">—</div></div>
+    </div>
+    <div style="max-width:520px;margin:4px 0 8px;">
+      <div style="height:10px;border-radius:5px;background:var(--surface-2);overflow:hidden;">
+        <div id="riskBudgetBar" style="height:100%;width:0%;background:var(--green);"></div>
+      </div>
+      <div class="muted-note" id="riskBudgetNote">—</div>
+    </div>
+    <div style="overflow-x:auto;">
+      <table class="data-table"><tbody id="riskOpenRows">
+        <tr><td class="empty-note">Loading…</td></tr>
+      </tbody></table>
     </div>
     <div class="risk-grid">
       <div>
@@ -1387,8 +1638,53 @@
 
       renderHeatmap(r.sector_concentration || []);
       renderCorrMatrix(r.correlations || []);
+      renderOpenRisk(r);
     } catch (e) { /* best-effort */ }
   })();
+
+  // Open risk + daily-loss budget (monitoring F5).
+  function renderOpenRisk(r) {
+    var or = r.open_risk || {};
+    var badge = document.getElementById("riskMtmBadge");
+    if (badge) {
+      badge.textContent = r.marked_to_market ? "marked to market" : "cost basis";
+      badge.className = "pill " + (r.marked_to_market ? "pill-ok" : "pill-warn");
+    }
+    var el = document.getElementById("riskOpenTotal");
+    if (el) el.textContent = or.total != null ? "$" + Number(or.total).toFixed(0) : "—";
+    el = document.getElementById("riskOpenPct");
+    if (el) el.textContent = or.pct_of_capital != null
+      ? (or.pct_of_capital * 100).toFixed(2) + "%" : "—";
+    var b = r.daily_loss_budget || {};
+    el = document.getElementById("riskBudgetUsed");
+    if (el) el.textContent = b.used_pct_of_budget != null
+      ? (b.used_pct_of_budget * 100).toFixed(0) + "%" : "—";
+    var bar = document.getElementById("riskBudgetBar");
+    if (bar && b.used_pct_of_budget != null) {
+      var frac = Math.min(1, b.used_pct_of_budget);
+      bar.style.width = (frac * 100).toFixed(1) + "%";
+      bar.style.background = frac >= 1 ? "var(--red)" : frac >= 0.6 ? "#f39c12" : "var(--green)";
+    }
+    var note = document.getElementById("riskBudgetNote");
+    if (note && b.limit_usd != null) {
+      note.textContent = "Used $" + Number(b.used_today || 0).toFixed(0) + " of $" +
+        Number(b.limit_usd).toFixed(0) + " daily loss budget (" +
+        ((b.limit_pct || 0) * 100).toFixed(1) + "% of capital) — $" +
+        Number(b.remaining || 0).toFixed(0) + " remaining.";
+    }
+    var tb = document.getElementById("riskOpenRows");
+    if (!tb) return;
+    var rows = or.per_position || [];
+    tb.innerHTML = rows.length ? rows.map(function (p) {
+      var v = Number(p.risk_if_stopped || 0);
+      var label = p.locked_profit
+        ? '<span class="pos">locked +$' + Math.abs(v).toFixed(0) + "</span>"
+        : '<span class="neg">-$' + v.toFixed(0) + " if stopped</span>";
+      return "<tr><td>" + p.symbol + "</td><td>" + label + "</td><td>" +
+        ((p.pct_of_capital || 0) * 100).toFixed(2) + "% of capital</td><td>" +
+        (p.marked ? "live" : "entry px") + "</td></tr>";
+    }).join("") : '<tr><td class="empty-note">No open positions.</td></tr>';
+  }
 
   // Heat map: block colour intensity scales with each sector's share (feature 6).
   function renderHeatmap(sectors) {
@@ -1685,6 +1981,19 @@
     </div>
     <div id="wlResult" class="modal-result"></div>
     <div id="wlLists"><div class="empty-note">Loading…</div></div>
+
+    <!-- Watchlist monitor (monitoring F8): live price + scan status -->
+    <h4 style="margin-top:18px;">Watchlist Monitor
+      <span class="bt-hint" id="wlMonScanTs"></span></h4>
+    <p class="muted-note">What might the bot do next — live price, day change, and each
+      symbol's status in the latest scan (signal / near entry / held / rejected / excluded).</p>
+    <div style="overflow-x:auto;">
+      <table class="data-table">
+        <thead><tr><th>Symbol</th><th>Lists</th><th class="num">Price</th>
+          <th class="num">Day %</th><th>Status</th><th>Detail</th></tr></thead>
+        <tbody id="wlMonRows"><tr><td colspan="6" class="empty-note">Loading…</td></tr></tbody>
+      </table>
+    </div>
   </div>
 </div>
 
@@ -2546,6 +2855,20 @@
   })();
 </script>
 
+<!-- Self-hosted Chart.js (monitoring F7) — no CDN, works on a locked-down server -->
+<script src="/static/chart.umd.min.js"></script>
+
+<!-- ═══════════════════ TRADE RATIONALE MODAL (monitoring F9) ═══════════════════ -->
+<div class="modal-overlay" id="rationaleModal">
+  <div class="modal" style="max-width:760px;width:94%;max-height:88vh;overflow-y:auto;">
+    <h3 id="rationaleTitle">Why this trade?</h3>
+    <div id="rationaleBody"><div class="empty-note">Loading…</div></div>
+    <div class="modal-actions">
+      <button type="button" class="btn-secondary" onclick="closeRationale()">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══════════════════ NEW-FEATURE CLIENT LOGIC (features 1-19) ═══════════════════ -->
 <script>
   // ── shared helpers ──
@@ -2590,6 +2913,26 @@
     if (el) el.textContent = String(text);
   }
 
+  // Live per-position P&L cache (monitoring F1/F3): symbol -> live row.
+  var _livePnl = {};
+
+  function _progressBar(live) {
+    // stop ◄── entry ─ ● ──► target position bar.
+    if (!live || live.current_price == null || !live.stop_price || !live.target_price) return "—";
+    var lo = Math.min(live.stop_price, live.target_price);
+    var hi = Math.max(live.stop_price, live.target_price);
+    if (hi <= lo) return "—";
+    function xpos(v) { return Math.min(100, Math.max(0, (v - lo) / (hi - lo) * 100)); }
+    var cur = xpos(live.current_price), ent = xpos(live.entry_price);
+    var color = live.proximity === "near_stop" ? "var(--red)"
+      : live.proximity === "near_target" ? "var(--green)" : "var(--accent)";
+    return '<div style="position:relative;width:110px;height:10px;border-radius:5px;' +
+      'background:linear-gradient(90deg,rgba(231,76,60,.35),rgba(46,204,113,.35));">' +
+      '<span style="position:absolute;left:' + ent.toFixed(1) + '%;top:-2px;width:2px;height:14px;background:var(--text-muted);"></span>' +
+      '<span style="position:absolute;left:' + cur.toFixed(1) + '%;top:-3px;width:8px;height:16px;margin-left:-4px;' +
+      'border-radius:4px;background:' + color + ';"></span></div>';
+  }
+
   function _renderPaperPositions(p) {
     if (!p.positions || !p.positions.length) {
       return '<div class="empty-note">No open positions yet. Start the bot ' +
@@ -2601,23 +2944,47 @@
         ? '<span class="grade grade-' + esc(String(pos.grade).toLowerCase()) +
           '">' + esc(pos.grade) + "</span>"
         : "";
-      return "<tr>" +
-        "<td><strong>" + esc(pos.symbol) + "</strong></td>" +
+      var live = _livePnl[pos.symbol] || null;
+      var cur = (live && live.current_price != null)
+        ? "$" + Number(live.current_price).toFixed(2) : "—";
+      var unreal = "—";
+      if (live && live.unrealized_pnl != null) {
+        unreal = '<span class="' + _pnlClass(live.unrealized_pnl) + '">' +
+          (live.unrealized_pnl >= 0 ? "+" : "") + "$" +
+          Number(live.unrealized_pnl).toFixed(2) +
+          (live.unrealized_pct != null
+            ? " (" + Number(live.unrealized_pct).toFixed(2) + "%)" : "") + "</span>";
+      }
+      var rowStyle = "";
+      if (live && live.proximity === "near_stop") rowStyle = ' style="background:rgba(231,76,60,.10);"';
+      else if (live && live.proximity === "near_target") rowStyle = ' style="background:rgba(243,156,18,.10);"';
+      var stop = live && live.stop_price != null ? live.stop_price : pos.stop_price;
+      var target = live && live.target_price != null ? live.target_price : pos.target_price;
+      return "<tr" + rowStyle + ">" +
+        "<td><strong>" + esc(pos.symbol) + "</strong>" +
+          (live && live.side === "short" ? ' <span class="chip">short</span>' : "") + "</td>" +
         "<td>" + esc(pos.strategy) + "</td>" +
         "<td>" + grade + "</td>" +
         '<td class="num">' + esc(pos.quantity) + "</td>" +
         '<td class="num">$' + Number(pos.entry_price || 0).toFixed(2) + "</td>" +
-        '<td class="num">$' + Number(pos.stop_price || 0).toFixed(2) + "</td>" +
-        '<td class="num">$' + Number(pos.target_price || 0).toFixed(2) + "</td>" +
+        '<td class="num">' + cur + "</td>" +
+        '<td class="num">' + unreal + "</td>" +
+        '<td class="num">$' + Number(stop || 0).toFixed(2) + "</td>" +
+        '<td class="num">$' + Number(target || 0).toFixed(2) + "</td>" +
+        "<td>" + _progressBar(live) + "</td>" +
         '<td class="num">' + _money(pos.cost_basis) + " " + esc(pos.currency) + "</td>" +
-        '<td class="num">$' + Number(pos.risk_amount || 0).toFixed(2) + "</td>" +
-        "<td>" + esc(pos.entry_time) + "</td></tr>";
+        "<td>" + esc(pos.entry_time) + "</td>" +
+        '<td><button type="button" class="chip" style="cursor:pointer;" onclick="showRationale(\'' +
+          esc(pos.symbol) + "','')\">Why?</button></td></tr>";
     }).join("");
     return '<div style="overflow-x:auto;"><table class="score-table"><thead><tr>' +
       "<th>Symbol</th><th>Strategy</th><th>Grade</th>" +
-      '<th class="num">Qty</th><th class="num">Entry</th><th class="num">Stop</th>' +
-      '<th class="num">Target</th><th class="num">Cost Basis</th><th class="num">Risk</th>' +
-      "<th>Opened</th></tr></thead><tbody>" + rows + "</tbody></table></div>";
+      '<th class="num">Qty</th><th class="num">Entry</th>' +
+      '<th class="num">Current</th><th class="num">Unreal P&amp;L</th>' +
+      '<th class="num">Stop</th><th class="num">Target</th>' +
+      "<th>Stop ◄─● ─► Target</th>" +
+      '<th class="num">Cost Basis</th>' +
+      "<th>Opened</th><th></th></tr></thead><tbody>" + rows + "</tbody></table></div>";
   }
 
   function _renderPaperTrades(p) {
@@ -2634,11 +3001,13 @@
         '<td class="num ' + _pnlClass(t.pnl_net) + '">' +
           (t.pnl_net == null ? "" : (t.pnl_net >= 0 ? "+" : "") + "$" + Number(t.pnl_net).toFixed(2)) + "</td>" +
         '<td class="num">' + (t.r_multiple == null ? "" : Number(t.r_multiple).toFixed(2) + "R") + "</td>" +
-        "<td>" + esc(String(t.exit_time || "").slice(0, 19).replace("T", " ")) + "</td></tr>";
+        "<td>" + esc(String(t.exit_time || "").slice(0, 19).replace("T", " ")) + "</td>" +
+        '<td><button type="button" class="chip" style="cursor:pointer;" onclick="showRationale(\'' +
+          esc(t.symbol) + "','')\">Why?</button></td></tr>";
     }).join("");
     return '<div style="overflow-x:auto;"><table class="score-table"><thead><tr>' +
       '<th>Symbol</th><th>Strategy</th><th class="num">Entry</th><th class="num">Exit</th>' +
-      '<th>Reason</th><th class="num">Net P&amp;L</th><th class="num">R</th><th>Closed</th>' +
+      '<th>Reason</th><th class="num">Net P&amp;L</th><th class="num">R</th><th>Closed</th><th></th>' +
       "</tr></thead><tbody>" + rows + "</tbody></table></div>";
   }
 
@@ -2676,6 +3045,8 @@
     if (el) el.innerHTML = _renderPaperTrades(p);
   }
 
+  var _lastPaperData = null;
+
   async function refreshPaperAccount() {
     try {
       var r = await fetch("/api/paper/account", { credentials: "same-origin" });
@@ -2683,10 +3054,98 @@
       var text = await r.text();
       if (text === _paperSnapshot) return; // unchanged — leave the DOM alone
       _paperSnapshot = text;
-      applyPaperAccount(JSON.parse(text));
+      _lastPaperData = JSON.parse(text);
+      applyPaperAccount(_lastPaperData);
     } catch (e) { /* transient; next poll retries */ }
   }
   setInterval(function () { if (!document.hidden) refreshPaperAccount(); }, 8000);
+
+  // ── Live P&L poll (monitoring F1/F3) ──
+  // 15 s cadence while the market is open; the engine-status poll already
+  // tells us market state, so gate on it to stop hammering nights/weekends
+  // (one poll/min off-hours keeps the "as of" timestamp honest).
+  var _liveMarketOpen = true;
+  var _livePnlTick = 0;
+
+  function _applyLiveTotals(d) {
+    var t = d.totals || {};
+    var el = document.getElementById("paperUnrealized");
+    if (el) { el.className = "value " + _pnlClass(t.unrealized); el.textContent = _pnlText(t.unrealized); }
+    el = document.getElementById("paperTodayTotal");
+    if (el) { el.className = "value " + _pnlClass(t.today_total); el.textContent = _pnlText(t.today_total); }
+    if (t.unrealized != null && t.account_equity != null) {
+      _setText("paperEquity", _money(t.account_equity));
+    }
+    var status = document.getElementById("livePnlStatus");
+    if (status) {
+      var asOf = d.as_of ? String(d.as_of).slice(11, 19) : "—";
+      var stale = (d.quote_age_seconds != null && d.quote_age_seconds > 60);
+      var missing = (t.positions_total || 0) - (t.positions_priced || 0);
+      status.innerHTML = "Live P&amp;L as of <strong>" + esc(asOf) + " ET</strong>" +
+        (d.quote_age_seconds != null ? " · quote age " + Math.round(d.quote_age_seconds) + "s" : "") +
+        (stale ? ' <span class="pill pill-warn">stale</span>' : "") +
+        (missing > 0 ? ' · <span class="pill pill-warn">' + missing + " symbol(s) without a quote</span>" : "");
+    }
+  }
+
+  async function refreshLivePnl() {
+    try {
+      var r = await fetch("/api/live/pnl", { credentials: "same-origin" });
+      if (!r.ok) return;
+      var d = await r.json();
+      _livePnl = {};
+      (d.positions || []).forEach(function (p) { _livePnl[p.symbol] = p; });
+      _applyLiveTotals(d);
+      // Re-render the positions table with the fresh live columns.
+      if (_lastPaperData) {
+        var el = document.getElementById("paperPositionsWrap");
+        if (el) el.innerHTML = _renderPaperPositions(_lastPaperData);
+      }
+    } catch (e) { /* transient */ }
+  }
+
+  var _intradayChart = null;
+  async function refreshIntradayChart() {
+    var canvas = document.getElementById("pnlIntradayChart");
+    if (!canvas || typeof Chart === "undefined") return;
+    try {
+      var d = await jget("/api/live/pnl/intraday");
+      var pts = d.points || [];
+      var labels = pts.map(function (p) { return String(p.ts).slice(11, 16); });
+      var totals = pts.map(function (p) { return p.total; });
+      if (_intradayChart) {
+        _intradayChart.data.labels = labels;
+        _intradayChart.data.datasets[0].data = totals;
+        _intradayChart.update("none");
+        return;
+      }
+      _intradayChart = new Chart(canvas, {
+        type: "line",
+        data: { labels: labels, datasets: [{
+          label: "Today's total P&L ($)", data: totals,
+          borderColor: "#4f8ff7", backgroundColor: "rgba(79,143,247,.15)",
+          fill: true, pointRadius: 0, borderWidth: 2, tension: 0.25 }] },
+        options: { responsive: true, maintainAspectRatio: false, animation: false,
+          plugins: { legend: { display: false } },
+          scales: { x: { ticks: { maxTicksLimit: 8 } }, y: { grace: "10%" } } }
+      });
+    } catch (e) { /* no samples yet */ }
+  }
+
+  (function () {
+    refreshLivePnl(); refreshIntradayChart();
+    setInterval(function () {
+      if (document.hidden) return;
+      _livePnlTick += 1;
+      try {
+        var badge = document.getElementById("engMarket");
+        if (badge) _liveMarketOpen = /open/i.test(badge.textContent || "");
+      } catch (e) {}
+      // Every 15 s when the market is open; every 60 s otherwise.
+      if (_liveMarketOpen || _livePnlTick % 4 === 0) refreshLivePnl();
+      if (_livePnlTick % 4 === 0) refreshIntradayChart();
+    }, 15000);
+  })();
 
   // ── Dark / light theme (feature 15) ──
   function applyThemeIcon() {
@@ -3112,6 +3571,526 @@
   (function () {
     loadWatchlist(); loadRegime(); loadAutotune(); loadApiKeys(); loadUsers();
     mtInitLadders(); loadSelection();
+  })();
+</script>
+
+<!-- ═══════════ MONITORING FEATURES CLIENT LOGIC (F2, F4, F6, F7, F8, F9) ═══════════ -->
+<script>
+  // ── Trade rationale modal (F9) ──
+  function showRationale(symbol, entryTime) {
+    var overlay = document.getElementById("rationaleModal");
+    overlay.style.display = "flex";
+    window.__pauseAutoRefresh = true;
+    document.getElementById("rationaleTitle").textContent = "Why " + symbol + "?";
+    var body = document.getElementById("rationaleBody");
+    body.innerHTML = '<div class="empty-note">Loading…</div>';
+    jget("/api/rationale?symbol=" + encodeURIComponent(symbol) +
+         "&entry_time=" + encodeURIComponent(entryTime || ""))
+      .then(function (d) { renderRationale(d.record); })
+      .catch(function () {
+        body.innerHTML = '<div class="empty-note">Failed to load rationale.</div>';
+      });
+  }
+  function closeRationale() {
+    document.getElementById("rationaleModal").style.display = "none";
+    window.__pauseAutoRefresh = false;
+  }
+  function renderRationale(rec) {
+    var body = document.getElementById("rationaleBody");
+    if (!rec) {
+      body.innerHTML = '<div class="empty-note">No rationale captured for this trade — ' +
+        "records exist only for trades placed after the rationale feature shipped.</div>";
+      return;
+    }
+    var head = '<p class="muted-note">' + esc(rec.strategy) + " · grade " +
+      esc(rec.grade || "?") + " · " + esc(rec.direction || "long") +
+      " · entered " + esc(String(rec.entry_time || "").slice(0, 19).replace("T", " ")) +
+      " @ $" + Number(rec.entry_price || 0).toFixed(2) +
+      ' · overall score <strong>' + Number(rec.overall_score || 0).toFixed(1) +
+      "/10</strong></p>";
+    var rows = (rec.criteria || []).map(function (c) {
+      var s = Number(c.score || 0);
+      var color = s >= 7 ? "var(--green)" : s >= 4 ? "#f39c12" : "var(--red)";
+      return "<tr><td style='white-space:nowrap;'>" + esc(c.name) + "</td>" +
+        '<td style="min-width:120px;"><div style="display:flex;align-items:center;gap:6px;">' +
+        '<div style="flex:1;height:8px;border-radius:4px;background:var(--surface-2);overflow:hidden;">' +
+        '<div style="height:100%;width:' + (s * 10).toFixed(0) + "%;background:" + color + ';"></div></div>' +
+        "<strong>" + s.toFixed(1) + "</strong></div></td>" +
+        '<td class="muted-note">' + esc(c.explanation) + "</td></tr>";
+    }).join("");
+    var table = rows
+      ? '<div style="overflow-x:auto;"><table class="data-table"><thead><tr>' +
+        "<th>Criterion</th><th>Score /10</th><th>Why</th></tr></thead><tbody>" +
+        rows + "</tbody></table></div>"
+      : '<div class="empty-note">No criteria recorded.</div>';
+    var chart = renderCandlesSVG(rec.bars || [], {
+      entry: rec.entry_price, stop: rec.stop_price, target: rec.target_price,
+    });
+    body.innerHTML = head + table +
+      "<h4 style='margin-top:14px;'>Breakout pattern at entry</h4>" + chart;
+  }
+
+  // Dependency-free SVG candlestick chart with entry/stop/target level lines.
+  function renderCandlesSVG(bars, levels) {
+    if (!bars || !bars.length) {
+      return '<div class="empty-note">No bar snapshot was captured for this trade.</div>';
+    }
+    var W = 720, H = 260, padL = 6, padR = 64, padT = 10, padB = 18;
+    var lo = Infinity, hi = -Infinity;
+    bars.forEach(function (b) { lo = Math.min(lo, b.l); hi = Math.max(hi, b.h); });
+    [levels.entry, levels.stop, levels.target].forEach(function (v) {
+      if (v) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+    });
+    if (!(hi > lo)) return '<div class="empty-note">Bad bar data.</div>';
+    var span = hi - lo; lo -= span * 0.04; hi += span * 0.04;
+    var n = bars.length;
+    var step = (W - padL - padR) / n;
+    var cw = Math.max(1.5, Math.min(9, step * 0.6));
+    function y(v) { return padT + (1 - (v - lo) / (hi - lo)) * (H - padT - padB); }
+    var out = ['<div style="overflow-x:auto;"><svg viewBox="0 0 ' + W + " " + H +
+      '" style="width:100%;min-width:520px;background:var(--surface-2);border-radius:8px;">'];
+    bars.forEach(function (b, i) {
+      var cx = padL + step * (i + 0.5);
+      var up = b.c >= b.o;
+      var color = up ? "#2ecc71" : "#e74c3c";
+      out.push('<line x1="' + cx.toFixed(1) + '" x2="' + cx.toFixed(1) +
+        '" y1="' + y(b.h).toFixed(1) + '" y2="' + y(b.l).toFixed(1) +
+        '" stroke="' + color + '" stroke-width="1"/>');
+      var top = y(Math.max(b.o, b.c)), bot = y(Math.min(b.o, b.c));
+      out.push('<rect x="' + (cx - cw / 2).toFixed(1) + '" y="' + top.toFixed(1) +
+        '" width="' + cw.toFixed(1) + '" height="' + Math.max(1, bot - top).toFixed(1) +
+        '" fill="' + color + '"/>');
+    });
+    [["entry", levels.entry, "#4f8ff7"], ["stop", levels.stop, "#e74c3c"],
+     ["target", levels.target, "#2ecc71"]].forEach(function (lv) {
+      var v = lv[1];
+      if (!v) return;
+      var yy = y(v);
+      out.push('<line x1="' + padL + '" x2="' + (W - padR) + '" y1="' + yy.toFixed(1) +
+        '" y2="' + yy.toFixed(1) + '" stroke="' + lv[2] +
+        '" stroke-width="1.5" stroke-dasharray="6 4"/>');
+      out.push('<text x="' + (W - padR + 4) + '" y="' + (yy + 4).toFixed(1) +
+        '" fill="' + lv[2] + '" font-size="11">' + lv[0] + " $" +
+        Number(v).toFixed(2) + "</text>");
+    });
+    out.push("</svg></div>");
+    return out.join("");
+  }
+
+  // ── Trade history (F2) ──
+  var _histOffset = 0, _histLimit = 25, _histTotal = 0;
+  var _histSort = "exit_time", _histOrder = "desc";
+  var _histWrChart = null;
+
+  function _histQuery() {
+    return "strategy=" + encodeURIComponent(document.getElementById("histStrategy").value) +
+      "&symbol=" + encodeURIComponent(document.getElementById("histSymbol").value) +
+      "&exit_reason=" + encodeURIComponent(document.getElementById("histExitReason").value) +
+      "&date_from=" + encodeURIComponent(document.getElementById("histFrom").value) +
+      "&date_to=" + encodeURIComponent(document.getElementById("histTo").value) +
+      "&sort=" + _histSort + "&order=" + _histOrder;
+  }
+  function histApply() { _histOffset = 0; loadHistory(); }
+  function histSort(col) {
+    if (_histSort === col) { _histOrder = _histOrder === "desc" ? "asc" : "desc"; }
+    else { _histSort = col; _histOrder = "desc"; }
+    loadHistory();
+  }
+  function histPage(dir) {
+    var next = _histOffset + dir * _histLimit;
+    if (next < 0 || next >= _histTotal) return;
+    _histOffset = next; loadHistory();
+  }
+  function _histNum(v, digits, suffix) {
+    if (v == null || isNaN(Number(v))) return "—";
+    return Number(v).toFixed(digits) + (suffix || "");
+  }
+  async function loadHistory() {
+    try {
+      var d = await jget("/api/history/trades?limit=" + _histLimit +
+        "&offset=" + _histOffset + "&" + _histQuery());
+      _histTotal = d.total;
+      var tb = document.getElementById("histRows");
+      tb.innerHTML = d.trades.length ? d.trades.map(function (t, i) {
+        var pnl = t.pnl_net;
+        var detailId = "histDet" + i;
+        var main = "<tr style='cursor:pointer;' onclick=\"histToggle('" + detailId + "')\">" +
+          "<td><strong>" + esc(t.symbol) + "</strong></td>" +
+          "<td>" + esc(t.strategy) + "</td>" +
+          "<td>" + esc(t.grade || "") + "</td>" +
+          '<td class="num">' + _histNum(t.entry_fill_price, 2) + "</td>" +
+          '<td class="num">' + _histNum(t.exit_price, 2) + "</td>" +
+          "<td>" + (t.hold_duration_hours != null ? _histNum(t.hold_duration_hours, 1) + "h" : "—") + "</td>" +
+          '<td class="num ' + (pnl != null && pnl < 0 ? "neg" : "pos") + '">' +
+            (pnl != null ? (pnl >= 0 ? "+" : "") + "$" + Number(pnl).toFixed(2) : "—") + "</td>" +
+          '<td class="num">' + _histNum(t.pnl_pct, 2, "%") + "</td>" +
+          '<td class="num">' + _histNum(t.r_multiple, 2, "R") + "</td>" +
+          "<td>" + esc(t.exit_reason || "") + "</td>" +
+          "<td>" + esc(String(t.exit_time || "").slice(0, 16).replace("T", " ")) + "</td>" +
+          '<td><button type="button" class="chip" style="cursor:pointer;" ' +
+            'onclick="event.stopPropagation();showRationale(\'' + esc(t.symbol) + "','" +
+            esc(t.entry_time || "") + '\')">Why?</button></td></tr>';
+        var detail = '<tr id="' + detailId + '" style="display:none;"><td colspan="12">' +
+          '<div class="muted-note" style="padding:6px 2px;">' +
+          "signal " + _histNum(t.signal_strength, 3) +
+          " · RSI " + _histNum(t.rsi_value, 0) +
+          " · vol ratio " + _histNum(t.volume_ratio, 2) +
+          " · AI: " + esc(t.ai_decision || "—") +
+          (t.ai_reasoning ? " — " + esc(String(t.ai_reasoning).slice(0, 220)) : "") +
+          " · commissions $" + _histNum(t.entry_commission, 2) + " + $" +
+          _histNum(t.exit_commission, 2) +
+          " · qty " + (t.quantity != null ? t.quantity : "—") +
+          "</div></td></tr>";
+        return main + detail;
+      }).join("") : '<tr><td colspan="12" class="empty-note">No trades match the filters.</td></tr>';
+      var page = Math.floor(_histOffset / _histLimit) + 1;
+      var pages = Math.max(1, Math.ceil(_histTotal / _histLimit));
+      document.getElementById("histPageInfo").textContent =
+        "Page " + page + " / " + pages + " · " + _histTotal + " trades";
+    } catch (e) {
+      document.getElementById("histRows").innerHTML =
+        '<tr><td colspan="12" class="empty-note">Failed to load.</td></tr>';
+    }
+  }
+  function histToggle(id) {
+    var el = document.getElementById(id);
+    if (el) el.style.display = el.style.display === "none" ? "" : "none";
+  }
+  async function loadHistoryMeta() {
+    try {
+      var f = await jget("/api/history/filters");
+      var sel = document.getElementById("histStrategy");
+      sel.innerHTML = '<option value="">All</option>' + f.strategies.map(function (s) {
+        return "<option>" + esc(s) + "</option>"; }).join("");
+      sel = document.getElementById("histExitReason");
+      sel.innerHTML = '<option value="">All</option>' + f.exit_reasons.map(function (s) {
+        return "<option>" + esc(s) + "</option>"; }).join("");
+    } catch (e) {}
+    try {
+      var s = await jget("/api/history/stats");
+      _setText("histAvgHold", s.avg_hold_hours != null ? s.avg_hold_hours + "h" : "—");
+      _setText("histMedianHold", s.median_hold_hours != null ? s.median_hold_hours + "h" : "—");
+      _setText("histBest", s.best ? s.best.symbol + " +$" + Number(s.best.pnl_net).toFixed(0) : "—");
+      _setText("histWorst", s.worst ? s.worst.symbol + " $" + Number(s.worst.pnl_net).toFixed(0) : "—");
+      var st = s.current_streak || 0;
+      _setText("histStreak", st > 0 ? st + " wins" : st < 0 ? Math.abs(st) + " losses" : "—");
+    } catch (e) {}
+  }
+  async function loadWinRateTrend() {
+    var canvas = document.getElementById("histWinRateChart");
+    if (!canvas || typeof Chart === "undefined") return;
+    try {
+      var w = document.getElementById("histWrWindow").value;
+      var d = await jget("/api/history/win-rate-trend?window=" + w);
+      var pts = d.points || [];
+      var labels = pts.map(function (p) { return String(p.exit_time).slice(0, 10); });
+      var data = pts.map(function (p) { return p.win_rate * 100; });
+      if (_histWrChart) { _histWrChart.destroy(); _histWrChart = null; }
+      if (!pts.length) return;
+      _histWrChart = new Chart(canvas, {
+        type: "line",
+        data: { labels: labels, datasets: [{ label: "Win rate %", data: data,
+          borderColor: "#4f8ff7", pointRadius: 0, borderWidth: 2, tension: 0.25 }] },
+        options: { responsive: true, maintainAspectRatio: false, animation: false,
+          plugins: { legend: { display: false } },
+          scales: { x: { ticks: { maxTicksLimit: 8 } },
+            y: { min: 0, max: 100, ticks: { callback: function (v) { return v + "%"; } } } } }
+      });
+    } catch (e) {}
+  }
+
+  // ── Performance charts (F7) ──
+  var _perfCharts = {};
+  var _returnsData = null;
+  function _mkChart(id, cfg) {
+    var canvas = document.getElementById(id);
+    if (!canvas || typeof Chart === "undefined") return;
+    if (_perfCharts[id]) { _perfCharts[id].destroy(); }
+    _perfCharts[id] = new Chart(canvas, cfg);
+  }
+  async function loadPerformanceCharts() {
+    if (typeof Chart === "undefined") return;
+    try {
+      var eq = await jget("/api/analytics/equity-curve?granularity=daily");
+      var curve = eq.equity_curve || [];
+      if (!curve.length) {
+        var emptyEl = document.getElementById("chartsEmpty");
+        if (emptyEl) emptyEl.style.display = "";
+      } else {
+        var labels = curve.map(function (p) { return String(p.date).slice(0, 10); });
+        _mkChart("chartEquity", { type: "line",
+          data: { labels: labels, datasets: [{ label: "Equity $",
+            data: curve.map(function (p) { return p.equity; }),
+            borderColor: "#2ecc71", backgroundColor: "rgba(46,204,113,.12)",
+            fill: true, pointRadius: 0, borderWidth: 2, tension: 0.15 }] },
+          options: { responsive: true, maintainAspectRatio: false, animation: false,
+            plugins: { legend: { display: false } },
+            scales: { x: { ticks: { maxTicksLimit: 8 } } } } });
+        var dd = curve.map(function (p) { return -(p.drawdown_pct || 0) * 100; });
+        var maxDd = Math.min.apply(null, dd);
+        var hint = document.getElementById("chartDrawdownHint");
+        if (hint) hint.textContent = "(max " + Math.abs(maxDd).toFixed(1) + "%)";
+        _mkChart("chartDrawdown", { type: "line",
+          data: { labels: labels, datasets: [{ label: "Drawdown %", data: dd,
+            borderColor: "#e74c3c", backgroundColor: "rgba(231,76,60,.18)",
+            fill: true, pointRadius: 0, borderWidth: 2, tension: 0.15 }] },
+          options: { responsive: true, maintainAspectRatio: false, animation: false,
+            plugins: { legend: { display: false } },
+            scales: { x: { ticks: { maxTicksLimit: 8 } },
+              y: { ticks: { callback: function (v) { return v + "%"; } } } } } });
+        var eqHint = document.getElementById("chartEquityHint");
+        if (eqHint && curve.length) {
+          eqHint.textContent = "(final $" +
+            Number(curve[curve.length - 1].equity).toLocaleString() + ")";
+        }
+      }
+    } catch (e) {}
+    try {
+      _returnsData = await jget("/api/risk/pnl-breakdown");
+      renderReturnsChart();
+    } catch (e) {}
+    try {
+      var wr = await jget("/api/history/win-rate-trend?window=20");
+      var pts = wr.points || [];
+      if (pts.length) {
+        _mkChart("chartWinRate", { type: "line",
+          data: { labels: pts.map(function (p) { return String(p.exit_time).slice(0, 10); }),
+            datasets: [{ label: "Win rate %",
+              data: pts.map(function (p) { return p.win_rate * 100; }),
+              borderColor: "#4f8ff7", pointRadius: 0, borderWidth: 2, tension: 0.25 }] },
+          options: { responsive: true, maintainAspectRatio: false, animation: false,
+            plugins: { legend: { display: false },
+              annotation: undefined },
+            scales: { x: { ticks: { maxTicksLimit: 8 } },
+              y: { min: 0, max: 100, ticks: { callback: function (v) { return v + "%"; } },
+                grid: { color: function (ctx) {
+                  return ctx.tick && ctx.tick.value === 50 ? "rgba(255,255,255,.35)" : "rgba(128,128,128,.12)";
+                } } } } } });
+      }
+    } catch (e) {}
+  }
+  function renderReturnsChart() {
+    if (!_returnsData || typeof Chart === "undefined") return;
+    var freq = document.getElementById("chartReturnsFreq").value;
+    var series = _returnsData[freq] || [];
+    _mkChart("chartReturns", { type: "bar",
+      data: { labels: series.map(function (p) { return p.period; }),
+        datasets: [{ label: "P&L $", data: series.map(function (p) { return p.pnl; }),
+          backgroundColor: series.map(function (p) {
+            return p.pnl >= 0 ? "rgba(46,204,113,.75)" : "rgba(231,76,60,.75)"; }) }] },
+      options: { responsive: true, maintainAspectRatio: false, animation: false,
+        plugins: { legend: { display: false } },
+        scales: { x: { ticks: { maxTicksLimit: 10 } } } } });
+  }
+
+  // ── Engine activity (F4) ──
+  var _actEvent = "", _actLastTs = "";
+  function actFilter(ev, btn) {
+    _actEvent = ev;
+    document.querySelectorAll("#actFilters .act-filter").forEach(function (b) {
+      b.style.fontWeight = "normal"; });
+    if (btn) btn.style.fontWeight = "bold";
+    loadActivity();
+  }
+  function _actColor(ev) {
+    if (ev === "trade_placed" || ev === "entry_filled") return "var(--green)";
+    if (ev === "error") return "var(--red)";
+    if (ev === "exit") return "#f39c12";
+    if (ev === "signal_rejected") return "var(--text-muted)";
+    return "#4f8ff7";
+  }
+  function _actLine(e) {
+    var ts = String(e.ts || "").slice(11, 19);
+    var main = "";
+    if (e.event === "cycle_start") main = "cycle " + esc(e.cycle_id || "") + " started";
+    else if (e.event === "scan_complete") main = "scan complete — " +
+      (e.symbols_scanned != null ? e.symbols_scanned + " symbols, " : "") +
+      (e.signals_found || 0) + " signal(s)";
+    else if (e.event === "signal_rejected") main = "<strong>" + esc(e.symbol || "") +
+      "</strong> rejected at <em>" + esc(e.gate || "") + "</em>" +
+      (e.reason ? " — " + esc(e.reason) : "");
+    else if (e.event === "trade_placed") main = "<strong>" + esc(e.symbol || "") +
+      "</strong> BUY " + (e.quantity || "?") + " @ $" +
+      (e.fill_price != null ? Number(e.fill_price).toFixed(2) : "?") +
+      " (" + esc(e.strategy || "") + ", grade " + esc(e.grade || "?") + ")";
+    else if (e.event === "exit") main = "<strong>" + esc(e.symbol || "") +
+      "</strong> exit @ $" + (e.exit_price != null ? Number(e.exit_price).toFixed(2) : "?") +
+      " (" + esc(e.reason || "") + ") P&L " +
+      (e.pnl_gross != null ? (e.pnl_gross >= 0 ? "+" : "") + Number(e.pnl_gross).toFixed(2) : "?");
+    else if (e.event === "cycle_complete") main = "cycle complete — " +
+      (e.signals_found || 0) + " signals, " + (e.trades_placed || 0) + " placed, " +
+      (e.exits || 0) + " exits, " + (e.elapsed_seconds || "?") + "s";
+    else if (e.event === "error") main = "ERROR — " + esc(e.message || "");
+    else main = esc(e.event) + (e.symbol ? " " + esc(e.symbol) : "");
+    return '<div style="padding:3px 6px;border-left:3px solid ' + _actColor(e.event) +
+      ';margin:2px 0;"><span class="bt-hint">' + ts + "</span> " + main + "</div>";
+  }
+  async function loadActivity() {
+    try {
+      var sym = document.getElementById("actSymbol").value;
+      var d = await jget("/api/activity?limit=200&event=" + encodeURIComponent(_actEvent) +
+        "&symbol=" + encodeURIComponent(sym));
+      var feed = document.getElementById("actFeed");
+      feed.innerHTML = d.events.length ? d.events.map(_actLine).join("")
+        : '<div class="empty-note">No activity yet — the feed fills once the engine runs.</div>';
+      if (d.events.length) _actLastTs = d.events[0].ts;
+    } catch (e) {}
+    try {
+      var c = await jget("/api/activity/cycles?limit=12");
+      var tb = document.getElementById("actCycleRows");
+      tb.innerHTML = c.cycles.length ? c.cycles.map(function (cy) {
+        var gates = Object.keys(cy.rejected_by_gate || {}).map(function (g) {
+          return g + ":" + cy.rejected_by_gate[g]; }).join(", ") || "—";
+        return "<tr><td>" + esc(cy.cycle_id) + "</td>" +
+          '<td class="num">' + cy.signals_found + "</td>" +
+          "<td>" + esc(gates) + "</td>" +
+          '<td class="num">' + cy.trades_placed + "</td>" +
+          '<td class="num">' + cy.exits + "</td>" +
+          '<td class="num">' + (cy.elapsed_s != null ? cy.elapsed_s + "s" : "—") + "</td></tr>";
+      }).join("") : '<tr><td colspan="6" class="empty-note">No cycles yet — the feed fills ' +
+        "once the engine runs a market-hours cycle.</td></tr>";
+    } catch (e) {}
+  }
+
+  // ── Alerts (F6) ──
+  var _alertEventTypes = [], _alertChannels = [];
+  async function loadAlerts() {
+    try {
+      var ch = await jget("/api/alerts/channels");
+      var c = ch.channels || {};
+      _setText("alertChTelegram", c.telegram ? "Configured" : "Not configured");
+      _setText("alertChEmail", c.email ? "Configured" : "Not configured");
+      _setText("alertChPush", "Available");
+    } catch (e) {}
+    try {
+      var d = await jget("/api/alerts/rules");
+      _alertEventTypes = d.event_types || [];
+      _alertChannels = d.channels || [];
+      var rules = d.rules || {};
+      var tb = document.getElementById("alertRuleRows");
+      tb.innerHTML = _alertEventTypes.map(function (ev) {
+        var r = rules[ev] || { enabled: true, channels: _alertChannels, threshold: null };
+        var chCells = ["telegram", "email", "push"].map(function (c) {
+          return '<td><input type="checkbox" class="al-ch" data-ev="' + ev +
+            '" data-ch="' + c + '"' +
+            ((r.channels || []).indexOf(c) !== -1 ? " checked" : "") + "></td>";
+        }).join("");
+        var showThresh = (ev === "drawdown" || ev === "daily_loss" ||
+          ev === "approaching_stop" || ev === "approaching_target");
+        return "<tr><td>" + esc(ev.replace(/_/g, " ")) + "</td>" +
+          '<td><input type="checkbox" class="al-en" data-ev="' + ev + '"' +
+          (r.enabled ? " checked" : "") + "></td>" + chCells +
+          "<td>" + (showThresh
+            ? '<input type="number" step="0.001" class="al-th" data-ev="' + ev +
+              '" style="width:90px;" value="' + (r.threshold != null ? r.threshold : "") + '">'
+            : "—") + "</td></tr>";
+      }).join("");
+    } catch (e) {
+      document.getElementById("alertRuleRows").innerHTML =
+        '<tr><td colspan="6" class="empty-note">Failed to load rules.</td></tr>';
+    }
+    loadAlertHistory();
+  }
+  async function saveAlertRules() {
+    var rules = {};
+    _alertEventTypes.forEach(function (ev) {
+      var en = document.querySelector('.al-en[data-ev="' + ev + '"]');
+      var channels = [];
+      document.querySelectorAll('.al-ch[data-ev="' + ev + '"]').forEach(function (cb) {
+        if (cb.checked) channels.push(cb.getAttribute("data-ch"));
+      });
+      var th = document.querySelector('.al-th[data-ev="' + ev + '"]');
+      rules[ev] = { enabled: en ? en.checked : true, channels: channels,
+        threshold: th && th.value !== "" ? parseFloat(th.value) : null };
+    });
+    try {
+      await jsend("PUT", "/api/alerts/rules", { rules: rules });
+      setMsg("alertRulesResult", "Saved — takes effect on the engine's next dispatch.", true);
+    } catch (e) { setMsg("alertRulesResult", String(e), false); }
+  }
+  async function alertTest(channel) {
+    setMsg("alertTestResult", "Sending test to " + channel + "…", true);
+    try {
+      var d = await jsend("POST", "/api/alerts/test", { channel: channel });
+      setMsg("alertTestResult", d.ok ? "Test sent on " + channel + " ✓"
+        : "Failed: " + (d.error || "unknown error"), d.ok);
+    } catch (e) { setMsg("alertTestResult", String(e), false); }
+  }
+  async function loadAlertHistory() {
+    try {
+      var t = document.getElementById("alertHistType").value;
+      var d = await jget("/api/alerts/history?limit=100&type=" + encodeURIComponent(t));
+      var feed = document.getElementById("alertHistFeed");
+      feed.innerHTML = d.alerts.length ? d.alerts.map(function (a) {
+        var chs = Object.keys(a.channels || {}).map(function (c) {
+          return c + (a.channels[c] ? "✓" : "✗"); }).join(" ");
+        return '<div style="padding:3px 6px;border-left:3px solid #4f8ff7;margin:2px 0;">' +
+          '<span class="bt-hint">' + esc(String(a.ts || "").slice(0, 19).replace("T", " ")) +
+          "</span> <strong>" + esc(a.type) + "</strong> " + esc(a.message) +
+          ' <span class="bt-hint">' + esc(chs) + "</span></div>";
+      }).join("") : '<div class="empty-note">No alerts dispatched yet.</div>';
+      var sel = document.getElementById("alertHistType");
+      if (sel.options.length <= 1 && d.alerts.length) {
+        var seen = {};
+        d.alerts.forEach(function (a) { seen[a.type] = 1; });
+        sel.innerHTML = '<option value="">All</option>' + Object.keys(seen).sort()
+          .map(function (t2) { return "<option>" + esc(t2) + "</option>"; }).join("");
+      }
+    } catch (e) {}
+  }
+
+  // ── Watchlist monitor (F8) ──
+  async function loadWlMonitor() {
+    try {
+      var d = await jget("/api/watchlist/monitor");
+      var ts = document.getElementById("wlMonScanTs");
+      if (ts) ts.textContent = d.last_scan_at
+        ? "last scan " + String(d.last_scan_at).slice(0, 19).replace("T", " ") + " UTC"
+        : "no scan recorded yet";
+      var tb = document.getElementById("wlMonRows");
+      var chipStyle = {
+        signal: "background:rgba(46,204,113,.25);",
+        near_entry: "background:rgba(243,156,18,.25);",
+        held: "background:rgba(79,143,247,.25);",
+        rejected: "background:var(--surface-2);",
+        excluded: "opacity:.55;",
+        idle: "",
+      };
+      tb.innerHTML = (d.symbols || []).length ? d.symbols.map(function (s) {
+        var chip = '<span class="chip" style="' + (chipStyle[s.status] || "") + '">' +
+          esc(s.status.replace("_", " ").toUpperCase()) +
+          (s.signal && s.status === "signal" ? " " + esc(s.signal.grade || "") : "") + "</span>";
+        var detail = "";
+        if (s.signal) {
+          detail = esc(s.signal.strategy || "") +
+            (s.signal.entry ? " · entry $" + Number(s.signal.entry).toFixed(2) : "") +
+            (s.signal.target ? " → $" + Number(s.signal.target).toFixed(2) : "");
+        }
+        if (s.last_rejection) {
+          detail += (detail ? " · " : "") + "rejected: " + esc(s.last_rejection.gate || "");
+        }
+        var chg = s.change_pct;
+        return "<tr><td><strong>" + esc(s.symbol) + "</strong></td>" +
+          "<td>" + (s.lists || []).map(esc).join(", ") + "</td>" +
+          '<td class="num">' + (s.price != null ? "$" + Number(s.price).toFixed(2) : "—") + "</td>" +
+          '<td class="num ' + (chg != null && chg < 0 ? "neg" : "pos") + '">' +
+          (chg != null ? (chg >= 0 ? "+" : "") + Number(chg).toFixed(2) + "%" : "—") + "</td>" +
+          "<td>" + chip + "</td><td class='muted-note'>" + (detail || "—") + "</td></tr>";
+      }).join("") : '<tr><td colspan="6" class="empty-note">No watchlist symbols.</td></tr>';
+    } catch (e) {
+      var tb2 = document.getElementById("wlMonRows");
+      if (tb2) tb2.innerHTML = '<tr><td colspan="6" class="empty-note">Failed to load.</td></tr>';
+    }
+  }
+
+  // ── Boot + polling for the monitoring sections ──
+  (function () {
+    loadHistoryMeta(); loadHistory(); loadWinRateTrend();
+    loadPerformanceCharts();
+    loadActivity(); loadAlerts(); loadWlMonitor();
+    setInterval(function () { if (!document.hidden) loadActivity(); }, 20000);
+    setInterval(function () { if (!document.hidden) loadWlMonitor(); }, 30000);
+    setInterval(function () { if (!document.hidden) loadPerformanceCharts(); }, 300000);
   })();
 </script>
 <script src="/pwa/pwa.js" defer></script>

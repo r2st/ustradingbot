@@ -33,17 +33,22 @@ class RejectedSignalLogger:
         jsonl_path: Absolute path to the ``rejected_signals.jsonl`` file.
     """
 
-    def __init__(self, data_dir: str) -> None:
+    def __init__(self, data_dir: str, on_rejection=None) -> None:
         """Initialise the rejected-signal logger.
 
         Args:
             data_dir: Directory where ``rejected_signals.jsonl`` will
                 be stored.
+            on_rejection: Optional ``callback(signal, reason, detail)`` invoked
+                (best-effort) after every logged rejection — the engine uses
+                this to mirror rejections into the activity feed (monitoring
+                F4) so the two logs can never drift apart.
         """
         self._data_dir = Path(data_dir)
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self.jsonl_path: Path = self._data_dir / "rejected_signals.jsonl"
         self._log = log.bind(component="RejectedSignalLogger")
+        self._on_rejection = on_rejection
 
     # --------------------------------------------------------- log_rejection
 
@@ -94,6 +99,12 @@ class RejectedSignalLogger:
             reason=reason,
             strategy=signal.strategy,
         )
+
+        if self._on_rejection is not None:
+            try:
+                self._on_rejection(signal, reason, detail)
+            except Exception:  # noqa: BLE001 -- mirroring must never raise
+                self._log.debug("on_rejection_callback_failed", exc_info=True)
 
     # ----------------------------------------------------- get_recent
 

@@ -201,10 +201,12 @@ def test_build_risk_report(settings: Settings) -> None:
     assert len(report.correlations) == 1  # AAPL/MSFT pair
     assert "current_drawdown_pct" in report.drawdown
     assert "today" in report.pnl_breakdown
-    # to_dict round-trips.
+    # to_dict round-trips (monitoring F5 added open_risk / daily_loss_budget /
+    # marked_to_market — additions only, original keys must all survive).
     assert set(report.to_dict()) == {
         "exposure", "sector_concentration", "correlations",
         "max_correlation", "drawdown", "pnl_breakdown",
+        "open_risk", "daily_loss_budget", "marked_to_market",
     }
 
 

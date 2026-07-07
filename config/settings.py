@@ -268,6 +268,17 @@ class Settings(BaseSettings):
     OHLCV_CACHE_TTL_SECONDS: float = 3600.0  # 1 hour
     DATA_CACHE_ENABLED: bool = True
 
+    # ── Dashboard quote service (monitoring F1) ─────────────────────────────
+    # The dashboard's shared quote service serves current price / prev-close /
+    # day-change from its own short-TTL cache so live-P&L polling never turns
+    # into one provider call per poll per symbol.
+    QUOTE_CACHE_TTL_SECONDS: float = 15.0
+
+    # ── Position proximity alerts (monitoring F3/F6) ────────────────────────
+    # Warn (UI highlight + optional alert) when the current price is within
+    # this percentage of a position's stop or target (1.0 == 1%).
+    POSITION_PROXIMITY_ALERT_PCT: float = 1.0
+
     # ── Fetch retry (exponential backoff) ───────────────────────────────────
     # Transient Yahoo/Alpaca failures are retried with exponential backoff:
     # delay = BASE * 2**(attempt-1), capped at MAX_DELAY.

@@ -48,6 +48,10 @@ class RiskReport:
     max_correlation: Optional[Dict[str, Any]] = None
     drawdown: Dict[str, Any] = field(default_factory=dict)
     pnl_breakdown: Dict[str, Any] = field(default_factory=dict)
+    # Monitoring F5 additions (all additive — existing consumers unaffected).
+    open_risk: Dict[str, Any] = field(default_factory=dict)
+    daily_loss_budget: Dict[str, Any] = field(default_factory=dict)
+    marked_to_market: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -57,6 +61,9 @@ class RiskReport:
             "max_correlation": self.max_correlation,
             "drawdown": self.drawdown,
             "pnl_breakdown": self.pnl_breakdown,
+            "open_risk": self.open_risk,
+            "daily_loss_budget": self.daily_loss_budget,
+            "marked_to_market": self.marked_to_market,
         }
 
 
@@ -68,42 +75,57 @@ class RiskReport:
 def portfolio_exposure(
     positions: Sequence[Dict[str, Any]],
     capital_by_currency: Dict[str, float],
+    prices: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Any]:
     """Return committed / available capital per currency and overall.
 
-    Exposure for a position is ``entry_price * quantity`` in its own currency.
+    Cost-basis exposure for a position is ``entry_price * quantity`` in its
+    own currency.  When *prices* supplies a current price for the symbol, a
+    ``market_value`` is reported alongside (falling back to cost basis for
+    symbols without a quote, so the totals never understate the book).
     """
+    prices = prices or {}
     by_currency: Dict[str, Dict[str, float]] = {}
     for cur, allocated in capital_by_currency.items():
         by_currency[cur.upper()] = {
             "allocated": round(float(allocated), 2),
             "committed": 0.0,
+            "market_value": 0.0,
         }
 
     for pos in positions:
         cur = str(pos.get("currency", "USD")).upper()
         try:
-            cost = float(pos.get("entry_price", 0) or 0) * int(
-                float(pos.get("quantity", 0) or 0)
-            )
+            entry = float(pos.get("entry_price", 0) or 0)
+            qty = int(float(pos.get("quantity", 0) or 0))
         except (ValueError, TypeError):
             continue
-        bucket = by_currency.setdefault(cur, {"allocated": 0.0, "committed": 0.0})
+        cost = entry * qty
+        current = prices.get(str(pos.get("symbol", "")))
+        mv = (float(current) * qty) if current else cost
+        bucket = by_currency.setdefault(
+            cur, {"allocated": 0.0, "committed": 0.0, "market_value": 0.0}
+        )
         bucket["committed"] += cost
+        bucket["market_value"] += mv
 
     rows: List[Dict[str, Any]] = []
     total_alloc = 0.0
     total_committed = 0.0
+    total_mv = 0.0
     for cur, b in by_currency.items():
         alloc = b["allocated"]
         committed = round(b["committed"], 2)
+        mv = round(b["market_value"], 2)
         total_alloc += alloc
         total_committed += committed
+        total_mv += mv
         rows.append(
             {
                 "currency": cur,
                 "allocated": alloc,
                 "committed": committed,
+                "market_value": mv,
                 "available": round(alloc - committed, 2),
                 "exposure_pct": round(committed / alloc, 4) if alloc > 0 else 0.0,
             }
@@ -113,10 +135,93 @@ def portfolio_exposure(
         "by_currency": rows,
         "total_allocated": round(total_alloc, 2),
         "total_committed": round(total_committed, 2),
+        "total_market_value": round(total_mv, 2),
         "gross_exposure_pct": (
             round(total_committed / total_alloc, 4) if total_alloc > 0 else 0.0
         ),
         "open_positions": len(positions),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Open risk (F5) — dollars lost if every stop is hit right now
+# ---------------------------------------------------------------------------
+
+
+def open_risk(
+    positions: Sequence[Dict[str, Any]],
+    prices: Optional[Dict[str, float]] = None,
+    total_capital: float = 0.0,
+) -> Dict[str, Any]:
+    """Return per-position and aggregate risk-to-stop.
+
+    For a long, ``risk_if_stopped = (current − stop) × quantity`` — the
+    amount lost if the stop is hit from here (current falls back to entry
+    when no quote is available).  A stop trailed *above* the mark yields a
+    **negative** number: locked-in profit rather than risk.  Shorts are
+    sign-mirrored.  The aggregate sums positive risks only (``total``) and
+    also reports the net including locked profits (``net``).
+    """
+    prices = prices or {}
+    rows: List[Dict[str, Any]] = []
+    total_at_risk = 0.0
+    net = 0.0
+    for pos in positions:
+        symbol = str(pos.get("symbol", ""))
+        try:
+            entry = float(pos.get("entry_price", 0) or 0)
+            stop = float(pos.get("stop_price", 0) or 0)
+            qty = int(float(pos.get("quantity", 0) or 0))
+        except (ValueError, TypeError):
+            continue
+        current = prices.get(symbol)
+        mark = float(current) if current else entry
+        side = str(pos.get("direction", "long") or "long").lower()
+        if side == "short":
+            risk = (stop - mark) * qty
+        else:
+            risk = (mark - stop) * qty
+        risk = round(risk, 2)
+        net += risk
+        if risk > 0:
+            total_at_risk += risk
+        rows.append(
+            {
+                "symbol": symbol,
+                "risk_if_stopped": risk,
+                "locked_profit": risk < 0,
+                "pct_of_capital": (
+                    round(risk / total_capital, 4) if total_capital > 0 else 0.0
+                ),
+                "marked": bool(current),
+            }
+        )
+    rows.sort(key=lambda r: r["risk_if_stopped"], reverse=True)
+    return {
+        "per_position": rows,
+        "total": round(total_at_risk, 2),
+        "net": round(net, 2),
+        "pct_of_capital": (
+            round(total_at_risk / total_capital, 4) if total_capital > 0 else 0.0
+        ),
+    }
+
+
+def daily_loss_budget(
+    today_pnl: float,
+    total_capital: float,
+    limit_pct: float,
+) -> Dict[str, Any]:
+    """Return today's loss-budget usage against ``DAILY_LOSS_LIMIT_PCT``."""
+    limit_usd = round(float(total_capital) * float(limit_pct), 2)
+    used = round(max(0.0, -float(today_pnl)), 2)
+    return {
+        "limit_pct": float(limit_pct),
+        "limit_usd": limit_usd,
+        "used_today": used,
+        "remaining": round(max(0.0, limit_usd - used), 2),
+        "used_pct_of_budget": round(used / limit_usd, 4) if limit_usd > 0 else 0.0,
+        "today_pnl": round(float(today_pnl), 2),
     }
 
 
@@ -302,6 +407,8 @@ def build_risk_report(
     starting_capital: float,
     ohlcv_fetcher: Any = None,
     now: Optional[datetime] = None,
+    prices: Optional[Dict[str, float]] = None,
+    daily_loss_limit_pct: Optional[float] = None,
 ) -> RiskReport:
     """Assemble a full :class:`RiskReport` from the live data sources.
 
@@ -313,6 +420,12 @@ def build_risk_report(
             correlation matrix.  Defaults to ``data.fetcher.fetch_ohlcv``;
             failures per-symbol are ignored so a data outage degrades the
             correlation section gracefully rather than erroring the page.
+        prices: Optional ``{symbol: current_price}`` map (from the dashboard
+            quote service).  When present, exposure gains market values and
+            open risk is marked to market; when absent everything is valued
+            at cost so the report never errors (F5).
+        daily_loss_limit_pct: ``Settings.DAILY_LOSS_LIMIT_PCT``; enables the
+            daily-loss-budget block when provided.
     """
     data_dir = Path(data_dir)
     positions = _load_positions(data_dir)
@@ -339,13 +452,27 @@ def build_risk_report(
                 returns[symbol] = series
         correlations = position_correlations(returns)
 
+    breakdown = pnl_breakdown(trades, now=now)
+    marked = bool(prices) and any(
+        prices.get(str(p.get("symbol", ""))) for p in positions
+    )
+    budget: Dict[str, Any] = {}
+    if daily_loss_limit_pct is not None:
+        budget = daily_loss_budget(
+            breakdown.get("today", 0.0), starting_capital, daily_loss_limit_pct
+        )
+
     report = RiskReport(
-        exposure=portfolio_exposure(positions, capital_by_currency),
+        exposure=portfolio_exposure(positions, capital_by_currency, prices=prices),
         sector_concentration=sector_concentration(positions),
         correlations=correlations,
         max_correlation=correlations[0] if correlations else None,
         drawdown=drawdown_tracking(trades, starting_capital),
-        pnl_breakdown=pnl_breakdown(trades, now=now),
+        pnl_breakdown=breakdown,
+        open_risk=open_risk(positions, prices=prices,
+                            total_capital=starting_capital),
+        daily_loss_budget=budget,
+        marked_to_market=marked,
     )
     return report
 

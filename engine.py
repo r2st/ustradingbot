@@ -79,9 +79,28 @@ class TradingEngine:
         # Risk gatekeeper (position sizing, caps, cooldowns, daily P&L).
         self.risk_manager = RiskManager(self.settings)
 
-        # Journals.
+        # Structured activity feed for the dashboard (monitoring F4) — every
+        # write is best-effort and can never break the trading loop.
+        from journal.activity_log import ActivityLogger
+
+        self.activity = ActivityLogger(data_dir)
+        self._cycle_id: str = ""
+
+        # Trade rationale capture (monitoring F9): why each trade was taken,
+        # persisted at entry time.
+        from journal.rationale import RationaleStore
+
+        self.rationale_store = RationaleStore(data_dir)
+        # Rationale context for resting orders, keyed by broker order id, so
+        # a scale-in/MOC fill reconciled cycles later still gets its record.
+        self._pending_rationale: dict[str, dict] = {}
+
+        # Journals.  Rejections are mirrored into the activity feed via the
+        # callback so the two logs stay in lockstep gate-for-gate.
         self.trade_logger = TradeLogger(data_dir)
-        self.rejected_logger = RejectedSignalLogger(data_dir)
+        self.rejected_logger = RejectedSignalLogger(
+            data_dir, on_rejection=self._on_rejection_activity
+        )
 
         # AI veto layer (OpenRouter).
         self.ai_analyst = AIAnalyst(self.settings)
@@ -211,8 +230,11 @@ class TradingEngine:
                         current_time_et=now_et.strftime("%Y-%m-%d %H:%M:%S %Z"),
                         weekday=now_et.strftime("%A"),
                     )
-            except Exception:
+            except Exception as exc:
                 log.exception("engine.cycle_error")
+                self.activity.log(
+                    "error", cycle_id=self._cycle_id, message=str(exc)[:300]
+                )
 
             if not self.running:
                 break
@@ -346,7 +368,9 @@ class TradingEngine:
         All steps log their actions via structlog for auditability.
         """
         cycle_start = datetime.now(tz=ET)
+        self._cycle_id = cycle_start.strftime("%Y%m%d-%H%M%S")
         log.info("engine.cycle_start", time_et=cycle_start.strftime("%H:%M:%S"))
+        self.activity.log("cycle_start", cycle_id=self._cycle_id)
 
         # Day-boundary detection: reset the daily P&L accumulator when we cross
         # into a new US trading day so the daily loss limit measures today only.
@@ -386,17 +410,36 @@ class TradingEngine:
                 health_exits=exit_summary.health_exits,
                 trails_updated=exit_summary.trails_updated,
             )
+            if exit_summary.trails_updated:
+                self.activity.log(
+                    "trail_updated",
+                    cycle_id=self._cycle_id,
+                    count=exit_summary.trails_updated,
+                )
 
         # Alert on every finalised exit / partial-take, then evaluate the
         # drawdown and daily-loss threshold monitors.
         for event in exit_summary.events:
             await self.notifier.notify_exit(event)
+            self.activity.log(
+                "exit",
+                cycle_id=self._cycle_id,
+                symbol=event.symbol,
+                reason=event.exit_reason.value,
+                exit_price=round(event.exit_price, 4),
+                pnl_gross=round(event.pnl_gross, 2),
+            )
             self._push_notify(
                 f"Exit: {event.symbol}",
                 f"Closed {event.symbol} @ {event.exit_price:.2f} "
                 f"({event.exit_reason.value}), P&L {event.pnl_gross:+.2f}",
             )
         await self._check_risk_alerts()
+
+        # Proximity alerts (F3/F6): warn once per symbol per day when price
+        # is within POSITION_PROXIMITY_ALERT_PCT of a stop or target.
+        # Engine-side so alerts fire even with no browser open.
+        await self._check_proximity_alerts()
 
         # ── Entry phase ───────────────────────────────────────────────
 
@@ -433,6 +476,16 @@ class TradingEngine:
             min_grade=selection.effective_min_grade("B"),
             allowed_strategies=selection.allowed_strategies(),
         )
+        self.activity.log(
+            "scan_complete",
+            cycle_id=self._cycle_id,
+            symbols_scanned=len(scan_symbols),
+            signals_found=len(signals),
+        )
+        # Persist the scan's signal list for the watchlist monitor (F8).
+        from journal.activity_log import write_last_scan
+
+        write_last_scan(self.settings.DATA_DIR, self._cycle_id, signals)
 
         # Step 7: Process each signal through the entry pipeline.
         trades_placed: int = 0
@@ -455,6 +508,16 @@ class TradingEngine:
             trades_rejected=trades_rejected,
             open_positions=open_positions,
             ai_cost_usd=self.ai_analyst.total_cost_usd,
+            elapsed_seconds=round(cycle_elapsed, 2),
+        )
+        self.activity.log(
+            "cycle_complete",
+            cycle_id=self._cycle_id,
+            signals_found=len(signals),
+            trades_placed=trades_placed,
+            trades_rejected=trades_rejected,
+            exits=total_exits,
+            open_positions=open_positions,
             elapsed_seconds=round(cycle_elapsed, 2),
         )
         await self.notifier.notify_cycle(
@@ -580,10 +643,16 @@ class TradingEngine:
             )
             return False
 
+        # Capture the trade rationale (F9) now that every gate has passed —
+        # this is the exact context the decision was made with.
+        rationale = self._build_rationale(sig, decision)
+
         # (h) Place the entry.  The order type (immediate bracket, scale-in
         #     tranches, or market-on-close) is selected from settings; scale-in
         #     and MOC rest until filled and are reconciled asynchronously.
-        pending, accepted = self._place_entry(sig, order, currency, bound_log)
+        pending, accepted = self._place_entry(
+            sig, order, currency, bound_log, rationale
+        )
         if pending:
             return accepted  # journaling/registration happens on fill
         if not accepted:
@@ -596,6 +665,95 @@ class TradingEngine:
             f"({sig.strategy}, grade {sig.grade.value})",
         )
         return True
+
+    def _on_rejection_activity(self, sig, reason: str, detail: str) -> None:
+        """Mirror every gate rejection into the activity feed (F4)."""
+        self.activity.log(
+            "signal_rejected",
+            cycle_id=self._cycle_id,
+            symbol=getattr(sig, "symbol", ""),
+            strategy=getattr(sig, "strategy", ""),
+            gate=reason,
+            reason=str(detail)[:300],
+        )
+
+    async def _check_proximity_alerts(self) -> None:
+        """Alert once per symbol per day when price nears a stop or target.
+
+        Uses the (cached) current price per open position; entirely
+        best-effort — a data failure just skips the symbol this cycle.
+        """
+        try:
+            threshold = float(self.settings.POSITION_PROXIMITY_ALERT_PCT)
+            if threshold <= 0:
+                return
+            day = datetime.now(tz=ET).date().isoformat()
+            for symbol, pos in self.risk_manager.get_open_positions().items():
+                try:
+                    price = fetch_current_price(symbol)
+                    if not price:
+                        continue
+                    price = float(price)
+                    stop = float(pos.get("stop_price", 0) or 0)
+                    target = float(pos.get("target_price", 0) or 0)
+                    if stop > 0 and abs(price - stop) / price * 100.0 <= threshold:
+                        await self.notifier.notify_proximity(
+                            symbol, "approaching_stop", price, stop, day
+                        )
+                    elif target > 0 and abs(target - price) / price * 100.0 <= threshold:
+                        await self.notifier.notify_proximity(
+                            symbol, "approaching_target", price, target, day
+                        )
+                except Exception:  # noqa: BLE001 -- per-symbol best-effort
+                    continue
+        except Exception:  # noqa: BLE001 -- alerts must never break the loop
+            log.debug("engine.proximity_check_failed", exc_info=True)
+
+    def _build_rationale(self, sig: Signal, decision) -> dict:
+        """Assemble the F9 rationale payload (criteria + bar snapshot).
+
+        Called once per accepted signal, after every gate has passed and
+        before order placement, so it captures exactly the context the trade
+        decision was made with.  Best-effort: returns minimal data on error.
+        """
+        from journal.rationale import build_trade_rationale, snapshot_bars
+
+        regime_mult = None
+        try:
+            from analytics.regime import multiplier_for_strategy
+
+            regime_mult = multiplier_for_strategy(sig.strategy, self._regime)
+        except Exception:  # noqa: BLE001
+            regime_mult = None
+        try:
+            criteria = build_trade_rationale(
+                sig,
+                ai_decision=decision,
+                regime=self._regime,
+                regime_multiplier=regime_mult,
+                risk_reward_min=self.settings.RISK_REWARD_MIN,
+            )
+        except Exception:  # noqa: BLE001 -- rationale must never block entry
+            log.debug("engine.rationale_build_failed", exc_info=True)
+            criteria = []
+        try:
+            bars = snapshot_bars(sig.symbol)
+        except Exception:  # noqa: BLE001
+            bars = []
+        return {"criteria": criteria, "bars": bars}
+
+    def _record_rationale(
+        self, sig: Signal, rationale: dict, quantity: int, fill_price: float
+    ) -> None:
+        """Persist the rationale for a filled entry (best-effort)."""
+        self.rationale_store.record(
+            sig,
+            rationale.get("criteria", []),
+            quantity=quantity,
+            entry_price=fill_price,
+            entry_time=datetime.now().isoformat(),
+            bars=rationale.get("bars", []),
+        )
 
     def _push_notify(self, title: str, body: str) -> None:
         """Enqueue a PWA push notification (feature 17).  Best-effort."""
@@ -610,14 +768,19 @@ class TradingEngine:
     # Order-type selection
     # ------------------------------------------------------------------
 
-    def _place_entry(self, sig, order, currency, bound_log):
+    def _place_entry(self, sig, order, currency, bound_log, rationale=None):
         """Place an entry using the configured order type.
 
         Returns ``(pending, accepted)``.  For immediate brackets *pending* is
         ``False`` and *accepted* reflects the fill; for resting orders
         (scale-in / MOC) *pending* is ``True`` and *accepted* reports whether
         the order was submitted.
+
+        *rationale* is the F9 payload built after the gates passed; it is
+        persisted on fill (immediately for brackets, at reconciliation for
+        resting orders).
         """
+        rationale = rationale or {"criteria": [], "bars": []}
         pt_pct = (
             self.settings.PARTIAL_TAKE_PCT if self.settings.ENABLE_PARTIAL_TAKE else 0.0
         )
@@ -631,7 +794,12 @@ class TradingEngine:
             )
             if res.accepted:
                 self._pending_orders[res.order_id] = order
+                self._pending_rationale[res.order_id] = rationale
                 bound_log.info("engine.moc_submitted", order_id=res.order_id)
+                self.activity.log(
+                    "entry_pending", cycle_id=self._cycle_id, symbol=sig.symbol,
+                    strategy=sig.strategy, order_type="moc",
+                )
             else:
                 self.rejected_logger.log_rejection(sig, "broker", res.reason)
             return True, res.accepted
@@ -655,12 +823,19 @@ class TradingEngine:
             for res in results:
                 if res.accepted:
                     self._pending_orders[res.order_id] = order
+                    self._pending_rationale[res.order_id] = rationale
                     any_accepted = True
             bound_log.info(
                 "engine.scale_in_submitted",
                 tranches=len(tranches),
                 accepted=any_accepted,
             )
+            if any_accepted:
+                self.activity.log(
+                    "entry_pending", cycle_id=self._cycle_id, symbol=sig.symbol,
+                    strategy=sig.strategy, order_type="scale_in",
+                    tranches=len(tranches),
+                )
             return True, any_accepted
 
         # Default: immediate bracket order.
@@ -683,6 +858,7 @@ class TradingEngine:
 
         self.trade_logger.log_entry(order, result.fill_price, result.commission)
         self.risk_manager.register_position(order, result.fill_price)
+        self._record_rationale(sig, rationale, order.quantity, result.fill_price)
         bound_log.info(
             "engine.trade_placed",
             quantity=order.quantity,
@@ -690,6 +866,17 @@ class TradingEngine:
             stop_price=sig.stop_price,
             target_price=sig.target_price,
             order_id=result.order_id,
+        )
+        self.activity.log(
+            "trade_placed",
+            cycle_id=self._cycle_id,
+            symbol=sig.symbol,
+            strategy=sig.strategy,
+            grade=sig.grade.value,
+            quantity=order.quantity,
+            fill_price=round(result.fill_price, 4),
+            stop_price=round(sig.stop_price, 4),
+            target_price=round(sig.target_price, 4),
         )
         return False, True
 
@@ -783,8 +970,12 @@ class TradingEngine:
             order = self._pending_orders.get(fill.order_id)
             if fill.expired:
                 self._pending_orders.pop(fill.order_id, None)
+                self._pending_rationale.pop(fill.order_id, None)
                 log.info("engine.entry_expired", order_id=fill.order_id,
                          symbol=fill.symbol)
+                self.activity.log(
+                    "entry_expired", cycle_id=self._cycle_id, symbol=fill.symbol,
+                )
                 await self.notifier.send(
                     f"⌛ Entry order for {fill.symbol} expired unfilled."
                 )
@@ -792,13 +983,22 @@ class TradingEngine:
             if not fill.filled or order is None:
                 continue
             self._pending_orders.pop(fill.order_id, None)
+            rationale = self._pending_rationale.pop(fill.order_id, None)
             self.trade_logger.log_entry(order, fill.fill_price, fill.commission,
                                         quantity=fill.quantity)
             self.risk_manager.register_position(order, fill.fill_price,
                                                 quantity=fill.quantity)
+            if rationale is not None:
+                self._record_rationale(
+                    order.signal, rationale, fill.quantity, fill.fill_price
+                )
             registered += 1
             log.info("engine.pending_entry_filled", symbol=fill.symbol,
                      quantity=fill.quantity, fill_price=fill.fill_price)
+            self.activity.log(
+                "entry_filled", cycle_id=self._cycle_id, symbol=fill.symbol,
+                quantity=fill.quantity, fill_price=round(fill.fill_price, 4),
+            )
             await self.notifier.notify_entry(order, fill.fill_price)
         return registered
 

@@ -1,15 +1,19 @@
 # Monitoring Features — Specification
 
-**Status:** Draft — not implemented
+**Status:** Implemented (F1–F9) — 2026-07-07
 **Scope:** Trading-activity monitoring features for the web dashboard
 **Audience:** Anyone implementing dashboard/engine work in this repo
 **Date:** 2026-07-07
 
-This document specifies eight monitoring features for USTradingBot. Nothing in
-this document is implemented yet; it is a design reference. Each feature lists
-what it does, where the data comes from in the existing codebase, the API
-surface, the frontend work, acceptance criteria, and a complexity estimate
-(S = hours, M = 1–2 days, L = 3+ days).
+This document specifies nine monitoring features for USTradingBot. Each
+feature lists what it does, where the data comes from in the existing
+codebase, the API surface, the frontend work, acceptance criteria, and a
+complexity estimate (S = hours, M = 1–2 days, L = 3+ days).
+
+**Headline features:** F1 (real-time P&L — live unrealized profit/loss on
+every open position, updating without a reload) and F9 (trade rationale —
+*why* the system took each trade, as scored criteria plus a breakout-pattern
+chart). Everything else supports or extends those two views.
 
 ---
 
@@ -41,7 +45,7 @@ Existing API endpoints already serve much of the raw material:
 `/api/engine/{status,logs}`, `/api/watchlist`, `/api/push/{status,poll}`,
 `/api/{regime,premarket,earnings,montecarlo}`, and API-key-gated `/api/v1/*`.
 
-**The single biggest gap across all eight features: no endpoint returns a
+**The single biggest gap across all nine features: no endpoint returns a
 current market price.** The dashboard is entirely entry-time data; everything
 "live" below hangs off one new quote endpoint (Feature 1).
 
@@ -73,12 +77,14 @@ current market price.** The dashboard is entirely entry-time data; everything
 
 1. **F1 Real-time P&L** (S/M) — unlocks the quote service everything else uses.
 2. **F3 Position monitoring** (S) — thin extension of F1.
-3. **F4 Engine activity log** (M) — highest "what is my bot doing?" value.
-4. **F8 Watchlist monitor** (M) — reuses quote service + rejection log.
-5. **F2 Trade history & analytics** (M).
-6. **F7 Performance charts** (M) — needs a charting approach picked once.
-7. **F6 Alerts & notifications** (M/L).
-8. **F5 Risk dashboard enhancements** (M) — mostly upgrades an existing section.
+3. **F9 Trade rationale & scoring** (M) — engine-side capture must start early
+   so history accumulates; the dashboard view can land later.
+4. **F4 Engine activity log** (M) — highest "what is my bot doing?" value.
+5. **F8 Watchlist monitor** (M) — reuses quote service + rejection log.
+6. **F2 Trade history & analytics** (M).
+7. **F7 Performance charts** (M) — needs a charting approach picked once.
+8. **F6 Alerts & notifications** (M/L).
+9. **F5 Risk dashboard enhancements** (M) — mostly upgrades an existing section.
 
 ---
 
@@ -524,13 +530,12 @@ All journal-derived, no engine changes:
 
 ### Frontend
 
-- **Charting library decision:** the page currently has no chart library.
-  Recommend embedding a single small dependency, self-hosted (repo
-  precedent: PWA assets are served locally, and the Hetzner deploy has no
-  build step) — [uPlot] (~40 kB) or Chart.js served from `dashboard/static/`.
-  Hand-rolled SVG (as done for sparklines, if any) does not scale to four
-  interactive charts. All charts (F1 intraday, F2 win-rate, F7's four) use
-  the same library.
+- **Charting library decision (RESOLVED): Chart.js, self-hosted** from
+  `dashboard/static/chart.umd.min.js` (repo precedent: PWA assets are served
+  locally, and the Hetzner deploy has no build step; no CDN — the dashboard
+  must work on a locked-down server). All line/bar charts (F1 intraday,
+  F2 win-rate, F7's four) use Chart.js; the F9 candlestick chart is
+  dependency-free inline SVG.
 - New **Performance Charts** section: 2×2 grid (stacks on mobile per the
   existing responsive breakpoints): equity curve with drawdown shading;
   returns bar chart with Daily/Weekly/Monthly toggle (green/red bars);
@@ -549,8 +554,9 @@ All journal-derived, no engine changes:
   magnitude; empty periods render as zero, not gaps that skew the axis.
 - Empty journal renders friendly empty states ("No closed trades yet"), no
   JS errors.
-- Page weight added by charting stays < 100 kB and everything is served
-  same-origin (no CDN — the dashboard must work on a locked-down server).
+- Everything is served same-origin (no CDN — the dashboard must work on a
+  locked-down server); the charting dependency is a single self-hosted file
+  (~207 kB raw, ~70 kB gzipped) shared by every chart on the page.
 
 **Complexity: M** (data is nearly free; the work is the charting foundation —
 which F1/F2 also consume, so build it here once).
@@ -641,6 +647,106 @@ UI is a table upgrade).
 
 ---
 
+## 9. Trade Rationale & Scoring Dashboard
+
+### What & why
+
+Every trade the engine takes has already survived a 9-gate pipeline (risk
+pre-check, strategy cap, pending-order guard, AI veto, news sentiment,
+regime/auto-tune, sizing, freshness, cash) on top of a 5-indicator weighted
+score — but none of that reasoning is visible afterwards. This feature
+answers **"why did the system take this trade?"** with two artifacts,
+captured **at trade entry time** and **persisted**, shown both on the open
+positions view and in trade history:
+
+1. **Scored rationale criteria** — 5–10 named criteria, each with a score
+   (0–10 scale), and a one-line explanation. The criteria set:
+
+   | Criterion | Source | Example explanation |
+   |---|---|---|
+   | Setup grade quality | `signal_strength` → grade | "Combined weighted score 0.82 → grade A" |
+   | Breakout pattern strength | strategy-aware blend of `ema_score` + `ripster_score` | "VCP volatility-contraction breakout structure" |
+   | Volume confirmation | `volume_score` / `volume_ratio` | "Volume 2.1× its 20-day average" |
+   | Trend alignment | `ema_score` | "Price above rising EMA stack" |
+   | Momentum | `macd_score` / `macd_histogram` | "MACD histogram positive and rising" |
+   | RSI positioning | `rsi_score` / `rsi_value` | "RSI 62 — bullish, not overbought" |
+   | Risk/reward ratio | entry/stop/target | "R:R 2.4:1 vs 1.8 required" |
+   | AI veto score | `AIDecision` (approve + reasoning) | "APPROVE — no adverse news in window" |
+   | Volatility-regime fit | regime multiplier for the strategy family | "Bull regime favours momentum ×1.10" |
+   | Relative strength / OBV | `obv_confirming` | "OBV confirms the price trend" |
+
+2. **Breakout pattern chart** — a candlestick chart of the daily bars
+   around the entry (~90 bars ending at entry), with the **entry, stop and
+   target levels marked** as horizontal lines. The bars are snapshotted into
+   the rationale record at entry time so the chart still shows the *setup as
+   it looked then*, even months later in trade history.
+
+### Data sources
+
+- Everything above is already in memory in `engine._process_signal` at the
+  moment the trade is placed: the `Signal` (all indicator scores), the
+  `AIDecision`, the news check result, the cycle's `RegimeResult` /
+  auto-tune state, and the sized `TradeOrder`.
+- Bars: `data/fetcher.fetch_ohlcv` (cache-hot at that moment — the screener
+  just fetched them; snapshotting is free).
+- **New module `journal/rationale.py`**: `build_trade_rationale(...)` (pure —
+  signal + context → criteria list) and a `RationaleStore` appending one JSON
+  line per trade to `DATA_DIR/trade_rationale.jsonl` (rotated like F4;
+  best-effort writes — a rationale failure must never block an entry).
+- Records are keyed by `symbol` + `entry_time`; open positions match on the
+  latest un-exited record, history rows on nearest entry time.
+- Pending entries (scale-in / MOC): rationale is built at submit time and
+  persisted when the fill is reconciled.
+
+### API
+
+New `dashboard/rationale_router.py`:
+
+- `GET /api/rationale?symbol=&entry_time=&limit=50` → newest-first list of
+  rationale records (`entry_time` narrows to the record nearest that entry;
+  `symbol` filters). Each record:
+  ```json
+  {"symbol": "NVDA", "strategy": "vcp_breakout", "grade": "A",
+   "entry_time": "...", "entry_price": 142.5, "stop_price": 136.2,
+   "target_price": 153.8, "overall_score": 8.2,
+   "criteria": [{"key": "volume_confirmation", "name": "Volume confirmation",
+                 "score": 7.8, "explanation": "Volume 2.1× its 20-day average"}],
+   "bars": [{"t": "2026-07-01", "o": 140.1, "h": 143.2, "l": 139.8,
+             "c": 142.9, "v": 51200000}]}
+  ```
+
+### Frontend
+
+- **Open positions table**: a "Why?" button per row opens a rationale modal.
+- **Trade history (F2) rows**: same "Why?" affordance per completed trade.
+- The modal shows: header (symbol, strategy, grade, overall score), the
+  criteria table (name, 0–10 score bar, explanation), and the candlestick
+  chart with entry (blue), stop (red) and target (green) level lines. The
+  candlestick chart is rendered as dependency-free inline SVG (matching the
+  existing hand-rolled equity-curve SVG); line/bar charts elsewhere use the
+  shared chart library (F7).
+- Trades placed before this feature shipped have no record; the modal says
+  "No rationale captured for this trade" rather than erroring.
+
+### Acceptance criteria
+
+- Placing a paper trade writes a rationale record with ≥ 5 criteria, every
+  score within [0, 10], and non-empty explanations; the record includes the
+  AI decision text actually returned for that trade.
+- The open-positions view shows the rationale for a position opened this
+  session without a dashboard restart; after the position closes, the same
+  record is reachable from trade history.
+- The candlestick chart marks entry/stop/target at the recorded (entry-time)
+  levels even after the live stop has been trailed.
+- A rationale write failure (e.g. read-only disk) never prevents the trade —
+  entry, journaling, and registration all proceed (unit-tested).
+- Short manual trades render with the stop above and target below entry.
+
+**Complexity: M** (engine capture is simple; the modal + candlestick SVG is
+the bulk).
+
+---
+
 ## Appendix A — new files summary
 
 | File | Feature | Purpose |
@@ -650,13 +756,18 @@ UI is a table upgrade).
 | `dashboard/history_router.py` | F2 | Paginated trade history + stats |
 | `dashboard/activity_router.py` | F4 | Activity feed endpoints |
 | `dashboard/alerts_router.py` | F6 | Alert rules, history, test |
+| `dashboard/rationale_router.py` | F9 | Trade rationale records API |
 | `journal/activity_log.py` | F4, F8 | Engine-side JSONL event writer + `last_scan.json` |
+| `journal/rationale.py` | F9 | Rationale builder + JSONL store |
+| `agent/alert_config.py` | F6 | Alert rules load/save + history writer |
 | `DATA_DIR/engine_activity.jsonl` | F4 | Event stream (rotated) |
 | `DATA_DIR/pnl_intraday.jsonl` | F1 | Intraday P&L samples |
 | `DATA_DIR/alert_rules.json` | F6 | User alert configuration |
 | `DATA_DIR/alerts_history.jsonl` | F6 | Dispatch log (rotated) |
+| `DATA_DIR/alerts_state.json` | F6 | Proximity-alert per-day debounce state |
 | `DATA_DIR/last_scan.json` | F8 | Latest scan's signal list |
-| `dashboard/static/` + chart lib | F7 (shared) | Self-hosted charting |
+| `DATA_DIR/trade_rationale.jsonl` | F9 | Per-trade rationale + bar snapshot (rotated) |
+| `dashboard/static/chart.umd.min.js` | F7 (shared) | Self-hosted Chart.js (chosen library) |
 
 ## Appendix B — testing conventions
 
