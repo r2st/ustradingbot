@@ -249,6 +249,9 @@ class TradingEngine:
         from dashboard.engine_control import write_heartbeat
 
         try:
+            # Adopt any positions the dashboard process wrote to the shared
+            # state file so the reported count matches what the dashboard shows.
+            self.risk_manager.sync_positions_from_disk()
             open_positions = len(self.risk_manager.get_open_positions())
         except Exception:  # noqa: BLE001 -- never let telemetry break the loop
             open_positions = None
@@ -349,6 +352,11 @@ class TradingEngine:
         # into a new US trading day so the daily loss limit measures today only.
         if self.risk_manager.maybe_reset_daily_pnl():
             log.info("engine.daily_pnl_reset", date=cycle_start.strftime("%Y-%m-%d"))
+
+        # Adopt position changes made by the dashboard process (manual trades
+        # share open_positions.json) before the exit/entry phases, so manual
+        # positions are exit-managed and duplicate entries are blocked.
+        self.risk_manager.sync_positions_from_disk()
 
         # Refresh market regime + adaptive thresholds for this cycle (both are
         # best-effort and never raise into the loop).

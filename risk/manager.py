@@ -102,7 +102,11 @@ class RiskManager:
         self._data_dir: Path = Path(settings.DATA_DIR)
         self._data_dir.mkdir(parents=True, exist_ok=True)
 
-        # Positions keyed by symbol
+        # Positions keyed by symbol.  The file signature (mtime + size)
+        # recorded on every load/save lets ``sync_positions_from_disk`` detect
+        # writes made by *another* process sharing the same DATA_DIR (the
+        # dashboard registers manual trades through its own RiskManager).
+        self._positions_file_sig: Optional[Tuple[int, int]] = None
         self._positions: Dict[str, Dict[str, Any]] = self._load_positions()
 
         # Daily P&L accumulator, persisted to disk so it survives a mid-day
@@ -561,6 +565,38 @@ class RiskManager:
         """
         return dict(self._positions)
 
+    def sync_positions_from_disk(self) -> bool:
+        """Re-read ``open_positions.json`` if another process changed it.
+
+        The dashboard runs in a separate process and places manual trades
+        through its own ``RiskManager`` pointed at the same ``DATA_DIR``, so
+        the shared JSON file — not this instance's memory — is the source of
+        truth.  The engine calls this at the start of every cycle (and before
+        each heartbeat) to adopt external changes; without it the engine's
+        in-memory tracker drifts from the file, its next save clobbers the
+        external write, and the dashboard's two position counts disagree.
+
+        A reload only happens when the file's signature (mtime + size) differs
+        from the one recorded at our last load/save, so the common no-change
+        case is a single ``stat`` call.
+
+        Returns:
+            ``True`` when a reload happened, ``False`` when the file was
+            unchanged (or has never existed).
+        """
+        if self._positions_file_signature() == self._positions_file_sig:
+            return False
+        before = set(self._positions)
+        self._positions = self._load_positions()
+        after = set(self._positions)
+        self._log.info(
+            "positions.synced_from_disk",
+            adopted=sorted(after - before),
+            dropped=sorted(before - after),
+            open_positions=len(self._positions),
+        )
+        return True
+
     def get_available_cash(self, currency: str) -> float:
         """Return uncommitted capital for *currency*.
 
@@ -646,14 +682,29 @@ class RiskManager:
 
     # ------------------------------------------------------- private helpers
 
+    def _positions_file_signature(self) -> Optional[Tuple[int, int]]:
+        """Return the position file's ``(mtime_ns, size)``, or ``None`` if absent."""
+        try:
+            st = (self._data_dir / "open_positions.json").stat()
+        except OSError:
+            return None
+        return (st.st_mtime_ns, st.st_size)
+
     def _load_positions(self) -> Dict[str, Dict[str, Any]]:
         """Load open positions from the persistent JSON file.
+
+        Records the file signature so ``sync_positions_from_disk`` can later
+        detect writes made by another process.
 
         Returns:
             Dict of positions keyed by symbol, or an empty dict if the
             file does not exist or is malformed.
         """
         path = self._data_dir / "open_positions.json"
+        # Stat before reading: if the file changes between the two calls the
+        # recorded signature is older than the content, so the next sync just
+        # reloads again — stale-signature errors are self-correcting.
+        self._positions_file_sig = self._positions_file_signature()
         if not path.exists():
             return {}
         try:
@@ -687,7 +738,12 @@ class RiskManager:
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as f:
                     json.dump(self._positions, f, indent=2, default=str)
+                # Record the signature from the temp file: the rename below
+                # preserves the inode, so the target inherits exactly this
+                # mtime/size and our own write never registers as external.
+                st = os.stat(tmp_path)
                 os.replace(tmp_path, str(target))
+                self._positions_file_sig = (st.st_mtime_ns, st.st_size)
             except BaseException:
                 # Clean up the temp file on any failure
                 try:

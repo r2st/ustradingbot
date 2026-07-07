@@ -446,3 +446,76 @@ class TestPositionManagement:
         signal = _make_signal()
         passed, _ = rm.pre_check(signal)
         assert passed is True
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Cross-Process Position Sync Tests
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestCrossProcessSync:
+    """The dashboard mutates ``open_positions.json`` from a separate process
+    (manual trades); ``sync_positions_from_disk`` lets the engine's manager
+    adopt those changes so its in-memory view — and the heartbeat count the
+    dashboard displays — never drifts from the shared file.
+    """
+
+    @staticmethod
+    def _order(symbol: str = "AAPL") -> TradeOrder:
+        return TradeOrder(
+            signal=_make_signal(symbol=symbol), quantity=10, currency="USD",
+            ai_decision="APPROVE", ai_reasoning="ok",
+        )
+
+    def test_sync_adopts_externally_added_position(self, settings: Settings) -> None:
+        """A position registered by another RiskManager instance (the
+        dashboard process) is adopted on sync."""
+        engine_rm = RiskManager(settings)
+        dashboard_rm = RiskManager(settings)  # simulates the dashboard process
+        dashboard_rm.register_position(self._order("HD"), fill_price=351.28)
+
+        assert "HD" not in engine_rm.get_open_positions()
+        assert engine_rm.sync_positions_from_disk() is True
+        assert "HD" in engine_rm.get_open_positions()
+
+    def test_sync_adopts_externally_removed_position(self, settings: Settings) -> None:
+        """A position closed by another process disappears on sync."""
+        engine_rm = RiskManager(settings)
+        engine_rm.register_position(self._order("HD"), fill_price=351.28)
+
+        dashboard_rm = RiskManager(settings)
+        dashboard_rm.remove_position(
+            "HD",
+            ExitEvent(symbol="HD", exit_price=360.0,
+                      exit_reason=ExitReason.TARGET_HIT),
+        )
+
+        assert engine_rm.sync_positions_from_disk() is True
+        assert "HD" not in engine_rm.get_open_positions()
+
+    def test_sync_is_noop_after_own_writes(self, settings: Settings) -> None:
+        """Our own saves must not register as external changes."""
+        rm = RiskManager(settings)
+        rm.register_position(self._order("HD"), fill_price=351.28)
+
+        assert rm.sync_positions_from_disk() is False
+        assert "HD" in rm.get_open_positions()
+
+    def test_sync_is_noop_when_file_never_existed(self, settings: Settings) -> None:
+        rm = RiskManager(settings)
+        assert rm.sync_positions_from_disk() is False
+        assert rm.get_open_positions() == {}
+
+    def test_pre_check_blocks_symbol_added_by_other_process(
+        self, settings: Settings
+    ) -> None:
+        """After a sync, duplicate entry of an externally added symbol is
+        rejected (the engine cycle syncs before processing signals)."""
+        engine_rm = RiskManager(settings)
+        dashboard_rm = RiskManager(settings)
+        dashboard_rm.register_position(self._order("AAPL"), fill_price=195.50)
+
+        engine_rm.sync_positions_from_disk()
+        passed, reason = engine_rm.pre_check(_make_signal(symbol="AAPL"))
+        assert passed is False
+        assert "already_holding" in reason

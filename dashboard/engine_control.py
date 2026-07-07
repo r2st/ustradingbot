@@ -85,6 +85,24 @@ def read_heartbeat(data_dir: str | Path) -> Dict[str, Any]:
         return {}
 
 
+def _count_persisted_positions(data_dir: str | Path) -> int | None:
+    """Count entries in the shared ``open_positions.json``, or ``None``.
+
+    This is the same file the paper-trading section reads, so deriving the
+    engine panel's position count from it keeps the two dashboard counts
+    consistent (the heartbeat's engine-internal count can lag a full scan
+    interval behind a manual trade placed from the dashboard).
+    """
+    path = Path(data_dir) / "open_positions.json"
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return None
+    return len(data) if isinstance(data, dict) else None
+
+
 def _heartbeat_fresh(hb: Dict[str, Any], settings: Settings) -> bool:
     """Return whether the heartbeat was updated recently enough to trust.
 
@@ -163,6 +181,12 @@ def engine_status(settings: Settings) -> Dict[str, Any]:
     hb = read_heartbeat(settings.DATA_DIR)
     managed = bool(svc.get("available") and svc.get("loaded"))
 
+    # Prefer the shared position file over the heartbeat's engine-internal
+    # count — it is the source of truth both dashboard sections agree on.
+    open_positions = _count_persisted_positions(settings.DATA_DIR)
+    if open_positions is None:
+        open_positions = hb.get("open_positions")
+
     if managed:
         active = svc.get("active_state")
         if active == "active":
@@ -195,7 +219,7 @@ def engine_status(settings: Settings) -> Dict[str, Any]:
             "last_cycle_at": hb.get("last_cycle_at"),
             "next_scan_at": hb.get("next_scan_at"),
             "scan_interval_min": hb.get("scan_interval_min"),
-            "open_positions": hb.get("open_positions"),
+            "open_positions": open_positions,
             "updated_at": hb.get("updated_at"),
             "stale": bool(hb) and not _heartbeat_fresh(hb, settings),
         },

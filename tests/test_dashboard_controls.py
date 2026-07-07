@@ -214,3 +214,45 @@ def test_backtest_run_route_validates(client, monkeypatch, tmp_path):
     resp = client.post("/api/backtest/run", json={"symbols": [], "strategies": []})
     assert resp.status_code == 200
     assert resp.json()["ok"] is False
+
+
+# ------------------------------------------- open-position count consistency
+
+
+def _write_positions(data_dir, symbols) -> None:
+    import json
+
+    (data_dir / "open_positions.json").write_text(
+        json.dumps({s: {"symbol": s, "entry_price": 100.0, "quantity": 1,
+                        "currency": "USD"} for s in symbols})
+    )
+
+
+def test_engine_status_count_prefers_shared_state_file(tmp_path):
+    """The engine panel count must come from the same file the paper section
+    reads (the heartbeat's engine-internal count can lag manual trades)."""
+    settings = Settings(DATA_DIR=tmp_path)
+    _write_positions(tmp_path, ["HD"])
+    ec.write_heartbeat(tmp_path, phase="waiting", open_positions=4)  # stale
+
+    status = ec.engine_status(settings)
+    assert status["activity"]["open_positions"] == 1
+
+
+def test_engine_status_count_falls_back_to_heartbeat(tmp_path):
+    """Without a position file (e.g. before the first trade) the heartbeat
+    count is still reported."""
+    settings = Settings(DATA_DIR=tmp_path)
+    ec.write_heartbeat(tmp_path, phase="waiting", open_positions=2)
+
+    status = ec.engine_status(settings)
+    assert status["activity"]["open_positions"] == 2
+
+
+def test_engine_status_count_ignores_corrupt_state_file(tmp_path):
+    settings = Settings(DATA_DIR=tmp_path)
+    (tmp_path / "open_positions.json").write_text("{not json")
+    ec.write_heartbeat(tmp_path, phase="waiting", open_positions=3)
+
+    status = ec.engine_status(settings)
+    assert status["activity"]["open_positions"] == 3

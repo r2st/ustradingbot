@@ -166,3 +166,36 @@ def test_paper_summary_empty_journal(client, monkeypatch, tmp_path) -> None:
     assert body["total_trades"] == 0
     assert body["realized_pnl"] == 0.0
     assert body["account_equity"] == pytest.approx(body["starting_capital"])
+
+
+# ------------------------------------------------- /api/paper/account (live refresh)
+
+
+def test_paper_account_combined_snapshot(client, monkeypatch, tmp_path) -> None:
+    """The combined endpoint powers the section's in-place refresh: it must
+    carry summary stats, balances, positions, and recent trades in one call."""
+    _seed(tmp_path)
+    _use(monkeypatch, tmp_path)
+    body = client.get("/api/paper/account").json()
+    assert body["open_count"] == 1
+    assert body["positions"][0]["symbol"] == "AAPL"
+    assert body["recent_trades"][0]["symbol"] == "MSFT"
+    assert {b["currency"] for b in body["balances"]} >= {"USD"}
+
+
+def test_paper_account_requires_auth_when_enabled(client, monkeypatch, tmp_path) -> None:
+    settings = Settings(DASHBOARD_AUTH_ENABLED=True, DASHBOARD_PASSWORD="secret",
+                        DATA_DIR=tmp_path)
+    monkeypatch.setattr(dash, "get_settings", lambda: settings)
+    assert client.get("/api/paper/account").status_code == 401
+
+
+def test_dashboard_page_wires_paper_live_refresh(client, monkeypatch, tmp_path) -> None:
+    """The page must poll the account snapshot in place — a static render let
+    the position list drift out of sync with the live engine panel count."""
+    _use(monkeypatch, tmp_path)
+    html = client.get("/").text
+    assert "refreshPaperAccount" in html
+    assert "/api/paper/account" in html
+    assert 'id="paperPositionsWrap"' in html
+    assert 'id="paperOpenCount"' in html

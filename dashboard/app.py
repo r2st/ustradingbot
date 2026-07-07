@@ -732,6 +732,17 @@ async def api_paper_trades(_user: str = Depends(require_auth)):
     return {"trades": _build_paper_trading()["recent_trades"]}
 
 
+@app.get("/api/paper/account")
+async def api_paper_account(_user: str = Depends(require_auth)):
+    """Full account snapshot: summary stats, balances, positions, trades.
+
+    One call powering the dashboard's in-place refresh of the whole
+    paper-trading section (kept live alongside the engine status poll so the
+    position list can never drift out of sync with the engine panel's count).
+    """
+    return _build_paper_trading()
+
+
 # ---------------------------------------------------------------------------
 # Performance analytics API
 # ---------------------------------------------------------------------------

@@ -916,41 +916,41 @@
       </div>
       <div class="stat-card">
         <div class="label">Account Equity</div>
-        <div class="value">${{ "{:,.2f}".format(paper.account_equity) }}</div>
+        <div class="value" id="paperEquity">${{ "{:,.2f}".format(paper.account_equity) }}</div>
       </div>
       <div class="stat-card">
         <div class="label">Realized P&amp;L</div>
-        <div class="value {{ 'pnl-pos' if paper.realized_pnl >= 0 else 'pnl-neg' }}">
+        <div class="value {{ 'pnl-pos' if paper.realized_pnl >= 0 else 'pnl-neg' }}" id="paperRealized">
           {{ '+' if paper.realized_pnl >= 0 else '' }}${{ "{:,.2f}".format(paper.realized_pnl) }}
         </div>
       </div>
       <div class="stat-card">
         <div class="label">Today's P&amp;L</div>
-        <div class="value {{ 'pnl-pos' if paper.today_pnl >= 0 else 'pnl-neg' }}">
+        <div class="value {{ 'pnl-pos' if paper.today_pnl >= 0 else 'pnl-neg' }}" id="paperToday">
           {{ '+' if paper.today_pnl >= 0 else '' }}${{ "{:,.2f}".format(paper.today_pnl) }}
         </div>
       </div>
       <div class="stat-card">
         <div class="label">Open Positions</div>
-        <div class="value">{{ paper.open_count }}</div>
+        <div class="value" id="paperOpenCount">{{ paper.open_count }}</div>
       </div>
       <div class="stat-card">
         <div class="label">Closed Trades</div>
-        <div class="value">{{ paper.total_trades }}</div>
+        <div class="value" id="paperClosedTrades">{{ paper.total_trades }}</div>
       </div>
       <div class="stat-card">
         <div class="label">Win Rate</div>
-        <div class="value small">{{ "%.0f"|format(paper.win_rate * 100) }}%</div>
+        <div class="value small" id="paperWinRate">{{ "%.0f"|format(paper.win_rate * 100) }}%</div>
       </div>
       <div class="stat-card">
         <div class="label">Profit Factor</div>
-        <div class="value small">{{ "%.2f"|format(paper.profit_factor) if paper.profit_factor is not none else "∞" if paper.total_trades else "—" }}</div>
+        <div class="value small" id="paperProfitFactor">{{ "%.2f"|format(paper.profit_factor) if paper.profit_factor is not none else "∞" if paper.total_trades else "—" }}</div>
       </div>
     </div>
 
     <!-- Cash balances per currency -->
     <div class="watchlist-label">Cash Balances</div>
-    <div class="balances-grid">
+    <div class="balances-grid" id="paperBalances">
       {% for bal in paper.balances %}
       <div class="kv-item" style="flex-direction:column; align-items:stretch; gap:4px;">
         <div style="display:flex; justify-content:space-between;">
@@ -970,7 +970,8 @@
     </div>
 
     <!-- Open positions -->
-    <div class="watchlist-label">Open Positions ({{ paper.open_count }})</div>
+    <div class="watchlist-label">Open Positions (<span id="paperOpenCountLabel">{{ paper.open_count }}</span>)</div>
+    <div id="paperPositionsWrap">
     {% if paper.positions %}
     <div style="overflow-x:auto;">
       <table class="score-table">
@@ -1006,9 +1007,11 @@
       and qualifying signals will be filled here automatically.
     </div>
     {% endif %}
+    </div>
 
     <!-- Trade history -->
     <div class="watchlist-label" style="margin-top:18px;">Recent Trade History</div>
+    <div id="paperTradesWrap">
     {% if paper.recent_trades %}
     <div style="overflow-x:auto;">
       <table class="score-table">
@@ -1039,6 +1042,7 @@
     {% else %}
     <div class="empty-note">No closed trades yet.</div>
     {% endif %}
+    </div>
   </div>
 </div>
 
@@ -2565,6 +2569,124 @@
     var el = document.getElementById(id); if (!el) return;
     el.textContent = text; el.style.color = ok ? "var(--green)" : "var(--red)";
   }
+
+  // ── Paper account live refresh ──
+  // The paper-trading section is server-rendered, but the engine keeps
+  // trading after the page loads (and full-page auto-refresh pauses while
+  // the user types or a modal is open). Poll the account snapshot in place —
+  // same cadence as the engine panel — so the position list and the engine
+  // panel's open-position count can never drift apart on screen.
+  var _paperSnapshot = "";
+
+  function _money(v) {
+    var n = Number(v || 0);
+    return "$" + n.toLocaleString("en-US",
+      { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function _pnlText(v) { return (Number(v || 0) >= 0 ? "+" : "") + _money(v); }
+  function _pnlClass(v) { return Number(v || 0) >= 0 ? "pnl-pos" : "pnl-neg"; }
+  function _setText(id, text) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = String(text);
+  }
+
+  function _renderPaperPositions(p) {
+    if (!p.positions || !p.positions.length) {
+      return '<div class="empty-note">No open positions yet. Start the bot ' +
+        "(<code>python engine.py</code>) during market hours and qualifying " +
+        "signals will be filled here automatically.</div>";
+    }
+    var rows = p.positions.map(function (pos) {
+      var grade = pos.grade
+        ? '<span class="grade grade-' + esc(String(pos.grade).toLowerCase()) +
+          '">' + esc(pos.grade) + "</span>"
+        : "";
+      return "<tr>" +
+        "<td><strong>" + esc(pos.symbol) + "</strong></td>" +
+        "<td>" + esc(pos.strategy) + "</td>" +
+        "<td>" + grade + "</td>" +
+        '<td class="num">' + esc(pos.quantity) + "</td>" +
+        '<td class="num">$' + Number(pos.entry_price || 0).toFixed(2) + "</td>" +
+        '<td class="num">$' + Number(pos.stop_price || 0).toFixed(2) + "</td>" +
+        '<td class="num">$' + Number(pos.target_price || 0).toFixed(2) + "</td>" +
+        '<td class="num">' + _money(pos.cost_basis) + " " + esc(pos.currency) + "</td>" +
+        '<td class="num">$' + Number(pos.risk_amount || 0).toFixed(2) + "</td>" +
+        "<td>" + esc(pos.entry_time) + "</td></tr>";
+    }).join("");
+    return '<div style="overflow-x:auto;"><table class="score-table"><thead><tr>' +
+      "<th>Symbol</th><th>Strategy</th><th>Grade</th>" +
+      '<th class="num">Qty</th><th class="num">Entry</th><th class="num">Stop</th>' +
+      '<th class="num">Target</th><th class="num">Cost Basis</th><th class="num">Risk</th>' +
+      "<th>Opened</th></tr></thead><tbody>" + rows + "</tbody></table></div>";
+  }
+
+  function _renderPaperTrades(p) {
+    if (!p.recent_trades || !p.recent_trades.length) {
+      return '<div class="empty-note">No closed trades yet.</div>';
+    }
+    var rows = p.recent_trades.map(function (t) {
+      return "<tr>" +
+        "<td><strong>" + esc(t.symbol) + "</strong></td>" +
+        "<td>" + esc(t.strategy) + "</td>" +
+        '<td class="num">' + (t.entry_price == null ? "" : "$" + Number(t.entry_price).toFixed(2)) + "</td>" +
+        '<td class="num">' + (t.exit_price == null ? "" : "$" + Number(t.exit_price).toFixed(2)) + "</td>" +
+        "<td>" + esc(t.exit_reason) + "</td>" +
+        '<td class="num ' + _pnlClass(t.pnl_net) + '">' +
+          (t.pnl_net == null ? "" : (t.pnl_net >= 0 ? "+" : "") + "$" + Number(t.pnl_net).toFixed(2)) + "</td>" +
+        '<td class="num">' + (t.r_multiple == null ? "" : Number(t.r_multiple).toFixed(2) + "R") + "</td>" +
+        "<td>" + esc(String(t.exit_time || "").slice(0, 19).replace("T", " ")) + "</td></tr>";
+    }).join("");
+    return '<div style="overflow-x:auto;"><table class="score-table"><thead><tr>' +
+      '<th>Symbol</th><th>Strategy</th><th class="num">Entry</th><th class="num">Exit</th>' +
+      '<th>Reason</th><th class="num">Net P&amp;L</th><th class="num">R</th><th>Closed</th>' +
+      "</tr></thead><tbody>" + rows + "</tbody></table></div>";
+  }
+
+  function applyPaperAccount(p) {
+    _setText("paperEquity", _money(p.account_equity));
+    var el = document.getElementById("paperRealized");
+    if (el) { el.className = "value " + _pnlClass(p.realized_pnl); el.textContent = _pnlText(p.realized_pnl); }
+    el = document.getElementById("paperToday");
+    if (el) { el.className = "value " + _pnlClass(p.today_pnl); el.textContent = _pnlText(p.today_pnl); }
+    _setText("paperOpenCount", p.open_count);
+    _setText("paperOpenCountLabel", p.open_count);
+    _setText("paperClosedTrades", p.total_trades);
+    _setText("paperWinRate", Math.round((p.win_rate || 0) * 100) + "%");
+    _setText("paperProfitFactor",
+      p.profit_factor != null ? Number(p.profit_factor).toFixed(2)
+        : (p.total_trades ? "∞" : "—"));
+    el = document.getElementById("paperBalances");
+    if (el) {
+      el.innerHTML = (p.balances || []).map(function (b) {
+        return '<div class="kv-item" style="flex-direction:column; align-items:stretch; gap:4px;">' +
+          '<div style="display:flex; justify-content:space-between;">' +
+            '<span class="kv-label">' + esc(b.currency) + " Allocated</span>" +
+            '<span class="kv-value">$' + Number(b.allocated || 0).toLocaleString("en-US", { maximumFractionDigits: 0 }) + "</span></div>" +
+          '<div style="display:flex; justify-content:space-between;">' +
+            '<span class="kv-label">Committed</span>' +
+            '<span class="kv-value">' + _money(b.committed) + "</span></div>" +
+          '<div style="display:flex; justify-content:space-between;">' +
+            '<span class="kv-label">Available</span>' +
+            '<span class="kv-value pnl-pos">' + _money(b.available) + "</span></div></div>";
+      }).join("");
+    }
+    el = document.getElementById("paperPositionsWrap");
+    if (el) el.innerHTML = _renderPaperPositions(p);
+    el = document.getElementById("paperTradesWrap");
+    if (el) el.innerHTML = _renderPaperTrades(p);
+  }
+
+  async function refreshPaperAccount() {
+    try {
+      var r = await fetch("/api/paper/account", { credentials: "same-origin" });
+      if (!r.ok) return;
+      var text = await r.text();
+      if (text === _paperSnapshot) return; // unchanged — leave the DOM alone
+      _paperSnapshot = text;
+      applyPaperAccount(JSON.parse(text));
+    } catch (e) { /* transient; next poll retries */ }
+  }
+  setInterval(function () { if (!document.hidden) refreshPaperAccount(); }, 8000);
 
   // ── Dark / light theme (feature 15) ──
   function applyThemeIcon() {
