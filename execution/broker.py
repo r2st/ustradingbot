@@ -24,7 +24,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dc_field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Protocol
@@ -109,6 +109,44 @@ def commission_for(quantity: int, per_share: float) -> float:
     return round(abs(int(quantity)) * per_share, 4)
 
 
+def short_entry_slippage(entry_price: float, slippage_bps: float) -> float:
+    """Return the short-entry fill price after adverse slippage.
+
+    A short sale fills *below* the requested price by ``slippage_bps``.
+    """
+    return round(entry_price * (1.0 - slippage_bps / 10_000.0), 4)
+
+
+def short_stop_exit_fill(
+    stop_price: float, bar_open: float, slippage_bps: float
+) -> float:
+    """Fill price for a short position's buy-stop that triggered on this bar.
+
+    A gap *above* the stop fills at the (worse) open; otherwise the stop
+    fills with adverse slippage upward.
+    """
+    if bar_open > stop_price:
+        return round(bar_open, 4)
+    return round(stop_price * (1.0 + slippage_bps / 10_000.0), 4)
+
+
+def short_target_exit_fill(target_price: float, bar_open: float) -> float:
+    """Fill price for a short position's buy-to-cover target.
+
+    Fills at the target, or *better* (lower) if the bar gapped open below it.
+    """
+    if bar_open < target_price:
+        return round(bar_open, 4)
+    return round(target_price, 4)
+
+
+def position_pnl(side: str, entry: float, exit_price: float, quantity: int) -> float:
+    """Signed gross P&L for a lot, long or short."""
+    if str(side).lower() == "short":
+        return (entry - exit_price) * quantity
+    return (exit_price - entry) * quantity
+
+
 def _fmt_gtd(placed_at: datetime, expiry_hours: float) -> str:
     """Format an IBKR good-till-date string (``YYYYMMDD HH:MM:SS``)."""
     return expiry_at(placed_at, expiry_hours).strftime("%Y%m%d %H:%M:%S")
@@ -140,6 +178,23 @@ class Broker(Protocol):
         partial_take_pct: float = 0.0,
         partial_take_target_r: float = 0.0,
     ) -> BracketResult: ...
+
+    def place_manual_bracket(
+        self,
+        symbol: str,
+        side: str,
+        quantity: int,
+        entry_price: float,
+        levels: List[Dict[str, Any]],
+        currency: str = "USD",
+    ) -> BracketResult:
+        """Open a manual position (long or short) with a multi-level exit ladder.
+
+        *levels* is a list of serialised :class:`execution.levels.ExitLevel`
+        dicts (``kind``/``price``/``quantity``).  Each triggered level exits
+        its slice; the ladder as a whole always covers the full position.
+        """
+        ...
 
     def place_limit_order(
         self,
@@ -211,6 +266,13 @@ class _PaperPosition:
     broker sells ``partial_take_pct`` of the shares (emitting a ``PARTIAL_TAKE``
     event), sets ``partial_taken``, and lets the remainder run under the
     dynamic trailing stop.
+
+    ``side`` is ``"long"`` (default) or ``"short"`` (manual sell trades);
+    ``levels`` holds a multi-level exit ladder (list of serialised
+    :class:`execution.levels.ExitLevel` dicts) for manual trades.  When
+    ``levels`` is non-empty the ladder replaces the single stop/target pair
+    as the exit logic (``stop_price``/``target_price`` then just mirror the
+    nearest untriggered rung for display).
     """
 
     symbol: str
@@ -224,6 +286,8 @@ class _PaperPosition:
     partial_take_price: float = 0.0
     partial_take_pct: float = 0.0
     partial_taken: bool = False
+    side: str = "long"
+    levels: List[Dict[str, Any]] = dc_field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -238,6 +302,8 @@ class _PaperPosition:
             "partial_take_price": self.partial_take_price,
             "partial_take_pct": self.partial_take_pct,
             "partial_taken": self.partial_taken,
+            "side": self.side,
+            "levels": list(self.levels),
         }
 
     @classmethod
@@ -254,6 +320,8 @@ class _PaperPosition:
             partial_take_price=float(d.get("partial_take_price", 0.0) or 0.0),
             partial_take_pct=float(d.get("partial_take_pct", 0.0) or 0.0),
             partial_taken=bool(d.get("partial_taken", False)),
+            side=str(d.get("side", "long") or "long"),
+            levels=list(d.get("levels", []) or []),
         )
 
 
@@ -454,6 +522,79 @@ class PaperBroker:
             commission=commission,
             order_id=order_id,
             partial_take_price=pt_price,
+        )
+        return BracketResult(
+            accepted=True,
+            fill_price=fill_price,
+            order_id=order_id,
+            commission=commission,
+            reason="filled",
+        )
+
+    def place_manual_bracket(
+        self,
+        symbol: str,
+        side: str,
+        quantity: int,
+        entry_price: float,
+        levels: List[Dict[str, Any]],
+        currency: str = "USD",
+    ) -> BracketResult:
+        """Open a manual long or short position with a multi-level exit ladder.
+
+        Fills immediately at *entry_price* plus adverse slippage (upward for a
+        buy, downward for a short sale).  The ladder is stored on the position
+        and evaluated by :meth:`poll_exits`.
+        """
+        from execution.levels import ExitLevel, nearest_price
+
+        side = str(side).lower()
+        if side not in ("long", "short"):
+            return BracketResult(False, reason=f"invalid_side:{side}")
+        if quantity <= 0:
+            return BracketResult(False, reason="zero_quantity")
+        if symbol in self._positions:
+            return BracketResult(False, reason="already_open")
+        if not levels:
+            return BracketResult(False, reason="no_exit_levels")
+
+        parsed = [ExitLevel.from_dict(l) for l in levels]
+        if side == "long":
+            fill_price = apply_entry_slippage(
+                entry_price, self._settings.PAPER_SLIPPAGE_BPS
+            )
+        else:
+            fill_price = short_entry_slippage(
+                entry_price, self._settings.PAPER_SLIPPAGE_BPS
+            )
+        commission = commission_for(
+            quantity, self._settings.PAPER_COMMISSION_PER_SHARE
+        )
+
+        self._order_seq += 1
+        order_id = f"PAPER-{self._order_seq:06d}"
+        self._positions[symbol] = _PaperPosition(
+            symbol=symbol,
+            quantity=quantity,
+            entry_price=fill_price,
+            stop_price=nearest_price(parsed, "stop", side),
+            target_price=nearest_price(parsed, "target", side),
+            currency=currency,
+            order_id=order_id,
+            opened_at=datetime.now().isoformat(),
+            side=side,
+            levels=[l.to_dict() for l in parsed],
+        )
+        self._save()
+        self._log.info(
+            "paper_broker.manual_filled",
+            symbol=symbol,
+            side=side,
+            quantity=quantity,
+            entry_price=fill_price,
+            levels=len(parsed),
+            commission=commission,
+            order_id=order_id,
         )
         return BracketResult(
             accepted=True,
@@ -705,6 +846,12 @@ class PaperBroker:
         events: List[ExitEvent] = []
         for symbol in list(self._positions.keys()):
             pos = self._positions[symbol]
+            if pos.levels:
+                level_events, closed = self._check_level_exits(pos)
+                events.extend(level_events)
+                if closed:
+                    del self._positions[symbol]
+                continue
             result = self._check_position_exit(pos)
             if result is None:
                 continue
@@ -716,6 +863,82 @@ class PaperBroker:
             self._save()
         return events
 
+    def _latest_bar(self, symbol: str) -> Optional[tuple[float, float, float]]:
+        """Return today's ``(open, low, high)``, falling back to last price."""
+        df = fetch_ohlcv(symbol, period="5d")
+        if df is None or df.empty:
+            price = fetch_current_price(symbol)
+            if price is None:
+                return None
+            return price, price, price
+        last = df.iloc[-1]
+        return float(last["Open"]), float(last["Low"]), float(last["High"])
+
+    def _check_level_exits(
+        self, pos: _PaperPosition
+    ) -> tuple[List[ExitEvent], bool]:
+        """Evaluate a multi-level exit ladder against the latest bar.
+
+        Stop levels are checked before target levels (the conservative
+        assumption when both sides are touched in one bar).  Several levels
+        can trigger in the same sweep — a gap can blow through more than one
+        stop — and each triggered level emits its own event: ``PARTIAL_TAKE``
+        while shares remain, ``STOP_HIT``/``TARGET_HIT`` for the rung that
+        empties the position.
+        """
+        from execution.levels import ExitLevel, nearest_price
+
+        bar = self._latest_bar(pos.symbol)
+        if bar is None:
+            return [], False
+        bar_open, bar_low, bar_high = bar
+        slip = self._settings.PAPER_SLIPPAGE_BPS
+        is_long = pos.side != "short"
+
+        levels = [ExitLevel.from_dict(l) for l in pos.levels]
+        events: List[ExitEvent] = []
+
+        for kind in ("stop", "target"):
+            for lvl in levels:
+                if pos.quantity <= 0:
+                    break
+                if lvl.triggered or lvl.kind != kind or lvl.quantity <= 0:
+                    continue
+                if kind == "stop":
+                    hit = bar_low <= lvl.price if is_long else bar_high >= lvl.price
+                    if not hit:
+                        continue
+                    fill = (
+                        stop_exit_fill(lvl.price, bar_open, slip)
+                        if is_long
+                        else short_stop_exit_fill(lvl.price, bar_open, slip)
+                    )
+                    close_reason = ExitReason.STOP_HIT
+                else:
+                    hit = bar_high >= lvl.price if is_long else bar_low <= lvl.price
+                    if not hit:
+                        continue
+                    fill = (
+                        target_exit_fill(lvl.price, bar_open)
+                        if is_long
+                        else short_target_exit_fill(lvl.price, bar_open)
+                    )
+                    close_reason = ExitReason.TARGET_HIT
+
+                lvl.triggered = True
+                exit_qty = min(lvl.quantity, pos.quantity)
+                pos.quantity -= exit_qty
+                reason = close_reason if pos.quantity == 0 else ExitReason.PARTIAL_TAKE
+                event = self._build_exit(pos, fill, reason, exit_qty)
+                event.fill_details["level"] = f"{kind}@{lvl.price}"
+                events.append(event)
+
+        pos.levels = [l.to_dict() for l in levels]
+        # Mirror the nearest untriggered rungs into the legacy display fields.
+        pos.stop_price = nearest_price(levels, "stop", pos.side) or pos.stop_price
+        pos.target_price = nearest_price(levels, "target", pos.side) or pos.target_price
+        return events, pos.quantity <= 0
+
     def _check_position_exit(
         self, pos: _PaperPosition
     ) -> Optional[tuple[ExitEvent, bool]]:
@@ -724,18 +947,10 @@ class PaperBroker:
         Priority order (at most one transition per sweep): full stop (closes),
         then partial-take (does not close), then full target (closes).
         """
-        df = fetch_ohlcv(pos.symbol, period="5d")
-        if df is None or df.empty:
-            # Fall back to the current price as open/high/low.
-            price = fetch_current_price(pos.symbol)
-            if price is None:
-                return None
-            bar_open = bar_low = bar_high = price
-        else:
-            last = df.iloc[-1]
-            bar_open = float(last["Open"])
-            bar_low = float(last["Low"])
-            bar_high = float(last["High"])
+        bar = self._latest_bar(pos.symbol)
+        if bar is None:
+            return None
+        bar_open, bar_low, bar_high = bar
 
         slippage_bps = self._settings.PAPER_SLIPPAGE_BPS
 
@@ -777,13 +992,14 @@ class PaperBroker:
         quantity: Optional[int] = None,
     ) -> ExitEvent:
         qty = pos.quantity if quantity is None else int(quantity)
-        pnl = (exit_price - pos.entry_price) * qty
+        pnl = position_pnl(pos.side, pos.entry_price, exit_price, qty)
         commission = commission_for(
             qty, self._settings.PAPER_COMMISSION_PER_SHARE
         )
         self._log.info(
             "paper_broker.exit",
             symbol=pos.symbol,
+            side=pos.side,
             reason=reason.value,
             exit_price=exit_price,
             quantity=qty,
@@ -821,6 +1037,11 @@ class PaperBroker:
         """Ratchet the stop for *symbol* (only ever moves up)."""
         pos = self._positions.get(symbol)
         if pos is None:
+            return False
+        # Laddered manual positions own their exit levels; the single-stop
+        # ratchet does not apply (future dynamic stops will re-price the
+        # ladder itself via execution.levels.reprice_stop_levels).
+        if pos.levels or pos.side == "short":
             return False
         if new_stop <= pos.stop_price:
             return False
@@ -1021,6 +1242,30 @@ class IBKRBroker:
         except Exception as exc:  # noqa: BLE001
             self._log.error("ibkr.place_failed", symbol=symbol, error=str(exc))
             return BracketResult(False, reason=f"error:{exc}")
+
+    def place_manual_bracket(
+        self,
+        symbol: str,
+        side: str,
+        quantity: int,
+        entry_price: float,
+        levels: List[Dict[str, Any]],
+        currency: str = "USD",
+    ) -> BracketResult:
+        """Multi-level / short manual orders are not implemented for IBKR yet.
+
+        Single-level long manual trades route through
+        :meth:`place_bracket_order` (native bracket) instead — see
+        ``execution.manual_trade.place_manual_trade``.
+        """
+        return BracketResult(
+            False,
+            reason=(
+                "multi-level / short manual orders are not supported on the "
+                "IBKR broker yet — use a single stop + target long trade, or "
+                "the paper broker"
+            ),
+        )
 
     def _arm_partial_take(
         self,

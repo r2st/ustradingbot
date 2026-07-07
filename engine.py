@@ -404,9 +404,27 @@ class TradingEngine:
             return
 
         # Step 6: Run the screener over the user-managed watchlist (falls back
-        # to the built-in universe when the watchlist feature is disabled/empty).
-        scan_symbols = scan_symbols_for(self.settings)
-        signals: List[Signal] = run_full_scan(scan_symbols, min_grade="B")
+        # to the built-in universe when the watchlist feature is disabled/empty),
+        # restricted by the dashboard trade selection (feature 1): the operator
+        # can pin the engine to chosen symbols / strategies / a minimum grade
+        # based on backtest results.  Re-read each cycle so a dashboard save
+        # takes effect on the next scan without a restart.
+        from config.trade_selection import load_trade_selection
+
+        selection = load_trade_selection(self.settings.DATA_DIR)
+        scan_symbols = selection.filter_symbols(scan_symbols_for(self.settings))
+        if selection.enabled:
+            log.info(
+                "engine.trade_selection_active",
+                symbols=len(scan_symbols),
+                strategies=selection.strategies or "all",
+                min_grade=selection.min_grade,
+            )
+        signals: List[Signal] = run_full_scan(
+            scan_symbols,
+            min_grade=selection.effective_min_grade("B"),
+            allowed_strategies=selection.allowed_strategies(),
+        )
 
         # Step 7: Process each signal through the entry pipeline.
         trades_placed: int = 0

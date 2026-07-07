@@ -936,6 +936,7 @@ async def backtest_status_api(job_id: str, _user: str = Depends(require_auth)):
 from dashboard.watchlist_router import router as _watchlist_router  # noqa: E402
 from dashboard.notes_router import router as _notes_router  # noqa: E402
 from dashboard.manual_trade_router import router as _manual_trade_router  # noqa: E402
+from dashboard.trade_selection_router import router as _trade_selection_router  # noqa: E402
 from dashboard.insights_router import router as _insights_router  # noqa: E402
 from dashboard.export_router import router as _export_router  # noqa: E402
 from dashboard.users_router import router as _users_router  # noqa: E402
@@ -946,6 +947,7 @@ for _r in (
     _watchlist_router,
     _notes_router,
     _manual_trade_router,
+    _trade_selection_router,
     _insights_router,
     _export_router,
     _users_router,

@@ -721,9 +721,25 @@
   .api-key-raw { font-family: ui-monospace, Menlo, monospace; font-size: 12px; word-break: break-all;
                  background: var(--bg); border: 1px solid var(--green); border-radius: 6px; padding: 8px; }
   .muted-note { color: var(--text-muted); font-size: 12px; margin-top: 6px; }
+  /* Manual trade: multi-level exit ladders (feature 2) */
+  .mt-ladders { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 10px 0; }
+  .mt-ladder { background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+               padding: 10px 12px; }
+  .mt-ladder h4 { margin: 0 0 8px; font-size: 13px; }
+  .mt-level, .mt-level-head { display: grid; grid-template-columns: 1fr 1fr 1fr 34px;
+               gap: 6px; align-items: center; margin-bottom: 6px; }
+  .mt-level-head span { font-size: 11px; color: var(--text-muted); }
+  .mt-level input { width: 100%; min-width: 0; }
+  .mt-del { cursor: pointer; text-align: center; }
+  /* Engine trade selection (feature 1) */
+  .sel-toggle { display: flex; align-items: center; gap: 8px; font-size: 13px;
+                min-height: 40px; cursor: pointer; }
+  .bt-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  #selSymbols .chip a { color: inherit; text-decoration: none; font-weight: 700; }
   @media (max-width: 600px) {
     .heatmap { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
     .form-field { flex: 1 1 100%; }
+    .mt-ladders { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -762,6 +778,7 @@
     <a href="#nav-scanner" onclick="closeNav()">Scanner</a>
     <a href="#nav-earnings" onclick="closeNav()">Earnings</a>
     <a href="#nav-backtest" onclick="closeNav()">Backtest</a>
+    <a href="#nav-selection" onclick="closeNav()">Selection</a>
     <a href="#nav-strategy" onclick="closeNav()">Strategies</a>
     <a href="#nav-risk" onclick="closeNav()">Risk</a>
     <a href="#nav-montecarlo" onclick="closeNav()">Monte&nbsp;Carlo</a>
@@ -1204,6 +1221,59 @@
   </div>
 </div>
 
+<!-- ═══════════════════ ENGINE TRADE SELECTION (feature 1) ═══════════════════ -->
+<div class="section" id="nav-selection">
+  <div class="section-header">
+    <div class="section-icon icon-strategy">✓</div>
+    <h2>Engine Trade Selection</h2>
+  </div>
+  <div class="section-body">
+    <p class="muted-note">Pin the engine to the <strong>symbols</strong>,
+      <strong>strategies</strong> and <strong>minimum setup grade</strong> you choose —
+      typically after reviewing a backtest. While the selection is <strong>active</strong>,
+      the engine only trades what you picked (leave symbols or strategies empty for
+      “no restriction”). Turn it off to return to fully automatic scanning.
+      Changes apply on the engine's next scan cycle. Requires the admin password.</p>
+    <div class="form-row">
+      <div class="form-field"><label>Status</label>
+        <label class="sel-toggle"><input type="checkbox" id="selEnabled">
+          <span id="selEnabledLabel">Selection inactive — engine trades everything</span></label></div>
+      <div class="form-field"><label>Minimum grade</label>
+        <select id="selMinGrade">
+          <option value="A">A only (strongest setups)</option>
+          <option value="B" selected>B or better (default)</option>
+          <option value="C">C or better (permissive)</option>
+        </select></div>
+    </div>
+    <h4 style="margin:14px 0 4px;">Strategies <span class="bt-hint">(none checked = all strategies)</span></h4>
+    <div class="bt-checks" id="selStrategies"></div>
+    <div id="selStratStats"></div>
+    <h4 style="margin:14px 0 4px;">Symbols <span class="bt-hint">(none = every watchlist symbol)</span></h4>
+    <div class="form-row">
+      <div class="form-field"><label>Add symbol</label>
+        <input type="text" id="selSymbolAdd" placeholder="e.g. NVDA" autocomplete="off"></div>
+      <button type="button" class="btn-secondary" onclick="selAddSymbol()">Add</button>
+    </div>
+    <div id="selSymbols" style="margin:6px 0;"></div>
+    <h4 style="margin:14px 0 4px;">Backtest performance <span class="bt-hint" id="selBtHint"></span></h4>
+    <p class="muted-note">Per-symbol results from the most recent backtest run — tick a row
+      to add that symbol to the selection. Run a backtest above to refresh this table.</p>
+    <div class="bt-table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Trade</th><th>Symbol</th><th>Trades</th><th>Win rate</th>
+          <th>Net P&amp;L</th><th>Avg R</th><th>Profit factor</th></tr></thead>
+        <tbody id="selBtRows"><tr><td colspan="7" class="empty-note">No backtest results yet — run one in the Backtesting section.</td></tr></tbody>
+      </table>
+    </div>
+    <div class="form-row" style="margin-top:12px;">
+      <div class="form-field"><label>Admin password</label>
+        <input type="password" id="selAdminPw" autocomplete="off" placeholder="Required"></div>
+      <button type="button" class="btn-primary" onclick="saveSelection()">Save selection</button>
+    </div>
+    <div id="selResult" class="modal-result"></div>
+  </div>
+</div>
+
 <!-- ═══════════════════ RISK DASHBOARD ═══════════════════ -->
 <div class="section" id="nav-risk">
   <div class="section-header">
@@ -1621,16 +1691,36 @@
     <h2>Manual Trade Entry</h2>
   </div>
   <div class="section-body">
-    <p class="muted-note">Place a bracket order by hand (long only). Works with the paper
-      broker and IBKR. Requires the admin password.</p>
+    <p class="muted-note">Place a trade by hand — <strong>buy</strong> (long) or
+      <strong>sell</strong> (short) any symbol with multiple stop-loss and profit-target
+      levels for partial exits (e.g. stop&nbsp;1 at −3% for 33%, stop&nbsp;2 at −5% for 33%,
+      stop&nbsp;3 at −8% for the rest). Each level exits its slice of the position; the last
+      level of each ladder takes whatever remains. Give a trigger as an absolute price
+      <em>or</em> a % move from entry. Multi-level and short orders run on the paper broker;
+      a simple long (one stop + one target) also works on IBKR. Requires the admin password.</p>
     <div class="form-row">
       <div class="form-field"><label>Symbol</label><input type="text" id="mtSymbol" placeholder="AAPL"></div>
+      <div class="form-field"><label>Side</label>
+        <select id="mtSide">
+          <option value="buy">Buy (long)</option>
+          <option value="sell">Sell (short)</option>
+        </select></div>
       <div class="form-field"><label>Quantity</label><input type="number" id="mtQty" min="1" step="1"></div>
-    </div>
-    <div class="form-row">
       <div class="form-field"><label>Entry price</label><input type="number" id="mtEntry" min="0" step="0.01"></div>
-      <div class="form-field"><label>Stop price</label><input type="number" id="mtStop" min="0" step="0.01"></div>
-      <div class="form-field"><label>Target price</label><input type="number" id="mtTarget" min="0" step="0.01"></div>
+    </div>
+    <div class="mt-ladders">
+      <div class="mt-ladder">
+        <h4>Stop-loss levels</h4>
+        <div class="mt-level-head"><span>Price</span><span>or Δ% from entry</span><span>% of position</span><span></span></div>
+        <div id="mtStops"></div>
+        <button type="button" class="btn-secondary" onclick="mtAddLevel('mtStops')">+ Add stop level</button>
+      </div>
+      <div class="mt-ladder">
+        <h4>Profit-target levels</h4>
+        <div class="mt-level-head"><span>Price</span><span>or Δ% from entry</span><span>% of position</span><span></span></div>
+        <div id="mtTargets"></div>
+        <button type="button" class="btn-secondary" onclick="mtAddLevel('mtTargets')">+ Add target level</button>
+      </div>
     </div>
     <div class="form-row">
       <div class="form-field"><label>Admin password</label>
@@ -2551,19 +2641,171 @@
     try { await jsend("POST", "/api/watchlist/lists/" + encodeURIComponent(name) + "/enabled", { enabled: enabled }); } catch (e) {}
   }
 
-  // ── Manual trade (feature 2) ──
+  // ── Manual trade (feature 2): buy/sell + multi-level exit ladders ──
+  function mtAddLevel(containerId, price, percent, pct) {
+    var row = document.createElement("div");
+    row.className = "mt-level";
+    row.innerHTML =
+      '<input type="number" class="mt-price" min="0" step="0.01" placeholder="e.g. 97.50"' +
+        (price != null ? ' value="' + price + '"' : "") + ">" +
+      '<input type="number" class="mt-percent" step="0.1" placeholder="e.g. 3"' +
+        (percent != null ? ' value="' + percent + '"' : "") + ">" +
+      '<input type="number" class="mt-pct" min="1" max="100" step="1" placeholder="rest"' +
+        (pct != null ? ' value="' + pct + '"' : "") + ">" +
+      '<button type="button" class="chip mt-del" title="Remove level" ' +
+        'onclick="this.parentNode.remove()">&times;</button>';
+    document.getElementById(containerId).appendChild(row);
+  }
+  function mtCollectLevels(containerId) {
+    var out = [];
+    document.querySelectorAll("#" + containerId + " .mt-level").forEach(function (row) {
+      var price = row.querySelector(".mt-price").value;
+      var percent = row.querySelector(".mt-percent").value;
+      var pct = row.querySelector(".mt-pct").value;
+      var lvl = {};
+      if (price !== "") lvl.price = parseFloat(price);
+      else if (percent !== "") lvl.percent = parseFloat(percent);
+      else return; // blank row — skip
+      if (pct !== "") lvl.pct = parseFloat(pct);
+      out.push(lvl);
+    });
+    return out;
+  }
+  function mtInitLadders() {
+    if (!document.getElementById("mtStops")) return;
+    mtAddLevel("mtStops", null, null, 100);
+    mtAddLevel("mtTargets", null, null, 100);
+  }
   async function placeManualTrade() {
     var body = {
       symbol: document.getElementById("mtSymbol").value,
+      side: document.getElementById("mtSide").value,
       quantity: document.getElementById("mtQty").value,
       entry_price: document.getElementById("mtEntry").value,
-      stop_price: document.getElementById("mtStop").value,
-      target_price: document.getElementById("mtTarget").value,
+      stops: mtCollectLevels("mtStops"),
+      targets: mtCollectLevels("mtTargets"),
       admin_password: document.getElementById("mtAdminPw").value,
     };
+    if (!body.stops.length) { setMsg("mtResult", "Add at least one stop level.", false); return; }
+    if (!body.targets.length) { setMsg("mtResult", "Add at least one target level.", false); return; }
     try { var d = await jsend("POST", "/api/manual-trade", body);
-      setMsg("mtResult", d.ok ? d.message : d.message, d.ok); }
+      setMsg("mtResult", d.message, d.ok); }
     catch (e) { setMsg("mtResult", String(e), false); }
+  }
+
+  // ── Engine trade selection (feature 1) ──
+  var _selSymbols = [];
+  var _SEL_STRATEGY_LABELS = {
+    vcp_breakout: "VCP Breakout", momentum: "Momentum", swing: "Swing",
+    mean_reversion: "Mean Reversion", pead: "PEAD (earnings drift)"
+  };
+  function _selEnabledText() {
+    var on = document.getElementById("selEnabled").checked;
+    document.getElementById("selEnabledLabel").textContent = on
+      ? "Selection ACTIVE — engine only trades the picks below"
+      : "Selection inactive — engine trades everything";
+  }
+  async function loadSelection() {
+    try {
+      var d = await jget("/api/trade-selection");
+      var sel = d.selection || {};
+      document.getElementById("selEnabled").checked = !!sel.enabled;
+      document.getElementById("selEnabled").onchange = _selEnabledText;
+      _selEnabledText();
+      document.getElementById("selMinGrade").value = sel.min_grade || "B";
+      _selSymbols = sel.symbols || [];
+      var box = document.getElementById("selStrategies");
+      box.innerHTML = (d.strategies || []).map(function (s) {
+        var checked = (sel.strategies || []).indexOf(s) !== -1 ? " checked" : "";
+        return '<label><input type="checkbox" class="sel-strat" value="' + esc(s) + '"' +
+          checked + "> " + esc(_SEL_STRATEGY_LABELS[s] || s) + "</label>";
+      }).join("");
+      renderSelSymbols();
+      loadSelectionStats();
+    } catch (e) { /* section stays with defaults */ }
+  }
+  function renderSelSymbols() {
+    var box = document.getElementById("selSymbols");
+    box.innerHTML = _selSymbols.length ? _selSymbols.map(function (s) {
+      return '<span class="chip">' + esc(s) +
+        ' <a href="#" onclick="selRemoveSymbol(\'' + esc(s) + '\');return false;">&times;</a></span>';
+    }).join(" ") : '<span class="empty-note">No symbol restriction — every watchlist symbol is eligible.</span>';
+    document.querySelectorAll("#selBtRows input[type=checkbox]").forEach(function (cb) {
+      cb.checked = _selSymbols.indexOf(cb.value) !== -1;
+    });
+  }
+  function selAddSymbol() {
+    var input = document.getElementById("selSymbolAdd");
+    var sym = (input.value || "").trim().toUpperCase();
+    if (!sym) return;
+    if (_selSymbols.indexOf(sym) === -1) _selSymbols.push(sym);
+    _selSymbols.sort();
+    input.value = "";
+    renderSelSymbols();
+  }
+  function selRemoveSymbol(sym) {
+    _selSymbols = _selSymbols.filter(function (s) { return s !== sym; });
+    renderSelSymbols();
+  }
+  function selToggleSymbol(sym, on) {
+    if (on && _selSymbols.indexOf(sym) === -1) { _selSymbols.push(sym); _selSymbols.sort(); }
+    if (!on) _selSymbols = _selSymbols.filter(function (s) { return s !== sym; });
+    renderSelSymbols();
+  }
+  async function loadSelectionStats() {
+    try {
+      var d = await jget("/api/backtest/latest");
+      var job = d.job;
+      if (!job || job.state !== "done" || !job.result) return;
+      var res = job.result, p = job.params || {};
+      document.getElementById("selBtHint").textContent =
+        "(" + (p.start || "?") + " → " + (p.end || "?") + ", min grade " + (p.min_grade || "?") + ")";
+      var rows = res.by_symbol || [];
+      var tb = document.getElementById("selBtRows");
+      if (rows.length) {
+        tb.innerHTML = rows.map(function (r) {
+          var sym = r.symbol || r.key || "";
+          var checked = _selSymbols.indexOf(sym) !== -1 ? " checked" : "";
+          var pnl = r.total_pnl != null ? r.total_pnl : 0;
+          return "<tr><td><input type=\"checkbox\" value=\"" + esc(sym) + "\"" + checked +
+            " onchange=\"selToggleSymbol('" + esc(sym) + "', this.checked)\"></td>" +
+            "<td>" + esc(sym) + "</td><td>" + (r.trades != null ? r.trades : "—") + "</td>" +
+            "<td>" + (r.win_rate != null ? (r.win_rate * 100).toFixed(0) + "%" : "—") + "</td>" +
+            '<td class="' + (pnl >= 0 ? "pos" : "neg") + '">$' + Number(pnl).toFixed(2) + "</td>" +
+            "<td>" + (r.avg_r_multiple != null ? Number(r.avg_r_multiple).toFixed(2) : "—") + "</td>" +
+            "<td>" + (r.profit_factor != null ? Number(r.profit_factor).toFixed(2) : "—") + "</td></tr>";
+        }).join("");
+      }
+      var st = res.by_strategy || [];
+      if (st.length) {
+        document.getElementById("selStratStats").innerHTML =
+          '<div class="stat-cards">' + st.map(function (r) {
+            var name = _SEL_STRATEGY_LABELS[r.strategy || r.key] || r.strategy || r.key;
+            var pnl = r.total_pnl != null ? r.total_pnl : 0;
+            return '<div class="stat-card"><div class="label">' + esc(name) + '</div>' +
+              '<div class="value small ' + (pnl >= 0 ? "pnl-pos" : "pnl-neg") + '">$' +
+              Number(pnl).toFixed(0) + '</div><div class="label">' +
+              (r.trades != null ? r.trades : "?") + " trades · " +
+              (r.win_rate != null ? (r.win_rate * 100).toFixed(0) + "% win" : "") + "</div></div>";
+          }).join("") + "</div>";
+      }
+    } catch (e) { /* no backtest yet */ }
+  }
+  async function saveSelection() {
+    var strategies = [];
+    document.querySelectorAll("#selStrategies .sel-strat:checked").forEach(function (cb) {
+      strategies.push(cb.value);
+    });
+    var body = {
+      enabled: document.getElementById("selEnabled").checked,
+      symbols: _selSymbols,
+      strategies: strategies,
+      min_grade: document.getElementById("selMinGrade").value,
+      admin_password: document.getElementById("selAdminPw").value,
+    };
+    try { var d = await jsend("POST", "/api/trade-selection", body);
+      setMsg("selResult", d.message || "Saved.", d.ok); _selEnabledText(); }
+    catch (e) { setMsg("selResult", (e && e.detail) ? e.detail : String(e), false); }
   }
 
   // ── Pre-market scanner (feature 14) ──
@@ -2747,6 +2989,7 @@
   // ── Boot the sections that load on page open ──
   (function () {
     loadWatchlist(); loadRegime(); loadAutotune(); loadApiKeys(); loadUsers();
+    mtInitLadders(); loadSelection();
   })();
 </script>
 <script src="/pwa/pwa.js" defer></script>

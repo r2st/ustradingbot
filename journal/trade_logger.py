@@ -244,11 +244,19 @@ class TradeLogger:
         exit_time = exit_event.exit_date or datetime.now()
         exit_price = exit_event.exit_price
 
+        # Manual sell trades journal direction="short"; every automated entry
+        # is long.  A short's profit sign is inverted, so compute the per-share
+        # move in the direction of the trade.
+        direction = str(df.at[idx, "direction"] or "long").strip().lower() \
+            if "direction" in df.columns else "long"
+        sign = -1.0 if direction == "short" else 1.0
+
         # P&L calculations
-        pnl_gross = (exit_price - entry_fill_price) * quantity
+        actual_move = (exit_price - entry_fill_price) * sign
+        pnl_gross = actual_move * quantity
         pnl_net = pnl_gross - entry_commission - exit_commission
         pnl_pct = (
-            (exit_price - entry_fill_price) / entry_fill_price * 100
+            actual_move / entry_fill_price * 100
             if entry_fill_price > 0
             else 0.0
         )
@@ -260,8 +268,7 @@ class TradeLogger:
         )
 
         # Capture ratio: actual move / available move
-        available_move = target_price - entry_fill_price
-        actual_move = exit_price - entry_fill_price
+        available_move = (target_price - entry_fill_price) * sign
         capture_ratio = (
             round(actual_move / available_move, 4)
             if available_move > 0
@@ -269,7 +276,7 @@ class TradeLogger:
         )
 
         # R-multiple: actual P&L per share / risk per share
-        risk_per_share = entry_fill_price - stop_price
+        risk_per_share = (entry_fill_price - stop_price) * sign
         r_multiple = (
             round(actual_move / risk_per_share, 4)
             if risk_per_share > 0
@@ -355,16 +362,22 @@ class TradeLogger:
         exit_price = exit_event.exit_price
         exit_time = exit_event.exit_date or datetime.now()
 
-        pnl_gross = (exit_price - entry_fill_price) * take_qty
+        # Short-aware maths (manual sell trades journal direction="short").
+        direction = str(df.at[idx, "direction"] or "long").strip().lower() \
+            if "direction" in df.columns else "long"
+        sign = -1.0 if direction == "short" else 1.0
+
+        actual_move = (exit_price - entry_fill_price) * sign
+        pnl_gross = actual_move * take_qty
         pnl_net = pnl_gross - exit_commission
         pnl_pct = (
-            (exit_price - entry_fill_price) / entry_fill_price * 100
+            actual_move / entry_fill_price * 100
             if entry_fill_price > 0
             else 0.0
         )
-        risk_per_share = entry_fill_price - stop_price
+        risk_per_share = (entry_fill_price - stop_price) * sign
         r_multiple = (
-            round((exit_price - entry_fill_price) / risk_per_share, 4)
+            round(actual_move / risk_per_share, 4)
             if risk_per_share > 0
             else 0.0
         )

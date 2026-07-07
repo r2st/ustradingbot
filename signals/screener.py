@@ -74,6 +74,7 @@ def _grade_meets_minimum(grade: Grade, min_grade: str) -> bool:
 def _scan_symbol(
     symbol: str,
     min_grade: str,
+    allowed_strategies: Optional[List[str]] = None,
 ) -> Optional[Signal]:
     """Try each strategy for a single symbol and return the first qualifying signal.
 
@@ -84,11 +85,17 @@ def _scan_symbol(
     Args:
         symbol: Ticker symbol to scan.
         min_grade: Minimum acceptable grade letter.
+        allowed_strategies: Optional whitelist of strategy names to try
+            (``None`` means all strategies).
 
     Returns:
         The winning :class:`Signal`, or ``None`` if no strategy qualifies.
     """
     settings = get_settings()
+    strategies = [
+        s for s in STRATEGY_PRIORITY
+        if allowed_strategies is None or s in allowed_strategies
+    ]
 
     # Fetch OHLCV data once — shared across all strategy attempts.  The window
     # must be long enough to clear settings.MIN_OHLCV_ROWS (EMA-200 needs 200
@@ -107,7 +114,7 @@ def _scan_symbol(
         )
         return None
 
-    for strategy in STRATEGY_PRIORITY:
+    for strategy in strategies:
         # VCP, PEAD, and mean-reversion use dedicated pattern detectors.
         # Momentum and swing use the generic weighted scoring engine.
         detector = _DEDICATED_DETECTORS.get(strategy)
@@ -153,6 +160,7 @@ def _scan_symbol(
 def run_full_scan(
     symbols: List[str],
     min_grade: str = "B",
+    allowed_strategies: Optional[List[str]] = None,
 ) -> List[Signal]:
     """Scan the full universe and return qualifying signals.
 
@@ -168,6 +176,8 @@ def run_full_scan(
         symbols: List of ticker symbols to scan.
         min_grade: Minimum acceptable grade letter.  Defaults to
             ``"B"`` (scores >= 0.65).
+        allowed_strategies: Optional strategy whitelist (user trade
+            selection); ``None`` runs every strategy.
 
     Returns:
         List of :class:`Signal` objects, sorted by signal strength
@@ -181,12 +191,12 @@ def run_full_scan(
         "run_full_scan.start",
         total_symbols=len(symbols),
         min_grade=min_grade,
-        strategies=STRATEGY_PRIORITY,
+        strategies=allowed_strategies or STRATEGY_PRIORITY,
     )
 
     for symbol in symbols:
         try:
-            signal = _scan_symbol(symbol, min_grade)
+            signal = _scan_symbol(symbol, min_grade, allowed_strategies)
             if signal is not None:
                 signals.append(signal)
         except Exception:

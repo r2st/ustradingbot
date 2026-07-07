@@ -139,10 +139,24 @@ class ExitManager:
 
     # --------------------------------------------------- 2. time-based exits
 
+    @staticmethod
+    def _is_manual(pos: Dict[str, Any]) -> bool:
+        """Whether *pos* was entered by hand from the dashboard.
+
+        Manual positions carry their own operator-defined exit ladder, so the
+        automated time / health / trailing sweeps leave them alone — the
+        broker-exit reconciliation (which handles their level fills) is the
+        only automated path that touches them.  A future dynamic-stop engine
+        can opt manual positions back in by re-pricing their stop levels.
+        """
+        return bool(pos.get("manual"))
+
     def _check_time_based_exits(self) -> int:
         """Apply tiered exits to positions past their max hold period."""
         count = 0
         for symbol, pos in list(self._risk.get_open_positions().items()):
+            if self._is_manual(pos):
+                continue
             days_held = self._days_held(pos)
             if days_held is None:
                 continue
@@ -188,6 +202,8 @@ class ExitManager:
         """Close positions whose technical setup has broken down."""
         count = 0
         for symbol, pos in list(self._risk.get_open_positions().items()):
+            if self._is_manual(pos):
+                continue
             df = fetch_ohlcv(symbol)
             if df is None or len(df) < self._settings.MIN_OHLCV_ROWS:
                 continue
@@ -225,6 +241,8 @@ class ExitManager:
             return 0
         count = 0
         for symbol, pos in list(self._risk.get_open_positions().items()):
+            if self._is_manual(pos):
+                continue
             df = fetch_ohlcv(symbol, period="3mo")
             if df is None or len(df) < 20:
                 continue

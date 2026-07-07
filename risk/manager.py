@@ -442,6 +442,13 @@ class RiskManager:
         self._positions[symbol] = {
             "symbol": symbol,
             "strategy": order.signal.strategy,
+            # "long" for every automated entry; manual sells record "short".
+            "direction": order.signal.direction,
+            # Manual dashboard entries are flagged so the automated exit
+            # sweeps (time / health / trailing) leave them to their
+            # operator-defined exit ladder (kept in "levels").
+            "manual": bool(order.signal.raw_data.get("manual", False)),
+            "levels": list(order.signal.raw_data.get("levels", []) or []),
             "entry_price": fill_price,
             "stop_price": order.signal.stop_price,
             # Preserve the entry-time stop so dynamic-stop R-multiple and
