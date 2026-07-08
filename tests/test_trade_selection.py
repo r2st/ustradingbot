@@ -59,11 +59,44 @@ def test_corrupt_file_degrades_to_disabled(tmp_data_dir):
     assert sel.enabled is False
 
 
-def test_bad_content_degrades_to_disabled(tmp_data_dir):
+def test_unknown_strategy_on_load_fails_closed(tmp_data_dir):
+    """A version-skewed file must NOT silently disable the selection.
+
+    Unknown strategy ids are kept: they whitelist nothing, so the engine
+    trades less, never more (the old degrade-to-disabled behaviour meant a
+    single unknown id made the engine ignore the whole selection and trade
+    everything — the "selected A, traded B" inconsistency).
+    """
     (tmp_data_dir / "trade_selection.json").write_text(
-        json.dumps({"enabled": True, "strategies": ["nonsense"]}), encoding="utf-8"
+        json.dumps({"enabled": True, "strategies": ["nonsense"],
+                    "min_grade": "A"}),
+        encoding="utf-8",
     )
-    assert load_trade_selection(tmp_data_dir).enabled is False
+    sel = load_trade_selection(tmp_data_dir)
+    assert sel.enabled is True
+    assert sel.strategies == ["nonsense"]
+    assert sel.min_grade == "A"
+    # The unknown id restricts: no scanner strategy matches it.
+    assert sel.allowed_strategies() == ["nonsense"]
+
+
+def test_bad_min_grade_on_load_falls_back(tmp_data_dir):
+    (tmp_data_dir / "trade_selection.json").write_text(
+        json.dumps({"enabled": True, "min_grade": "Z"}), encoding="utf-8"
+    )
+    sel = load_trade_selection(tmp_data_dir)
+    assert sel.enabled is True
+    assert sel.min_grade == "B"
+
+
+def test_short_strategies_are_selectable(tmp_data_dir):
+    saved = save_trade_selection(tmp_data_dir, {
+        "enabled": True,
+        "strategies": ["short_relative_weakness", "momentum"],
+    })
+    assert saved.strategies == ["short_relative_weakness", "momentum"]
+    loaded = load_trade_selection(tmp_data_dir)
+    assert loaded.strategies == ["short_relative_weakness", "momentum"]
 
 
 # ---------------------------------------------------------- engine hooks
@@ -96,6 +129,61 @@ def test_allowed_strategies_and_min_grade():
 
     on_all = TradeSelection(enabled=True, strategies=[])
     assert on_all.allowed_strategies() is None
+
+
+# ----------------------------------------------------- entry pipeline gate
+
+
+def _fake_signal(symbol="AAPL", strategy="momentum", grade="B"):
+    from signals.signal_types import Grade, Signal
+
+    return Signal(
+        symbol=symbol,
+        strategy=strategy,
+        entry_price=100.0,
+        stop_price=95.0,
+        target_price=110.0,
+        signal_strength=0.7,
+        grade=Grade(grade),
+    )
+
+
+def test_allows_signal_disabled_allows_everything():
+    sel = TradeSelection(enabled=False, strategies=["swing"], min_grade="A")
+    ok, reason = sel.allows_signal(_fake_signal(strategy="momentum", grade="C"))
+    assert ok is True and reason == ""
+
+
+def test_allows_signal_blocks_unselected_strategy():
+    sel = TradeSelection(enabled=True, strategies=["momentum"], min_grade="B")
+    ok, reason = sel.allows_signal(_fake_signal(strategy="swing"))
+    assert ok is False and "swing" in reason
+
+
+def test_allows_signal_blocks_below_min_grade():
+    sel = TradeSelection(enabled=True, min_grade="A")
+    ok, reason = sel.allows_signal(_fake_signal(grade="B"))
+    assert ok is False and "below the selected minimum" in reason
+    ok, _ = sel.allows_signal(_fake_signal(grade="A"))
+    assert ok is True
+
+
+def test_allows_signal_blocks_unselected_symbol():
+    sel = TradeSelection(enabled=True, symbols=["NVDA"])
+    ok, reason = sel.allows_signal(_fake_signal(symbol="AAPL"))
+    assert ok is False and "AAPL" in reason
+
+
+def test_allows_signal_short_strategy_whitelisted():
+    sel = TradeSelection(
+        enabled=True, strategies=["short_relative_weakness"], min_grade="B"
+    )
+    ok, _ = sel.allows_signal(
+        _fake_signal(strategy="short_relative_weakness", grade="A")
+    )
+    assert ok is True
+    ok, _ = sel.allows_signal(_fake_signal(strategy="momentum"))
+    assert ok is False
 
 
 # -------------------------------------------------------- screener filter

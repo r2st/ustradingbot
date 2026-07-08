@@ -463,6 +463,10 @@ class TradingEngine:
         from config.trade_selection import load_trade_selection
 
         selection = load_trade_selection(self.settings.DATA_DIR)
+        # Remembered for the entry pipeline's hard selection gate: every
+        # signal — whatever scan produced it — is re-checked against the
+        # operator's selection before an order can be built.
+        self._selection = selection
         scan_symbols = selection.filter_symbols(scan_symbols_for(self.settings))
         if selection.enabled:
             log.info(
@@ -592,6 +596,20 @@ class TradingEngine:
             otherwise.
         """
         bound_log = log.bind(symbol=sig.symbol, strategy=sig.strategy)
+
+        # (a0) Trade-selection hard gate.  The scans already filter on the
+        #      operator's selection, but this re-check guarantees no signal
+        #      source can trade a symbol, strategy, or grade outside it —
+        #      the definitive fix for "selected setup A, engine traded B".
+        selection = getattr(self, "_selection", None)
+        if selection is not None:
+            allowed, reason = selection.allows_signal(sig)
+            if not allowed:
+                bound_log.info(
+                    "engine.rejected", gate="trade_selection", reason=reason
+                )
+                self.rejected_logger.log_rejection(sig, "trade_selection", reason)
+                return False
 
         # (a) Risk manager pre-check (already-held, cooldown, daily loss,
         #     max positions, invalid stop/target, R:R minimum).
