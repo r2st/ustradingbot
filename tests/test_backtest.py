@@ -119,6 +119,132 @@ def test_backtest_min_grade_filter(synthetic_data) -> None:
     assert len(strict.trades) <= len(loose.trades)
 
 
+# ------------------------------------------------------------ short strategies
+
+
+def _make_downtrend_df(seed: int = 7, n: int = 320) -> pd.DataFrame:
+    return _make_df(seed, n=n, drift=-0.0015)
+
+
+def _stub_short_detector(strength: float = 0.85, fire_at_len: int = 260):
+    """A deterministic short detector: fires once when history reaches
+    *fire_at_len* bars, proposing a 5%-above stop and 10%-below target."""
+    from short_strategies.common.signal import ShortSignal
+
+    def detect(symbol, df, config=None, filters=None, ctx=None):
+        if len(df) != fire_at_len:
+            return None
+        close = float(df["Close"].iloc[-1])
+        return ShortSignal(
+            strategy_id="short_gap_fail",
+            symbol=symbol,
+            signal_strength=strength,
+            trigger_price=round(close, 4),
+            stop_price=round(close * 1.05, 4),
+            target_price=round(close * 0.90, 4),
+        )
+
+    return detect
+
+
+@pytest.fixture
+def short_stubbed(monkeypatch):
+    import short_strategies.strategies as short_reg
+
+    monkeypatch.setitem(
+        short_reg.DETECTORS, "short_gap_fail", _stub_short_detector()
+    )
+
+
+def test_backtest_short_round_trip(short_stubbed) -> None:
+    data = {"SSS": _make_downtrend_df()}
+    df = data["SSS"]
+    config = BacktestConfig(
+        symbols=["SSS"],
+        start=df.index[250],
+        end=df.index[-1],
+        strategies=["short_gap_fail"],
+        min_grade="C",
+    )
+    result = _run(config, data)
+    assert result.trades, "expected the stubbed short signal to trade"
+    trade = result.trades[0]
+    assert trade.direction == "short"
+    assert trade.stop_price > trade.entry_price > trade.target_price
+
+    # Direction-aware P&L: a cover below the entry is a gain.
+    expected_gross = (trade.entry_price - trade.exit_price) * trade.quantity
+    assert trade.pnl_gross == pytest.approx(expected_gross, abs=0.01)
+    if trade.exit_reason == "STOP_HIT":
+        # Buy-stop fills at or ABOVE the stop for a short (adverse gap).
+        assert trade.exit_price >= trade.stop_price - 1e-6
+        assert trade.pnl_gross < 0
+    elif trade.exit_reason == "TARGET_HIT":
+        # Cover fills at or BELOW the target (favourable gaps only).
+        assert trade.exit_price <= trade.target_price + 1e-6
+        assert trade.pnl_gross > 0
+
+    rec = trade.to_record()
+    assert rec["direction"] == "short"
+
+
+def test_backtest_short_equity_reconciles(short_stubbed) -> None:
+    data = {"SSS": _make_downtrend_df()}
+    df = data["SSS"]
+    config = BacktestConfig(
+        symbols=["SSS"],
+        start=df.index[250],
+        end=df.index[-1],
+        strategies=["short_gap_fail"],
+        min_grade="C",
+    )
+    result = _run(config, data)
+    expected = 12_000.0 + sum(t.pnl_net for t in result.trades)
+    assert result.summary["ending_equity"] == pytest.approx(expected, abs=0.5)
+    assert all(point["cash"] >= -0.01 for point in result.equity_curve)
+
+
+def test_backtest_short_respects_min_grade(monkeypatch) -> None:
+    import short_strategies.strategies as short_reg
+
+    # Strength 0.70 grades B — an A-only run must take no trades.
+    monkeypatch.setitem(
+        short_reg.DETECTORS, "short_gap_fail", _stub_short_detector(strength=0.70)
+    )
+    data = {"SSS": _make_downtrend_df()}
+    df = data["SSS"]
+    config = BacktestConfig(
+        symbols=["SSS"],
+        start=df.index[250],
+        end=df.index[-1],
+        strategies=["short_gap_fail"],
+        min_grade="A",
+    )
+    result = _run(config, data)
+    assert result.trades == []
+
+
+def test_backtest_control_accepts_short_strategies() -> None:
+    from dashboard.backtest_control import _build_config, options
+
+    opts = options()
+    values = {s["value"] for s in opts["strategies"]}
+    assert "short_gap_fail" in values and "short_relative_weakness" in values
+    # Short strategies default off (opt-in, like PEAD).
+    assert all(
+        not s["default"] for s in opts["strategies"]
+        if s["value"].startswith("short_")
+    )
+
+    config, meta = _build_config({
+        "symbols": ["AAPL"],
+        "strategies": ["short_gap_fail", "momentum"],
+        "start": "2024-01-01",
+        "end": "2024-06-01",
+    })
+    assert config.strategies == ["short_gap_fail", "momentum"]
+
+
 # ------------------------------------------------------------ result plumbing
 
 

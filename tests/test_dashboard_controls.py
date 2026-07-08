@@ -104,8 +104,15 @@ def test_options_has_defaults_and_pead_off():
     assert opts["symbols"] and opts["strategies"] and opts["grades"]
     pead = next(s for s in opts["strategies"] if s["value"] == "pead")
     assert pead["default"] is False
+    # PEAD and the short strategies are opt-in; the four core long
+    # strategies stay on by default.
     assert all(
-        s["default"] for s in opts["strategies"] if s["value"] != "pead"
+        s["default"] for s in opts["strategies"]
+        if s["value"] != "pead" and not s["value"].startswith("short_")
+    )
+    assert all(
+        not s["default"] for s in opts["strategies"]
+        if s["value"].startswith("short_")
     )
 
 

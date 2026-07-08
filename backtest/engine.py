@@ -41,6 +41,9 @@ from config.universe import get_currency
 from execution.broker import (
     apply_entry_slippage,
     commission_for,
+    short_entry_slippage,
+    short_stop_exit_fill,
+    short_target_exit_fill,
     stop_exit_fill,
     target_exit_fill,
 )
@@ -70,14 +73,44 @@ _MAX_HOLD_DAYS: Dict[str, int] = {
 
 # Strategies run by default: the technical detectors that need no live feed.
 # PEAD is excluded by default because it depends on an earnings calendar.
+# Short strategies are opt-in from the backtest form (like PEAD).
 DEFAULT_STRATEGIES: List[str] = ["vcp_breakout", "momentum", "swing", "mean_reversion"]
+
+#: Calendar-bar cap for short positions (mirrors the short module's runner).
+SHORT_MAX_HOLD_DAYS = 15
 
 _MOMENTUM_FAMILY = frozenset({"momentum", "vcp_breakout"})
 
 
 def _family(strategy: str) -> str:
     s = strategy.lower()
+    if s.startswith("short_"):
+        return "short"
     return "momentum" if s in _MOMENTUM_FAMILY else s
+
+
+def _is_short_strategy(strategy: str) -> bool:
+    return str(strategy).lower().startswith("short_")
+
+
+def _short_risk_modifier() -> float:
+    """Risk-budget scale for short trades (mirrors RiskManager)."""
+    try:
+        from short_strategies.common.config import get_short_config
+
+        return float(get_short_config().risk_modifier)
+    except Exception:  # noqa: BLE001 -- missing module must not block sizing
+        return 0.65
+
+
+def _short_positions_cap() -> int:
+    """Concurrent-shorts cap (mirrors RiskManager's "short" family cap)."""
+    try:
+        from short_strategies.common.config import get_short_config
+
+        return int(get_short_config().filters.max_short_positions)
+    except Exception:  # noqa: BLE001
+        return 5
 
 
 # ---------------------------------------------------------------------------
@@ -93,7 +126,8 @@ class BacktestConfig:
         symbols: Universe to test.
         start: First trading day (inclusive).
         end: Last trading day (inclusive).
-        strategies: Strategy names to run (subset of the five).
+        strategies: Strategy names to run — any mix of the five long
+            strategies and the ``short_*`` strategy ids.
         min_grade: Minimum signal grade to trade (``"A"``/``"B"``/``"C"``).
         starting_capital: Single capital pool the sim sizes against.
         slippage_bps: Entry/stop slippage in basis points.
@@ -146,12 +180,14 @@ class BacktestTrade:
     pnl_net: float
     r_multiple: float
     bars_held: int
+    direction: str = "long"
 
     def to_record(self) -> Dict[str, Any]:
         """Return an analytics-compatible dict (matches the journal schema)."""
         return {
             "symbol": self.symbol,
             "strategy": self.strategy,
+            "direction": self.direction,
             "currency": self.currency,
             "quantity": self.quantity,
             "entry_time": self.entry_date.isoformat(),
@@ -183,6 +219,11 @@ class _OpenPosition:
     original_stop: float
     entry_date: pd.Timestamp
     bars_held: int = 0
+    direction: str = "long"
+
+    @property
+    def is_short(self) -> bool:
+        return self.direction == "short"
 
 
 @dataclass
@@ -379,24 +420,51 @@ class Backtester:
             reason: Optional[str] = None
 
             # Stop assumed to fill first when both touched (conservative).
-            if bar_low <= pos.stop_price:
-                exit_price = stop_exit_fill(pos.stop_price, bar_open, slip)
+            # Side-aware: a short's stop is a buy-stop above the entry (hit
+            # by the bar HIGH) and its target a cover below (hit by the LOW).
+            if pos.is_short:
+                stop_hit = bar_high >= pos.stop_price
+                target_hit = bar_low <= pos.target_price
+            else:
+                stop_hit = bar_low <= pos.stop_price
+                target_hit = bar_high >= pos.target_price
+
+            if stop_hit:
+                exit_price = (
+                    short_stop_exit_fill(pos.stop_price, bar_open, slip)
+                    if pos.is_short
+                    else stop_exit_fill(pos.stop_price, bar_open, slip)
+                )
                 reason = "STOP_HIT"
-            elif bar_high >= pos.target_price:
-                exit_price = target_exit_fill(pos.target_price, bar_open)
+            elif target_hit:
+                exit_price = (
+                    short_target_exit_fill(pos.target_price, bar_open)
+                    if pos.is_short
+                    else target_exit_fill(pos.target_price, bar_open)
+                )
                 reason = "TARGET_HIT"
             else:
-                max_hold = _MAX_HOLD_DAYS.get(
-                    pos.strategy.lower(), self._settings.HOLD_MAX_DAYS
+                max_hold = (
+                    SHORT_MAX_HOLD_DAYS
+                    if pos.is_short
+                    else _MAX_HOLD_DAYS.get(
+                        pos.strategy.lower(), self._settings.HOLD_MAX_DAYS
+                    )
                 )
                 if pos.bars_held >= max_hold:
-                    # Time exit at the close, treated as a market order.
-                    exit_price = round(bar_close * (1.0 - slip / 10_000.0), 4)
-                    reason = (
-                        "TIME_EXIT_LOSS"
-                        if bar_close < pos.entry_price
-                        else "TIME_EXIT_FLAT"
+                    # Time exit at the close, treated as a market order
+                    # (adverse slippage per side: down for a sell, up for a
+                    # buy-to-cover).
+                    slip_sign = 1.0 if pos.is_short else -1.0
+                    exit_price = round(
+                        bar_close * (1.0 + slip_sign * slip / 10_000.0), 4
                     )
+                    losing = (
+                        bar_close > pos.entry_price
+                        if pos.is_short
+                        else bar_close < pos.entry_price
+                    )
+                    reason = "TIME_EXIT_LOSS" if losing else "TIME_EXIT_FLAT"
 
             if exit_price is not None and reason is not None:
                 self._close_position(sym, t, exit_price, reason)
@@ -406,13 +474,21 @@ class Backtester:
     ) -> None:
         pos = self._positions.pop(sym)
         exit_commission = commission_for(pos.quantity, self._config.commission_per_share)
-        self._cash += exit_price * pos.quantity - exit_commission
+        sign = -1.0 if pos.is_short else 1.0
+        pnl_gross = (exit_price - pos.entry_price) * pos.quantity * sign
+        if pos.is_short:
+            # Entry reserved the notional as collateral; release it plus the
+            # trade's P&L on cover.
+            self._cash += (
+                pos.entry_price * pos.quantity + pnl_gross - exit_commission
+            )
+        else:
+            self._cash += exit_price * pos.quantity - exit_commission
 
-        pnl_gross = (exit_price - pos.entry_price) * pos.quantity
         pnl_net = pnl_gross - pos.entry_commission - exit_commission
-        risk_per_share = pos.entry_price - pos.original_stop
+        risk_per_share = (pos.entry_price - pos.original_stop) * sign
         r_multiple = (
-            (exit_price - pos.entry_price) / risk_per_share
+            (exit_price - pos.entry_price) * sign / risk_per_share
             if risk_per_share > 0
             else 0.0
         )
@@ -436,6 +512,7 @@ class Backtester:
                 pnl_net=pnl_net,
                 r_multiple=r_multiple,
                 bars_held=pos.bars_held,
+                direction=pos.direction,
             )
         )
 
@@ -494,7 +571,7 @@ class Backtester:
                         "will retry as more bars accumulate",
                     )
                 continue
-            signal = self._detect(sym, history)
+            signal = self._detect(sym, history, t)
             if signal is not None:
                 self._log_event(
                     t,
@@ -525,18 +602,23 @@ class Backtester:
                 break
             self._try_enter(signal, t)
 
-    def _detect(self, symbol: str, history: pd.DataFrame) -> Optional[Signal]:
+    def _detect(
+        self, symbol: str, history: pd.DataFrame, t: pd.Timestamp
+    ) -> Optional[Signal]:
         """Run configured strategies in priority order; return first qualifier."""
         for strategy in self._config.strategies:
-            detector = _DEDICATED_DETECTORS.get(strategy)
             try:
-                signal = (
-                    detector(symbol, history)
-                    if detector is not None
-                    else score_symbol(
-                        symbol, strategy, history, capture_series=False
+                if _is_short_strategy(strategy):
+                    signal = self._detect_short(symbol, strategy, history, t)
+                else:
+                    detector = _DEDICATED_DETECTORS.get(strategy)
+                    signal = (
+                        detector(symbol, history)
+                        if detector is not None
+                        else score_symbol(
+                            symbol, strategy, history, capture_series=False
+                        )
                     )
-                )
             except Exception:  # noqa: BLE001 -- a bad symbol never aborts the run
                 log.exception("backtest.detect_error", symbol=symbol, strategy=strategy)
                 continue
@@ -545,6 +627,66 @@ class Backtester:
             if self._grade_ok(signal.grade):
                 return signal
         return None
+
+    #: Short strategies that need the cross-sectional MarketContext to fire.
+    _SHORT_CONTEXT_STRATEGIES = frozenset(
+        {"short_relative_weakness", "short_laggard_fade"}
+    )
+
+    def _detect_short(
+        self,
+        symbol: str,
+        strategy: str,
+        history: pd.DataFrame,
+        t: pd.Timestamp,
+    ) -> Optional[Signal]:
+        """Run one short detector over *history*; return a core signal.
+
+        Mirrors :mod:`short_strategies.scanner`: the detector gets its
+        per-strategy config + the shared filter config; the cross-sectional
+        strategies additionally get a MarketContext built from the loaded
+        universe as of day *t*.
+        """
+        from short_strategies.common.config import get_short_config
+        from short_strategies.strategies import DETECTORS
+
+        detector = DETECTORS.get(strategy)
+        if detector is None:
+            return None
+        cfg = get_short_config()
+        strategy_cfg = getattr(cfg, strategy.removeprefix("short_"), None)
+        ctx = (
+            self._short_context(t)
+            if strategy in self._SHORT_CONTEXT_STRATEGIES
+            else None
+        )
+        sig = detector(
+            symbol, history, config=strategy_cfg, filters=cfg.filters, ctx=ctx
+        )
+        if sig is None or not sig.is_price_valid():
+            return None
+        return sig.to_core_signal()
+
+    def _short_context(self, t: pd.Timestamp):
+        """Cross-sectional MarketContext as of day *t* (cached per day)."""
+        cached = getattr(self, "_short_ctx_cache", None)
+        if cached is not None and cached[0] == t:
+            return cached[1]
+        from config.universe import get_sector
+        from short_strategies.common.config import get_short_config
+        from short_strategies.common.context import build_market_context
+
+        frames = {sym: df.loc[:t] for sym, df in self._data.items()}
+        benchmark = frames.get(self._settings.REGIME_BENCHMARK)
+        ctx = build_market_context(
+            list(frames.keys()),
+            frames,
+            benchmark,
+            get_short_config().relative_weakness.rank_lookback_days,
+            get_sector,
+        )
+        self._short_ctx_cache = (t, ctx)
+        return ctx
 
     def _grade_ok(self, grade: Grade) -> bool:
         return _GRADE_RANK.get(grade.value, 9) <= _GRADE_RANK.get(
@@ -559,11 +701,17 @@ class Backtester:
                 strategy=signal.strategy,
             )
             return
-        risk_per_share = signal.entry_price - signal.stop_price
+        is_short = signal.direction == "short"
+        risk_per_share = (
+            signal.stop_price - signal.entry_price
+            if is_short
+            else signal.entry_price - signal.stop_price
+        )
         if risk_per_share <= 0 or signal.entry_price <= 0:
             self._log_event(
                 t, "reject", signal.symbol,
-                "skipped — invalid risk (stop >= entry or non-positive price)",
+                "skipped — invalid risk (protective stop on the wrong side "
+                "of the entry, or non-positive price)",
                 strategy=signal.strategy,
                 entry_price=round(signal.entry_price, 4),
                 stop_price=round(signal.stop_price, 4),
@@ -579,8 +727,14 @@ class Backtester:
             )
             return
 
-        fill_price = apply_entry_slippage(signal.entry_price, self._config.slippage_bps)
+        fill_price = (
+            short_entry_slippage(signal.entry_price, self._config.slippage_bps)
+            if is_short
+            else apply_entry_slippage(signal.entry_price, self._config.slippage_bps)
+        )
         commission = commission_for(shares, self._config.commission_per_share)
+        # A short reserves the sale notional as collateral, so the cash check
+        # and accounting are identical for both sides.
         cost = fill_price * shares + commission
 
         # Down-size to fit available cash rather than skipping outright.
@@ -618,11 +772,13 @@ class Backtester:
             target_price=signal.target_price,
             original_stop=signal.stop_price,
             entry_date=t,
+            direction=signal.direction,
         )
         self._log_event(
             t, "entry", signal.symbol,
-            f"BUY {shares} @ {fill_price:.2f} ({signal.strategy}, "
-            f"grade {signal.grade.value}) stop {signal.stop_price:.2f} / "
+            f"{'SELL SHORT' if is_short else 'BUY'} {shares} @ {fill_price:.2f} "
+            f"({signal.strategy}, grade {signal.grade.value}) "
+            f"stop {signal.stop_price:.2f} / "
             f"target {signal.target_price:.2f}",
             strategy=signal.strategy,
             grade=signal.grade.value,
@@ -636,9 +792,15 @@ class Backtester:
     def _size(self, signal: Signal) -> int:
         """Position size mirroring RiskManager.build_order (single pool)."""
         capital = self._config.starting_capital
-        strategy_mod = 0.5 if signal.strategy.lower() == "mean_reversion" else 1.0
+        if _is_short_strategy(signal.strategy):
+            strategy_mod = _short_risk_modifier()
+        elif signal.strategy.lower() == "mean_reversion":
+            strategy_mod = 0.5
+        else:
+            strategy_mod = 1.0
         max_risk = capital * self._settings.MAX_POSITION_SIZE_PCT * strategy_mod
-        risk_per_share = signal.entry_price - signal.stop_price
+        sign = -1.0 if signal.direction == "short" else 1.0
+        risk_per_share = (signal.entry_price - signal.stop_price) * sign
         shares = int(max_risk / risk_per_share)
         # Notional cap: no single position exceeds 10% of the pool.
         notional_cap = int(capital * 0.10 / signal.entry_price)
@@ -660,6 +822,8 @@ class Backtester:
             cap = self._settings.MAX_PEAD_POSITIONS
         elif family == "mean_reversion":
             cap = 1
+        elif family == "short":
+            cap = _short_positions_cap()
         else:
             return True
         return count < cap
@@ -667,10 +831,17 @@ class Backtester:
     # --------------------------------------------------------------- equity
 
     def _record_equity(self, t: pd.Timestamp) -> None:
-        holdings = sum(
-            pos.quantity * self._last_close.get(sym, pos.entry_price)
-            for sym, pos in self._positions.items()
-        )
+        holdings = 0.0
+        for sym, pos in self._positions.items():
+            last = self._last_close.get(sym, pos.entry_price)
+            if pos.is_short:
+                # Entry reserved the sale notional as collateral; its
+                # mark-to-market value is that collateral plus the open P&L.
+                holdings += pos.quantity * (
+                    pos.entry_price + (pos.entry_price - last)
+                )
+            else:
+                holdings += pos.quantity * last
         equity = self._cash + holdings
         self._equity_curve.append(
             {

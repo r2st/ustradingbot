@@ -50,6 +50,17 @@ STRATEGIES: List[Tuple[str, str, bool]] = [
     ("swing", "Swing", True),
     ("mean_reversion", "Mean Reversion", True),
     ("pead", "PEAD (earnings drift, slower)", False),
+    # Short-side strategies (opt-in, like PEAD).
+    ("short_gap_fail", "Short: Gap Fail", False),
+    ("short_earnings_pop_fade", "Short: Earnings Pop Fade", False),
+    ("short_support_breakdown", "Short: Support Breakdown", False),
+    ("short_bear_flag", "Short: Bear Flag", False),
+    ("short_buying_climax", "Short: Buying Climax", False),
+    ("short_overbought_fade", "Short: Overbought Fade", False),
+    ("short_vwap_rejection", "Short: VWAP Rejection", False),
+    ("short_ma_crossunder", "Short: MA Crossunder", False),
+    ("short_relative_weakness", "Short: Relative Weakness", False),
+    ("short_laggard_fade", "Short: Laggard Fade", False),
 ]
 _VALID_STRATEGIES = {value for value, _, _ in STRATEGIES}
 
