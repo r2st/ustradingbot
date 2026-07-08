@@ -422,6 +422,172 @@ def test_malformed_llm_response_falls_back(settings: Settings,
     assert payload["market"]["source"] == "template"
 
 
+# --------------------------------------------------------- analyst cards
+
+
+def test_refresh_payload_includes_cards(settings: Settings,
+                                        monkeypatch) -> None:
+    """Every row carries the UX-spec card structure; the shared term help
+    ships once at payload level."""
+    settings = Settings(DATA_DIR=settings.DATA_DIR, OPENROUTER_API_KEY="")
+    engine = _engine(settings)
+
+    positions = [{
+        "symbol": "NVDA", "side": "long", "strategy": "momentum",
+        "grade": "A", "quantity": 10, "entry_price": 100.0,
+        "stop_price": 95.0, "target_price": 109.0, "current_price": 103.0,
+        "unrealized_pnl": 30.0, "unrealized_pct": 3.0,
+        "distance_to_stop_pct": 7.8, "distance_to_target_pct": 5.8,
+        "r_progress": 0.6, "entry_time": "2026-07-07 10:00",
+        "indicators": {"rsi": 61.0, "rsi_rising": True,
+                       "rsi_overbought": False, "rsi_momentum_zone": True,
+                       "macd_hist": 0.2, "macd_hist_expanding": True,
+                       "macd_bullish": True, "ema20": 99.0, "ema200": 90.0,
+                       "above_ema20": True, "above_ema200": True,
+                       "volume_ratio": 2.1, "obv_confirming": True,
+                       "fast_cloud_bullish": True,
+                       "slow_cloud_bullish": True},
+        "sentiment": None,
+        "key_levels": {"support": [{"price": 97.0, "touches": 4}],
+                       "resistance": [{"price": 106.0, "touches": 2}]},
+    }]
+    watchlist = [{
+        "symbol": "AAPL", "status": "signal", "price": 200.0,
+        "change_pct": 0.5,
+        "signal": {"strategy": "swing", "grade": "B", "strength": 0.7,
+                   "entry": 200.0, "stop": 195.0, "target": 215.0},
+        "last_rejection": None, "indicators": None, "sentiment": None,
+        "key_levels": {"support": [], "resistance": []},
+    }]
+    monkeypatch.setattr(ac, "build_position_facts", lambda s: positions)
+    monkeypatch.setattr(ac, "build_watchlist_facts", lambda s: watchlist)
+    monkeypatch.setattr(
+        ac, "build_market_facts",
+        lambda s: {"spy": {}, "qqq": {}, "vix": {}, "sectors": [],
+                   "bias": {"label": "mixed", "note": ""}})
+
+    payload = asyncio.run(engine.refresh(force=True))
+
+    pos_card = payload["positions"][0]["card"]
+    assert pos_card["kind"] == "position"
+    assert pos_card["identity"]["symbol"] == "NVDA"
+    assert pos_card["conditions"]["total"] == 5
+    assert pos_card["stress_test"]["is_hypothetical"] is False
+
+    wl_card = payload["watchlist"][0]["card"]
+    assert wl_card["kind"] == "watchlist"
+    assert wl_card["stress_test"]["is_hypothetical"] is True
+
+    assert "rsi" in payload["term_help"]
+
+
+# ------------------------------------------------------ auth-failure (401)
+
+
+class _Fake401Client:
+    """Async httpx client stub returning 401 for every POST."""
+
+    calls = 0
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+    async def post(self, url, json=None, headers=None):
+        import httpx
+
+        _Fake401Client.calls += 1
+        return httpx.Response(
+            401,
+            request=httpx.Request("POST", url),
+            json={"error": {"message": "User not found.", "code": 401}},
+        )
+
+
+def test_401_sets_auth_failed_and_skips_further_calls(settings: Settings,
+                                                      monkeypatch) -> None:
+    """One 401 flags the key as rejected; the rest of the refresh skips the
+    LLM (no budget burn), and everything falls back to template prose."""
+    settings = Settings(DATA_DIR=settings.DATA_DIR,
+                        OPENROUTER_API_KEY="bad-key")
+    engine = _engine(settings)
+    _Fake401Client.calls = 0
+    monkeypatch.setattr(ac.httpx, "AsyncClient", _Fake401Client)
+
+    positions = [{"symbol": "NVDA", "strategy": "momentum",
+                  "entry_price": 100.0, "stop_price": 95.0,
+                  "target_price": 109.0, "indicators": None,
+                  "sentiment": None,
+                  "key_levels": {"support": [], "resistance": []}}]
+    watchlist = [{"symbol": "AAPL", "status": "idle", "price": 200.0,
+                  "change_pct": 0.0, "readiness": 20, "signal": None,
+                  "last_rejection": None, "indicators": None,
+                  "sentiment": None,
+                  "key_levels": {"support": [], "resistance": []}}]
+    monkeypatch.setattr(ac, "build_position_facts", lambda s: positions)
+    monkeypatch.setattr(ac, "build_watchlist_facts", lambda s: watchlist)
+    monkeypatch.setattr(
+        ac, "build_market_facts",
+        lambda s: {"spy": {}, "qqq": {}, "vix": {}, "sectors": [],
+                   "bias": {"label": "mixed", "note": ""}})
+
+    payload = asyncio.run(engine.refresh(force=True))
+
+    # Only the first call was attempted; the 401 short-circuited the rest.
+    assert _Fake401Client.calls == 1
+    assert payload["budget"]["used"] == 1
+    assert engine._auth_failed is True
+    assert payload["positions"][0]["source"] == "template"
+    assert payload["watchlist"][0]["source"] == "template"
+    assert payload["market"]["source"] == "template"
+
+
+def test_401_degraded_state_is_plain_language(settings: Settings,
+                                              monkeypatch) -> None:
+    """The UI-facing state never leaks the raw provider error (spec:
+    'Analysis unavailable — ...', not 'OpenRouter call failed: 401')."""
+    settings = Settings(DATA_DIR=settings.DATA_DIR,
+                        OPENROUTER_API_KEY="bad-key")
+    engine = _engine(settings)
+    monkeypatch.setattr(ac.httpx, "AsyncClient", _Fake401Client)
+    monkeypatch.setattr(ac, "build_position_facts", lambda s: [])
+    monkeypatch.setattr(ac, "build_watchlist_facts", lambda s: [])
+    monkeypatch.setattr(
+        ac, "build_market_facts",
+        lambda s: {"spy": {}, "qqq": {}, "vix": {}, "sectors": [],
+                   "bias": {"label": "mixed", "note": ""}})
+
+    payload = asyncio.run(engine.refresh(force=True))
+
+    assert payload["ai_state"] == "degraded"
+    msg = payload["ai_state_message"]
+    assert "API key" in msg
+    assert "401" not in msg and "http" not in msg.lower()
+    # The technical detail stays available for debugging via status().
+    status = engine.status()
+    assert status["auth_failed"] is True
+    assert "401" in (status["last_error"] or "")
+
+
+def test_ai_state_reports_missing_key(settings: Settings) -> None:
+    engine = _engine(Settings(DATA_DIR=settings.DATA_DIR,
+                              OPENROUTER_API_KEY=""))
+    state = engine.ai_state()
+    assert state["state"] == "degraded"
+    assert "API key" in state["message"]
+
+
+def test_ai_state_live_when_configured(settings: Settings) -> None:
+    engine = _engine(Settings(DATA_DIR=settings.DATA_DIR,
+                              OPENROUTER_API_KEY="k"))
+    assert engine.ai_state()["state"] == "live"
+
+
 # ------------------------------------------------------------------ router
 
 @pytest.fixture
@@ -507,7 +673,31 @@ def test_ai_dashboard_page_renders(client: TestClient,
     assert resp.status_code == 200
     assert "Analyst" in resp.text
     assert "/api/ai/commentary" in resp.text
-    assert "not financial advice" in resp.text
+    assert "Analysis, not advice" in resp.text
+
+
+def test_ai_dashboard_implements_ux_spec_elements(client: TestClient,
+                                                  settings: Settings) -> None:
+    """The page ships the self-explanatory card UI: first-run tour, stress
+    test with visible working + custom price input, per-card degraded
+    styling — and none of the old verdict/score chrome."""
+    resp = client.get("/ai-dashboard")
+    html = resp.text
+    # First-run tour (spec 6.2), re-triggerable from the "?" control.
+    assert "ustb_analyst_tour" in html
+    assert 'id="tourBox"' in html and 'id="tourBtn"' in html
+    # Stress test (spec 5): scenarios, worked arithmetic, custom input.
+    assert "Stress test" in html
+    assert "customScenario" in html
+    assert "Try your own price" in html
+    # Conditions-met bar replaces any confidence % (spec 4.3 / 7).
+    assert "conds-bar" in html
+    # Per-card degraded treatment (spec 6.4): dashed border class.
+    assert "card.degraded" in html
+    # The old verdict/score chrome is gone.
+    assert "sentimentChip" not in html
+    assert "readiness" not in html
+    assert "BULLISH" not in html
 
 
 def test_main_dashboard_links_to_analyst(client: TestClient,

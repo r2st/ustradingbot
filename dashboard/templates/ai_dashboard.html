@@ -79,6 +79,7 @@
   .chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); }
   .chip.open .dot { background: var(--green); box-shadow: 0 0 6px var(--green); }
   .chip.closed .dot { background: var(--orange); }
+  .chip.clickable { cursor: pointer; }
   .btn {
     background: var(--accent); color: #fff; border: 0; border-radius: 8px;
     padding: 7px 16px; font-size: 13px; font-weight: 600; cursor: pointer;
@@ -113,64 +114,119 @@
 
   .card {
     background: var(--surface-2); border: 1px solid var(--border);
-    border-radius: 10px; padding: 14px 16px; margin-bottom: 12px;
+    border-radius: 10px; padding: 14px 16px; margin-bottom: 14px;
   }
   .card:last-child { margin-bottom: 0; }
+  .card.degraded { border-style: dashed; border-color: var(--orange); }
+  .degraded-note {
+    font-size: 11.5px; color: var(--orange); margin-bottom: 8px;
+    display: flex; gap: 6px; align-items: baseline;
+  }
+  .unavailable-note { font-size: 12.5px; color: var(--text-muted); margin-top: 8px; }
+
+  /* 1. Identity strip */
   .card-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
   .card-head .sym { font-size: 16px; font-weight: 700; letter-spacing: 0.3px; }
   .card-head .px { font-size: 14px; font-variant-numeric: tabular-nums; }
+  .card-head .tag {
+    margin-left: auto; font-size: 11px; color: var(--text-muted);
+    border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px;
+    background: var(--surface); white-space: nowrap;
+  }
   .up { color: var(--green); } .down { color: var(--red); } .flat { color: var(--text-muted); }
 
-  .sentiment {
-    font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 999px;
-    text-transform: uppercase; letter-spacing: 0.5px;
-  }
-  .sentiment.bullish { background: rgba(46,204,113,0.16); color: var(--green); border: 1px solid var(--green-dim); }
-  .sentiment.bearish { background: rgba(231,76,60,0.14); color: var(--red); border: 1px solid var(--red); }
-  .sentiment.neutral { background: rgba(139,143,163,0.15); color: var(--text-muted); border: 1px solid var(--border); }
-
-  .badge {
-    font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 4px;
-    text-transform: uppercase; letter-spacing: 0.6px; margin-left: auto;
-  }
-  .badge.llm { background: rgba(79,143,247,0.18); color: var(--accent); }
-  .badge.template { background: rgba(155,89,182,0.18); color: var(--purple); }
-  .badge.stale { background: rgba(243,156,18,0.18); color: var(--orange); }
-
-  .riskline {
-    display: flex; gap: 16px; flex-wrap: wrap; margin: 8px 0 2px;
-    font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums;
-  }
-  .riskline b { color: var(--text); font-weight: 600; }
-
-  .commentary {
-    margin-top: 9px; font-size: 13.5px; color: var(--text);
+  /* 2. Summary */
+  .summary-line {
+    margin-top: 9px; font-size: 13.5px;
     border-left: 3px solid var(--accent-dim); padding: 2px 0 2px 12px;
   }
-  .action {
-    margin-top: 8px; font-size: 12.5px; font-weight: 600; color: var(--cyan);
-    display: flex; align-items: center; gap: 6px;
-  }
-  .levels { margin-top: 8px; font-size: 12px; color: var(--text-muted); display: flex; gap: 14px; flex-wrap: wrap; }
-  .levels b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .status-plain { margin-top: 7px; font-size: 12.5px; color: var(--orange); }
 
-  /* Readiness meter */
-  .meter-row { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
-  .meter { flex: 1; height: 7px; background: var(--bg); border-radius: 5px; overflow: hidden; border: 1px solid var(--border); }
-  .meter i { display: block; height: 100%; border-radius: 5px; background: linear-gradient(90deg, var(--accent-dim), var(--accent)); }
-  .meter-row span { font-size: 11.5px; color: var(--text-muted); min-width: 96px; text-align: right; }
-
-  .status-chip {
-    font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 4px;
-    text-transform: uppercase; letter-spacing: 0.5px;
+  /* 3. Conditions met */
+  .conds { margin-top: 11px; }
+  .conds-bar { display: flex; gap: 4px; align-items: center; }
+  .conds-bar .seg {
+    height: 9px; flex: 1; max-width: 46px; border-radius: 3px;
+    background: var(--bg); border: 1px solid var(--border);
   }
-  .status-signal { background: rgba(46,204,113,0.18); color: var(--green); }
-  .status-near_entry { background: rgba(0,188,212,0.16); color: var(--cyan); }
-  .status-rejected { background: rgba(231,76,60,0.14); color: var(--red); }
-  .status-idle, .status-excluded { background: rgba(139,143,163,0.14); color: var(--text-muted); }
-  .status-held { background: rgba(79,143,247,0.16); color: var(--accent); }
-  .gate { margin-top: 7px; font-size: 12px; color: var(--orange); }
-  .gate code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 11px; }
+  .conds-bar .seg.on { background: var(--green-dim); border-color: var(--green-dim); }
+  .conds-bar .count { font-size: 12px; color: var(--text-muted); margin-left: 8px; }
+  .conds-bar .count b { color: var(--text); }
+  .conds details { margin-top: 5px; }
+  .conds summary { font-size: 11.5px; color: var(--text-muted); cursor: pointer; }
+  .conds li { list-style: none; font-size: 12.5px; margin-top: 4px; }
+  .conds li .tick { display: inline-block; width: 16px; }
+  .conds li.on .tick { color: var(--green); }
+  .conds li.off .tick { color: var(--text-muted); }
+  .conds li.off { color: var(--text-muted); }
+
+  /* 4. Reasoning walkthrough */
+  .reasoning { margin-top: 12px; display: grid; gap: 9px; }
+  .reason .plain { font-size: 13.5px; }
+  .reason .plain .info { cursor: pointer; color: var(--accent); font-size: 11px;
+    border: 1px solid var(--accent-dim); border-radius: 50%; padding: 0 4px; margin-left: 5px; }
+  .reason .stat { font-size: 12px; color: var(--text-muted); margin-top: 1px; padding-left: 14px; }
+  .reason .define {
+    display: none; font-size: 12px; color: var(--text);
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 7px 10px; margin: 5px 0 0 14px;
+  }
+  .reason .define.show { display: block; }
+
+  /* 5. What would change this */
+  .section-label {
+    margin-top: 13px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.8px;
+    color: var(--text-muted); text-transform: uppercase;
+  }
+  .invalidation { margin-top: 5px; }
+  .invalidation li { list-style: none; font-size: 12.5px; margin-top: 4px; padding-left: 14px; position: relative; }
+  .invalidation li::before { content: "–"; position: absolute; left: 0; color: var(--text-muted); }
+
+  /* 6. Stress test */
+  .stress { margin-top: 6px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 12px; }
+  .stress .hypo {
+    display: inline-block; font-size: 10.5px; font-weight: 700; letter-spacing: 0.5px;
+    color: var(--purple); border: 1px dashed var(--purple); border-radius: 999px;
+    padding: 1px 9px; margin-bottom: 7px; text-transform: uppercase;
+  }
+  .stress-row { display: flex; gap: 4px; align-items: stretch; overflow-x: auto; padding-bottom: 4px; }
+  .scenario {
+    flex: 1; min-width: 86px; text-align: center; border: 1px solid var(--border);
+    border-radius: 8px; padding: 7px 4px; cursor: pointer; background: var(--surface-2);
+  }
+  .scenario:hover { border-color: var(--accent-dim); }
+  .scenario.now { border-color: var(--accent); }
+  .scenario .s-label { font-size: 10.5px; color: var(--text-muted); min-height: 26px; }
+  .scenario .s-price { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .scenario .s-pnl { font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 3px; }
+  .scenario .s-r { font-size: 10.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+  .working {
+    display: none; margin-top: 8px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 9px 12px; font-family: ui-monospace, SFMono-Regular,
+    Menlo, Consolas, monospace; font-size: 11.5px; white-space: pre-wrap; color: var(--text);
+  }
+  .working.show { display: block; }
+  .stress .hint { font-size: 11px; color: var(--text-muted); margin-top: 7px; }
+  .stress-custom { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+  .stress-custom label { font-size: 12px; color: var(--text-muted); }
+  .stress-custom input {
+    width: 110px; background: var(--bg); color: var(--text); border: 1px solid var(--border);
+    border-radius: 7px; padding: 5px 8px; font-size: 13px;
+  }
+  .stress-custom .result { font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  .stress-note { font-size: 11.5px; color: var(--text-muted); margin-top: 6px; }
+  .stress-note.short-note { color: var(--orange); }
+
+  /* 7. Collapsed detail */
+  .detail { margin-top: 10px; }
+  .detail summary { font-size: 12px; color: var(--accent); cursor: pointer; }
+  .detail-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 7px 16px; margin-top: 8px; font-size: 12.5px;
+  }
+  .detail-grid .k { color: var(--text-muted); font-size: 11px; }
+  .detail-grid .v { font-variant-numeric: tabular-nums; }
 
   /* ── Market overview band ───────────────────────────────────────────── */
   .market-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }
@@ -211,39 +267,57 @@
   .bias.risk-off { background: rgba(231,76,60,0.14); color: var(--red); }
   .bias.mixed { background: rgba(243,156,18,0.15); color: var(--orange); }
 
-  /* ── States & footer ───────────────────────────────────────────────── */
+  /* ── States, notices, footer ───────────────────────────────────────── */
   .empty { color: var(--text-muted); font-size: 13px; padding: 8px 2px; }
   .skeleton { border-radius: 10px; height: 88px; margin-bottom: 12px;
     background: linear-gradient(90deg, var(--surface-2) 25%, var(--border) 50%, var(--surface-2) 75%);
     background-size: 200% 100%; animation: shimmer 1.4s infinite; }
   @keyframes shimmer { to { background-position: -200% 0; } }
-  .error-banner {
-    background: rgba(231,76,60,0.12); border: 1px solid var(--red);
-    color: var(--red); border-radius: 8px; padding: 8px 14px;
+  .notice-banner {
+    background: rgba(243,156,18,0.10); border: 1px solid var(--orange);
+    color: var(--text); border-radius: 8px; padding: 9px 14px;
     font-size: 12.5px; margin-bottom: 18px; display: none;
   }
+  .notice-banner.error { background: rgba(231,76,60,0.10); border-color: var(--red); }
   .disclaimer { text-align: center; font-size: 11px; color: var(--text-muted); margin-top: 8px; }
-  .footnote { font-size: 10.5px; color: var(--text-muted); margin-top: 10px; }
+
+  /* ── First-run tour ─────────────────────────────────────────────────── */
+  .tour-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 40; display: none;
+  }
+  .tour-box {
+    position: fixed; z-index: 50; max-width: 380px; display: none;
+    background: var(--surface); border: 1px solid var(--accent);
+    border-radius: 12px; padding: 16px 18px; box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+    left: 50%; top: 20%; transform: translateX(-50%);
+  }
+  .tour-box h3 { font-size: 14px; margin-bottom: 6px; }
+  .tour-box p { font-size: 13px; color: var(--text-muted); }
+  .tour-box .tour-nav { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+  .tour-box .tour-step { font-size: 11px; color: var(--text-muted); margin-right: auto; }
+  .tour-highlight { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 8px; }
 </style>
 </head>
 <body>
 
 <div class="header">
   <div>
-    <h1><span>✦ Analyst</span> — Live AI Commentary</h1>
+    <h1><span>✦ Analyst</span></h1>
     <a class="back" href="/">← Back to dashboard</a>
   </div>
   <div class="header-right">
     <span class="chip closed" id="marketChip"><span class="dot"></span><span id="marketChipText">market —</span></span>
-    <span class="chip" id="budgetChip" title="LLM calls used today / daily budget">AI budget —</span>
+    <span class="chip" id="budgetChip" title="How many AI-written notes have been generated today, out of the daily allowance">AI notes —</span>
     <span class="chip" id="updatedChip">updated —</span>
-    <span class="chip" id="countdownChip" title="Server refresh cadence">next refresh —</span>
+    <span class="chip" id="countdownChip" title="The page refreshes its analysis on a timer while the market is open">next refresh —</span>
+    <span class="chip clickable" id="tourBtn" onclick="startTour(true)" title="Replay the quick guide to reading these cards">?</span>
     <button type="button" class="btn" id="refreshBtn" onclick="forceRefresh()">↻ Refresh now</button>
   </div>
 </div>
 
 <div class="page">
-  <div class="error-banner" id="errorBanner"></div>
+  <div class="notice-banner" id="aiStateBanner"></div>
+  <div class="notice-banner error" id="errorBanner"></div>
 
   <!-- ═══ Market overview ═══ -->
   <div class="panel">
@@ -284,9 +358,22 @@
   </div>
 
   <div class="disclaimer">
-    AI commentary — not financial advice. All numbers are computed locally from
-    market data; the model only narrates them. The bot's entries and exits
-    remain 100% rule-based and are unaffected by this page.
+    Analysis, not advice: these cards explain what the bot sees and what each
+    price level would mean in dollars. They never predict, and the person —
+    not the page — makes any decision. All numbers are computed locally from
+    market data.
+  </div>
+</div>
+
+<!-- First-run tour -->
+<div class="tour-backdrop" id="tourBackdrop"></div>
+<div class="tour-box" id="tourBox">
+  <h3 id="tourTitle"></h3>
+  <p id="tourText"></p>
+  <div class="tour-nav">
+    <span class="tour-step" id="tourStep"></span>
+    <button type="button" class="btn" style="background:var(--surface-2);color:var(--text);border:1px solid var(--border);" onclick="endTour()">Skip</button>
+    <button type="button" class="btn" id="tourNextBtn" onclick="tourNext()">Next</button>
   </div>
 </div>
 
@@ -297,27 +384,27 @@ const POLL_MS = 60000;      // client poll; the server refreshes on its own cade
 let lastPayload = null;
 let nextRefreshAt = null;
 let refreshInFlight = false;
+let cardSeq = 0;
+const cardIndex = {};       // cardId -> card object (for stress-test math)
 
 const esc = (s) => String(s == null ? "" : s)
   .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
   .replace(/"/g, "&quot;");
 
 const fmt = (v, d = 2) => (v == null || isNaN(v)) ? "—" : Number(v).toFixed(d);
-const money = (v) => (v == null || isNaN(v)) ? "—" : "$" + Number(v).toFixed(2);
+const money = (v) => (v == null || isNaN(v)) ? "—" :
+  (v < 0 ? "-$" : "$") + Math.abs(Number(v)).toLocaleString("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const signedMoney = (v) => (v == null || isNaN(v)) ? "—" :
+  (v > 0 ? "+" : v < 0 ? "-" : "") + "$" + Math.abs(Number(v)).toLocaleString("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2});
 const pctCls = (v) => v == null ? "flat" : (v > 0 ? "up" : (v < 0 ? "down" : "flat"));
 const signPct = (v) => v == null ? "—" : (v > 0 ? "+" : "") + Number(v).toFixed(2) + "%";
 
-function sourceBadge(src, stale) {
-  if (stale) return '<span class="badge stale" title="Last generated payload; a refresh is pending">stale</span>';
-  if (src === "llm") return '<span class="badge llm" title="AI-generated commentary">llm</span>';
-  return '<span class="badge template" title="Deterministic template commentary (AI unavailable or budget saved)">template</span>';
-}
-
-/* ── Market panel ─────────────────────────────────────────────────────── */
+/* ── Market panel (facts + one summary; no verdict headline) ──────────── */
 function renderMarket(m, stale) {
   const body = document.getElementById("marketBody");
   if (!m || (!m.spy && !m.sectors)) {
-    body.innerHTML = '<div class="empty">No market data yet — first refresh pending.</div>';
+    body.innerHTML = '<div class="empty">No market data yet. The first analysis is generated ' +
+      'shortly after the page is first opened — this fills in on its own.</div>';
     return;
   }
   const bench = (label, d) => {
@@ -328,23 +415,23 @@ function renderMarket(m, stale) {
       <div class="m-big">${d.last_price != null ? money(d.last_price) : "—"}
         <span class="${pctCls(d.change_pct)}" style="font-size:13px;">${signPct(d.change_pct)}</span></div>
       <div style="margin-top:6px;"><span class="regime ${esc(reg)}">${esc(reg)}</span></div>
-      <div class="m-sub">50MA ${fmt(d.fast_ma)} · 200MA ${fmt(d.slow_ma)} · ${esc(d.volatility || "—")} vol</div>
+      <div class="m-sub">50-day avg ${fmt(d.fast_ma)} · 200-day avg ${fmt(d.slow_ma)} · ${esc(d.volatility || "—")} volatility</div>
     </div>`;
   };
   const vix = m.vix || {};
   const vixCard = `<div class="m-card">
-    <h3>Volatility Regime</h3>
+    <h3>Volatility</h3>
     <div class="m-big vix-${esc(vix.bucket || "normal")}">${vix.value != null ? fmt(vix.value, 1) : "—"}</div>
     <div style="margin-top:6px;"><span class="regime sideways vix-${esc(vix.bucket || "")}"
       style="background:var(--bg);border:1px solid var(--border);">${esc(vix.bucket || "unknown")}</span></div>
-    <div class="m-sub">${vix.source === "realized_vol" ? "SPY realized-vol proxy (^VIX unavailable)" : "^VIX daily close"}</div>
+    <div class="m-sub">${vix.source === "realized_vol" ? "Estimated from SPY's recent swings (VIX feed unavailable)" : "VIX “fear index” daily close"}</div>
   </div>`;
   const mult = ((m.spy || {}).weight_multipliers) || {};
   const biasObj = m.bias || {};
   const biasCard = `<div class="m-card">
-    <h3>Strategy Bias</h3>
+    <h3>Conditions</h3>
     <div style="margin-top:2px;"><span class="bias ${esc(biasObj.label || "mixed")}">${esc(biasObj.label || "—")}</span></div>
-    <div class="m-sub" style="margin-top:8px;">momentum ×${fmt(mult.momentum)} · swing ×${fmt(mult.swing)}</div>
+    <div class="m-sub" style="margin-top:8px;">momentum trades weighted ×${fmt(mult.momentum)} · swing ×${fmt(mult.swing)}</div>
   </div>`;
 
   let sectors = "";
@@ -365,7 +452,7 @@ function renderMarket(m, stale) {
   const summary = `<div class="summary-block">
     <span class="bias ${esc(biasObj.label || "mixed")}">${esc(biasObj.label || "—")}</span>
     <span style="flex:1;min-width:240px;">${esc(m.summary || "—")}</span>
-    ${sourceBadge(m.source, stale)}
+    ${stale ? '<span class="chip" title="Shown from the last completed analysis; a refresh is on the way">from last refresh</span>' : ""}
   </div>`;
 
   body.innerHTML = `<div class="market-grid">${bench("SPY", m.spy)}${bench("QQQ", m.qqq)}${vixCard}${biasCard}</div>${sectors}${summary}`;
@@ -373,22 +460,157 @@ function renderMarket(m, stale) {
     biasObj.note ? biasObj.note : "";
 }
 
-/* ── Positions panel ──────────────────────────────────────────────────── */
-function sentimentChip(s) {
-  if (!s) return "";
-  const confPct = Math.round((s.confidence || 0) * 100);
-  return `<span class="sentiment ${esc(s.label)}" title="Derived from the scan-time scoring engine on fresh bars">
-    ${esc(s.label)} ${confPct}%</span>`;
+/* ── Card sections ────────────────────────────────────────────────────── */
+
+function renderConditions(c) {
+  if (!c || !c.total) return "";
+  const segs = [];
+  for (let i = 0; i < c.total; i++) {
+    segs.push('<span class="seg' + (i < c.met ? " on" : "") + '"></span>');
+  }
+  const items = (c.items || []).map(i =>
+    `<li class="${i.met ? "on" : "off"}"><span class="tick">${i.met ? "✓" : "·"}</span>${esc(i.plain)}</li>`
+  ).join("");
+  return `<div class="conds">
+    <div class="conds-bar">${segs.join("")}
+      <span class="count"><b>${c.met} of ${c.total}</b> of this strategy's own checks are true right now</span>
+    </div>
+    <details><summary>What are the ${c.total} checks?</summary><ul>${items}</ul></details>
+  </div>`;
 }
 
-function levelsLine(kl) {
-  kl = kl || {};
-  const sup = (kl.support || [])[0];
-  const res = (kl.resistance || [])[0];
-  if (!sup && !res) return "";
-  return `<div class="levels">
-    ${sup ? `<span>Support <b>${money(sup.price)}</b> (${sup.touches} touches)</span>` : ""}
-    ${res ? `<span>Resistance <b>${money(res.price)}</b> (${res.touches} touches)</span>` : ""}
+function toggleDefine(el) {
+  const d = el.closest(".reason").querySelector(".define");
+  if (d) d.classList.toggle("show");
+}
+
+function renderReasoning(rows) {
+  if (!rows || !rows.length) return "";
+  return '<div class="reasoning">' + rows.map(r => `
+    <div class="reason">
+      <div class="plain">▸ ${esc(r.plain_statement)}${r.term_help ?
+        `<span class="info" onclick="toggleDefine(this)" title="${esc(r.term_help)}">i</span>` : ""}</div>
+      ${r.supporting_stat ? `<div class="stat">${esc(r.supporting_stat)}</div>` : ""}
+      ${r.term_help ? `<div class="define">${esc(r.term_help)}</div>` : ""}
+    </div>`).join("") + "</div>";
+}
+
+function renderInvalidation(items) {
+  if (!items || !items.length) return "";
+  return `<div class="section-label">What would change this</div>
+    <ul class="invalidation">${items.map(i => `<li>${esc(i)}</li>`).join("")}</ul>`;
+}
+
+/* ── Stress test ──────────────────────────────────────────────────────── */
+
+function toggleWorking(cardId, idx) {
+  const el = document.getElementById(cardId + "-w-" + idx);
+  if (el) el.classList.toggle("show");
+}
+
+function renderStress(st, cardId, unavailableReason) {
+  if (!st) {
+    return unavailableReason
+      ? `<div class="section-label">Stress test</div>
+         <div class="unavailable-note">${esc(unavailableReason)}</div>`
+      : "";
+  }
+  const cur = st.current_price;
+  const cols = (st.scenarios || []).map((s, i) => {
+    const isNow = s.label === "No change";
+    return `<div class="scenario${isNow ? " now" : ""}" onclick="toggleWorking('${cardId}', ${i})"
+      title="Click to see the arithmetic behind this number">
+      <div class="s-label">${esc(s.label)}</div>
+      <div class="s-price">$${fmt(s.trigger_price)}</div>
+      <div class="s-pnl ${pctCls(s.pnl_dollars)}">${signedMoney(s.pnl_dollars)}</div>
+      <div class="s-r">${fmt(s.r_multiple, 1)}R · ${signPct(s.pnl_pct)}</div>
+    </div>`;
+  }).join("");
+  const workings = (st.scenarios || []).map((s, i) =>
+    `<div class="working" id="${cardId}-w-${i}">${esc((s.working || []).join("\n"))}</div>`
+  ).join("");
+  const notes = (st.notes || []).map(n =>
+    `<div class="stress-note${/short/i.test(n) && st.direction === "short" ? " short-note" : ""}">${esc(n)}</div>`
+  ).join("");
+  return `<div class="section-label">Stress test — what each level would mean in dollars</div>
+  <div class="stress">
+    ${st.is_hypothetical ? '<span class="hypo" title="No money is in this trade — the numbers show what WOULD happen if it were taken at the suggested size.">Hypothetical — no position open</span>' : ""}
+    <div class="stress-row">${cols}</div>
+    ${workings}
+    <div class="hint">Click any scenario to see the arithmetic. The same formula is used everywhere: price change × shares, then measured against the risk taken at entry.</div>
+    ${st.custom_input_enabled ? `<div class="stress-custom">
+      <label for="${cardId}-custom">Try your own price:</label>
+      <input type="number" step="0.01" id="${cardId}-custom" placeholder="e.g. ${fmt(cur || st.entry_price)}"
+        oninput="customScenario('${cardId}')">
+      <span class="result" id="${cardId}-custom-result"></span>
+    </div>` : ""}
+    ${notes}
+  </div>`;
+}
+
+function customScenario(cardId) {
+  const card = cardIndex[cardId];
+  const input = document.getElementById(cardId + "-custom");
+  const out = document.getElementById(cardId + "-custom-result");
+  if (!card || !card.stress_test || !input || !out) return;
+  const st = card.stress_test;
+  const price = parseFloat(input.value);
+  if (isNaN(price) || price <= 0) { out.textContent = ""; return; }
+  const sign = st.direction === "short" ? -1 : 1;
+  const pnl = (price - st.entry_price) * sign * st.shares;
+  const notional = st.entry_price * st.shares;
+  const pct = notional ? (pnl / notional * 100) : 0;
+  const risk = Math.abs((st.stop_price - st.entry_price) * st.shares);
+  const r = risk > 0 ? pnl / risk : 0;
+  out.innerHTML = `at $${fmt(price)}: <b class="${pctCls(pnl)}">${signedMoney(pnl)}</b>
+    (${signPct(pct)}, ${fmt(r, 1)}R) — ($${fmt(price)} − $${fmt(st.entry_price)})${st.direction === "short" ? " reversed for a short" : ""} × ${st.shares} shares`;
+}
+
+/* ── Detail (collapsed) ──────────────────────────────────────────────── */
+
+function renderDetail(d) {
+  if (!d) return "";
+  const rows = [
+    ["Entry price", d.entry_price != null ? money(d.entry_price) : "—"],
+    ["Shares", d.quantity != null ? d.quantity : "—"],
+    ["Stop (auto exit)", d.stop_price != null ? money(d.stop_price) : "—"],
+    ["Target (take profit)", d.target_price != null ? money(d.target_price) : "—"],
+    ["Unrealized P&L", d.unrealized_pnl != null ? signedMoney(d.unrealized_pnl) + " (" + signPct(d.unrealized_pct) + ")" : "—"],
+    ["R-multiple so far", d.r_multiple != null ? fmt(d.r_multiple) + "R" : "—"],
+    ["Status", d.order_status || "—"],
+    ["Opened", d.entry_time || "—"],
+  ];
+  return `<details class="detail"><summary>Show position details (stop, target, P&L, R-multiple)</summary>
+    <div class="detail-grid">${rows.map(([k, v]) =>
+      `<div><div class="k">${esc(k)}</div><div class="v">${esc(String(v))}</div></div>`).join("")}
+    </div></details>`;
+}
+
+/* ── Whole card ───────────────────────────────────────────────────────── */
+
+function renderCard(card) {
+  const id = "card-" + (cardSeq++);
+  cardIndex[id] = card;
+  const idn = card.identity || {};
+  const degraded = card.data_state === "degraded";
+  const unavailable = card.data_state === "unavailable";
+  return `<div class="card${degraded ? " degraded" : ""}" id="${id}">
+    <div class="card-head" data-tour="identity">
+      <span class="sym">${esc(idn.symbol)}</span>
+      <span class="px">${idn.price != null ? money(idn.price) : "—"}
+        <span class="${pctCls(idn.change_pct)}">${signPct(idn.change_pct)}</span>
+        <span style="color:var(--text-muted);font-size:11px;">${esc(idn.change_label || "")}</span></span>
+      <span class="tag">${esc(idn.tag || "")}</span>
+    </div>
+    ${degraded ? `<div class="degraded-note" style="margin-top:8px;">⚠ ${esc(card.data_state_message)}</div>` : ""}
+    <div class="summary-line" data-tour="summary">${esc(card.summary || "")}</div>
+    ${card.status_plain ? `<div class="status-plain">${esc(card.status_plain)}</div>` : ""}
+    ${unavailable ? `<div class="unavailable-note">${esc(card.data_state_message)}</div>` : `
+      <div data-tour="conditions">${renderConditions(card.conditions)}</div>
+      <div data-tour="reasoning">${renderReasoning(card.reasoning)}</div>
+      ${renderInvalidation(card.invalidation)}`}
+    ${renderStress(card.stress_test, id, card.stress_test_unavailable_reason)}
+    ${renderDetail(card.detail)}
   </div>`;
 }
 
@@ -396,66 +618,36 @@ function renderPositions(rows, stale) {
   const body = document.getElementById("positionsBody");
   document.getElementById("posCount").textContent = rows.length ? `${rows.length} open` : "";
   if (!rows.length) {
-    body.innerHTML = '<div class="empty">No open positions. Cards appear here as the engine takes entries.</div>';
+    body.innerHTML = '<div class="empty">No open positions right now. When the bot takes a trade, ' +
+      'a card appears here explaining what it saw, what would change its mind, and what each ' +
+      'price level would mean in dollars.</div>';
     return;
   }
-  body.innerHTML = rows.map(r => `
-    <div class="card">
-      <div class="card-head">
-        <span class="sym">${esc(r.symbol)}</span>
-        <span class="px">${money(r.current_price)}
-          <span class="${pctCls(r.unrealized_pct)}">${signPct(r.unrealized_pct)}</span></span>
-        ${sentimentChip(r.sentiment)}
-        <span class="chip" style="font-size:10.5px;">${esc(r.strategy || "")}${r.grade ? " · " + esc(r.grade) : ""}</span>
-        ${sourceBadge(r.source, stale)}
-      </div>
-      <div class="riskline">
-        <span>P&amp;L <b class="${pctCls(r.unrealized_pnl)}">${r.unrealized_pnl != null ? money(r.unrealized_pnl) : "—"}</b></span>
-        <span>R <b>${r.r_progress != null ? fmt(r.r_progress) + "R" : "—"}</b></span>
-        <span>stop <b>${money(r.stop_price)}</b> (${fmt(r.distance_to_stop_pct, 1)}% away)</span>
-        <span>target <b>${money(r.target_price)}</b> (${fmt(r.distance_to_target_pct, 1)}% away)</span>
-      </div>
-      ${levelsLine(r.key_levels)}
-      <div class="commentary">${esc(r.commentary)}</div>
-      <div class="action">▸ ${esc(r.action)} <span style="color:var(--text-muted);font-weight:400;">(commentary, not advice)</span></div>
-    </div>`).join("");
+  const cards = rows.filter(r => r.card);
+  if (!cards.length) {
+    body.innerHTML = '<div class="empty">Analysis is being generated — this fills in on the next refresh.</div>';
+    return;
+  }
+  body.innerHTML = cards.map(r => renderCard(r.card)).join("");
 }
 
-/* ── Watchlist panel ──────────────────────────────────────────────────── */
 function renderWatchlist(rows, stale) {
   const body = document.getElementById("watchlistBody");
   document.getElementById("wlCount").textContent = rows.length ? `${rows.length} symbols` : "";
   if (!rows.length) {
-    body.innerHTML = '<div class="empty">No watchlist symbols. Add some on the main dashboard.</div>';
+    body.innerHTML = '<div class="empty">No watchlist symbols yet. Add symbols on the main dashboard ' +
+      'and each one gets a card here showing whether a setup is forming and why.</div>';
     return;
   }
-  body.innerHTML = rows.map(r => {
-    const sig = r.signal;
-    const rej = r.last_rejection;
-    return `
-    <div class="card">
-      <div class="card-head">
-        <span class="sym">${esc(r.symbol)}</span>
-        <span class="px">${money(r.price)} <span class="${pctCls(r.change_pct)}">${signPct(r.change_pct)}</span></span>
-        <span class="status-chip status-${esc(r.status)}">${esc(String(r.status || "").replace("_", " "))}</span>
-        ${sentimentChip(r.sentiment)}
-        ${sourceBadge(r.source, stale)}
-      </div>
-      <div class="meter-row">
-        <div class="meter"><i style="width:${Math.max(2, Math.min(100, r.readiness || 0))}%"></i></div>
-        <span>readiness ${r.readiness != null ? r.readiness : "—"}/100</span>
-      </div>
-      ${sig ? `<div class="riskline"><span>signal <b>${esc(sig.strategy || "")}</b> grade <b>${esc(sig.grade || "?")}</b></span>
-        <span>entry <b>${money(sig.entry)}</b></span><span>stop <b>${money(sig.stop)}</b></span>
-        <span>target <b>${money(sig.target)}</b></span></div>` : ""}
-      ${rej ? `<div class="gate">last scan: rejected at <code>${esc(rej.gate)}</code> — ${esc(rej.detail)}</div>` : ""}
-      ${levelsLine(r.key_levels)}
-      <div class="commentary">${esc(r.commentary)}</div>
-    </div>`;
-  }).join("");
+  const cards = rows.filter(r => r.card);
+  if (!cards.length) {
+    body.innerHTML = '<div class="empty">Analysis is being generated — this fills in on the next refresh.</div>';
+    return;
+  }
+  body.innerHTML = cards.map(r => renderCard(r.card)).join("");
 }
 
-/* ── Header chips, countdown, error banner ────────────────────────────── */
+/* ── Header chips, countdown, banners ────────────────────────────────── */
 function renderHeader(p) {
   const mc = document.getElementById("marketChip");
   mc.className = "chip " + (p.market_open ? "open" : "closed");
@@ -464,25 +656,28 @@ function renderHeader(p) {
 
   const b = p.budget || {};
   document.getElementById("budgetChip").textContent =
-    `AI budget ${b.used != null ? b.used : "—"}/${b.max != null ? b.max : "—"}`;
+    (b.used != null && b.max != null)
+      ? `AI notes: ${b.used} of ${b.max} today`
+      : "AI notes —";
 
   const upd = document.getElementById("updatedChip");
   if (p.generated_at) {
     const d = new Date(p.generated_at);
     upd.textContent = "updated " + d.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})
-      + (p.stale ? " (stale)" : "");
+      + (p.stale ? " (refresh pending)" : "");
   } else {
-    upd.textContent = "no data yet";
+    upd.textContent = "first analysis pending";
   }
 
   nextRefreshAt = p.next_refresh_at ? new Date(p.next_refresh_at) : null;
 
-  const banner = document.getElementById("errorBanner");
-  if (p.last_error) {
-    banner.style.display = "block";
-    banner.textContent = "Last refresh issue (page degrades to template commentary): " + p.last_error;
+  // Plain-language AI state (never a raw provider/API error).
+  const aiBanner = document.getElementById("aiStateBanner");
+  if (p.ai_state === "degraded" && p.ai_state_message) {
+    aiBanner.style.display = "block";
+    aiBanner.textContent = p.ai_state_message;
   } else {
-    banner.style.display = "none";
+    aiBanner.style.display = "none";
   }
 }
 
@@ -492,7 +687,7 @@ function tickCountdown() {
   if (!nextRefreshAt) { el.textContent = "next refresh —"; return; }
   let s = Math.floor((nextRefreshAt - new Date()) / 1000);
   if (s <= 0) {
-    el.textContent = lastPayload && !lastPayload.market_open ? "paused (market closed)" : "refresh due…";
+    el.textContent = lastPayload && !lastPayload.market_open ? "paused until the market opens" : "refresh due…";
     return;
   }
   el.textContent = `next refresh ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
@@ -505,16 +700,21 @@ async function poll() {
     if (!resp.ok) throw new Error("HTTP " + resp.status);
     const p = await resp.json();
     lastPayload = p;
+    cardSeq = 0;
+    for (const k in cardIndex) delete cardIndex[k];
     renderHeader(p);
     renderMarket(p.market, p.stale);
     renderPositions(p.positions || [], p.stale);
     renderWatchlist(p.watchlist || [], p.stale);
+    document.getElementById("errorBanner").style.display = "none";
+    maybeStartTour();
     // While a refresh is running server-side, poll faster to pick it up.
     if (p.refreshing) setTimeout(poll, 5000);
   } catch (e) {
     const banner = document.getElementById("errorBanner");
     banner.style.display = "block";
-    banner.textContent = "Could not load commentary: " + e.message + " — retrying on the next poll.";
+    banner.textContent = "This page couldn't reach the bot just now — it keeps retrying " +
+      "automatically. Anything shown below is from the last successful load.";
   }
 }
 
@@ -527,8 +727,8 @@ async function forceRefresh() {
   try {
     const resp = await fetch("/api/ai/refresh", {method: "POST"});
     if (resp.status === 429) {
-      const err = await resp.json().catch(() => ({}));
-      alert(err.detail || "Daily AI budget exhausted.");
+      alert("Today's AI narration allowance is used up — the analysis below stays " +
+        "accurate (it is computed locally); only the AI-written notes pause until midnight ET.");
       return;
     }
     // Poll until generated_at changes (or give up after ~3 min).
@@ -545,6 +745,90 @@ async function forceRefresh() {
     btn.disabled = false;
     btn.innerHTML = "↻ Refresh now";
   }
+}
+
+/* ── First-run tour (spec 6.2): explains the card pattern once ────────── */
+const TOUR_KEY = "ustb_analyst_tour_v1";
+const TOUR_STEPS = [
+  {
+    sel: '[data-tour="identity"]',
+    title: "Every card reads the same way",
+    text: "The top line is the symbol, its price, and a plain-language tag " +
+          "saying what kind of trade or setup this is. No scores to decode — " +
+          "the rest of the card walks through the reasoning.",
+  },
+  {
+    sel: '[data-tour="summary"]',
+    title: "One sentence tells you the gist",
+    text: "This line stands alone: what's happening and whether anything " +
+          "needs attention. If you read nothing else on the card, read this.",
+  },
+  {
+    sel: '[data-tour="conditions"]',
+    title: "Conditions met",
+    text: "The strategy screens on a fixed set of checks. This bar shows how " +
+          "many are true right now — open it to see each one in plain English.",
+  },
+  {
+    sel: '[data-tour="reasoning"]',
+    title: "The reasoning, step by step",
+    text: "Trend, momentum, volume, structure — the same order an analyst " +
+          "would walk through, each in a plain sentence with the technical " +
+          "number underneath as evidence. Further down, the stress test shows " +
+          "what each price level would mean in dollars, with the arithmetic " +
+          "one click away. That's the whole pattern — every card works like this.",
+  },
+];
+let tourStep = 0;
+let tourEl = null;
+
+function maybeStartTour() {
+  try {
+    if (localStorage.getItem(TOUR_KEY)) return;
+  } catch (e) { return; }
+  // Needs at least one rendered card to anchor to.
+  if (!document.querySelector('[data-tour="identity"]')) return;
+  startTour(false);
+}
+
+function startTour(force) {
+  if (!document.querySelector('[data-tour="identity"]')) {
+    if (force) alert("The guide starts once at least one card is on screen.");
+    return;
+  }
+  tourStep = 0;
+  document.getElementById("tourBackdrop").style.display = "block";
+  document.getElementById("tourBox").style.display = "block";
+  showTourStep();
+}
+
+function showTourStep() {
+  if (tourEl) tourEl.classList.remove("tour-highlight");
+  const step = TOUR_STEPS[tourStep];
+  tourEl = document.querySelector(step.sel);
+  if (tourEl) {
+    tourEl.classList.add("tour-highlight");
+    tourEl.scrollIntoView({behavior: "smooth", block: "center"});
+  }
+  document.getElementById("tourTitle").textContent = step.title;
+  document.getElementById("tourText").textContent = step.text;
+  document.getElementById("tourStep").textContent = (tourStep + 1) + " of " + TOUR_STEPS.length;
+  document.getElementById("tourNextBtn").textContent =
+    tourStep === TOUR_STEPS.length - 1 ? "Done" : "Next";
+}
+
+function tourNext() {
+  if (tourStep >= TOUR_STEPS.length - 1) { endTour(); return; }
+  tourStep++;
+  showTourStep();
+}
+
+function endTour() {
+  if (tourEl) tourEl.classList.remove("tour-highlight");
+  tourEl = null;
+  document.getElementById("tourBackdrop").style.display = "none";
+  document.getElementById("tourBox").style.display = "none";
+  try { localStorage.setItem(TOUR_KEY, "done"); } catch (e) {}
 }
 
 poll();

@@ -738,6 +738,11 @@ class CommentaryEngine:
         self._refreshing = False
         self._last_poll_monotonic: float = 0.0
         self._last_error: Optional[str] = None
+        # Sticky auth-failure flag: a 401/403 from the LLM provider means the
+        # key is bad and every further call this refresh (and the next, until
+        # one succeeds) would fail identically — skip them instead of burning
+        # the daily budget.
+        self._auth_failed: bool = False
         self._last_run_at: Optional[str] = None
         self._payload: Optional[Dict[str, Any]] = self._load()
         # Input-hash short-circuit state: {section: (facts_hash, prose)}
@@ -802,6 +807,8 @@ class CommentaryEngine:
             "last_run_at": self._last_run_at
             or (self._payload or {}).get("generated_at"),
             "last_error": self._last_error,
+            "auth_failed": self._auth_failed,
+            "ai_state": self.ai_state(),
             "budget": self._budget(),
             "has_payload": self._payload is not None,
         }
@@ -846,6 +853,53 @@ class CommentaryEngine:
             return True  # first run may happen off-hours so the page isn't blank
         return is_market_open(self._settings)
 
+    def ai_state(self) -> Dict[str, str]:
+        """Plain-language AI narration state for the UI.
+
+        The dashboard must never show a raw provider/API error (UX spec,
+        content rules): errors say what happened and what it means.  The
+        technical detail stays available via ``status()`` / the logs.
+        """
+        settings = self._settings
+        if not settings.AI_COMMENTARY_ENABLED:
+            return {
+                "state": "off",
+                "message": "AI narration is turned off — showing the "
+                           "bot's rule-based analysis.",
+            }
+        if not settings.OPENROUTER_API_KEY:
+            return {
+                "state": "degraded",
+                "message": "AI narration is not set up (no API key "
+                           "configured) — showing the bot's rule-based "
+                           "analysis. All numbers are computed locally and "
+                           "remain accurate.",
+            }
+        if self._auth_failed:
+            return {
+                "state": "degraded",
+                "message": "AI narration unavailable — the AI provider "
+                           "rejected the configured API key. All numbers "
+                           "are computed locally and remain accurate; only "
+                           "the written narration falls back to templates. "
+                           "Fix: update OPENROUTER_API_KEY.",
+            }
+        if self.budget_exhausted():
+            return {
+                "state": "degraded",
+                "message": "Today's AI narration budget is used up — "
+                           "showing the bot's rule-based analysis until it "
+                           "resets at midnight ET.",
+            }
+        if self._last_error:
+            return {
+                "state": "degraded",
+                "message": "AI narration is temporarily unavailable — "
+                           "showing the bot's rule-based analysis. It "
+                           "retries on the next refresh.",
+            }
+        return {"state": "live", "message": ""}
+
     def payload_for_client(self) -> Dict[str, Any]:
         """The whole payload, annotated with freshness + status for the UI."""
         payload = dict(self._payload or {
@@ -861,6 +915,9 @@ class CommentaryEngine:
         payload["refreshing"] = self._refreshing
         payload["budget"] = self._budget()
         payload["last_error"] = self._last_error
+        ai = self.ai_state()
+        payload["ai_state"] = ai["state"]
+        payload["ai_state_message"] = ai["message"]
         gen = payload.get("generated_at")
         next_at = None
         if gen:
@@ -903,6 +960,9 @@ class CommentaryEngine:
 
         settings = self._settings
         self._last_error = None
+        # Re-probe a previously rejected key once per refresh: the first LLM
+        # call this cycle re-tests it, and a repeat 401 re-flags immediately.
+        self._auth_failed = False
 
         positions = await run_in_threadpool(build_position_facts, settings)
         watchlist = await run_in_threadpool(build_watchlist_facts, settings)
@@ -957,6 +1017,28 @@ class CommentaryEngine:
         market["summary"] = market_summary
         market["source"] = market_source
 
+        # Self-explanatory Analyst cards (UX spec): the fixed card structure
+        # is assembled server-side from the same computed facts, so the UI
+        # renders one contract for both panels.  AI narration failing marks
+        # the affected cards as degraded per-card, not just page-level.
+        from dashboard.analyst_cards import (
+            PLAIN_LANGUAGE,
+            build_position_card,
+            build_watchlist_card,
+        )
+
+        ai_expected = bool(settings.AI_COMMENTARY_ENABLED) and bool(
+            settings.OPENROUTER_API_KEY
+        )
+        for row in positions:
+            degraded = ai_expected and row.get("source") != "llm"
+            row["card"] = build_position_card(row, ai_degraded=degraded)
+        for row in watchlist:
+            degraded = ai_expected and row.get("source") != "llm"
+            row["card"] = build_watchlist_card(
+                row, settings, ai_degraded=degraded
+            )
+
         return {
             "generated_at": datetime.now(tz=ET).isoformat(),
             "market_open": is_market_open(settings),
@@ -964,6 +1046,7 @@ class CommentaryEngine:
             "positions": positions,
             "watchlist": watchlist,
             "market": market,
+            "term_help": {k: v["define"] for k, v in PLAIN_LANGUAGE.items()},
         }
 
     # ------------------------------------------------------------- LLM calls
@@ -999,7 +1082,7 @@ class CommentaryEngine:
             if reused:
                 log.info("commentary.hash_skip", section=section)
                 return reused
-        if not llm_ok or self.budget_exhausted():
+        if not llm_ok or self.budget_exhausted() or self._auth_failed:
             return {}
         content = await self._call_openrouter(prompt)
         if content is None:
@@ -1035,7 +1118,7 @@ class CommentaryEngine:
         ):
             log.info("commentary.hash_skip", section="market")
             return prev_market["summary"], "llm"
-        if llm_ok and not self.budget_exhausted():
+        if llm_ok and not self.budget_exhausted() and not self._auth_failed:
             content = await self._call_openrouter(prompt)
             obj = parse_llm_json(content) if content else None
             summary = str((obj or {}).get("summary", "")).strip()
@@ -1075,9 +1158,21 @@ class CommentaryEngine:
                 )
                 resp.raise_for_status()
                 data = resp.json()
+            self._auth_failed = False
             return (
                 data.get("choices", [{}])[0].get("message", {}).get("content", "")
             ) or None
+        except httpx.HTTPStatusError as exc:  # noqa: PERF203 -- fail-open
+            status = exc.response.status_code
+            if status in (401, 403):
+                # A rejected key fails every call identically — flag it so
+                # the rest of this refresh skips the LLM instead of burning
+                # the daily budget, and the UI can show a plain-language
+                # degraded state (never the raw provider error).
+                self._auth_failed = True
+            self._last_error = f"OpenRouter call failed: HTTP {status}"
+            log.warning("commentary.llm_failed", status=status, error=str(exc))
+            return None
         except Exception as exc:  # noqa: BLE001 -- fail-open
             self._last_error = f"OpenRouter call failed: {exc}"
             log.warning("commentary.llm_failed", error=str(exc))
