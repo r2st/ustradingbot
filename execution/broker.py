@@ -436,7 +436,36 @@ class PaperBroker:
         # several tranches for one symbol).
         self._pending: Dict[str, List[_PendingOrder]] = loaded[1]
         self._order_seq = self._max_order_seq()
+        self._state_sig = self._file_signature()
         self._log = log.bind(component="PaperBroker")
+
+    # ------------------------------------------------- cross-process state
+    #
+    # The dashboard and the engine are separate processes sharing
+    # ``paper_broker.json``.  Before any read or mutation, adopt changes the
+    # other process persisted (mtime+size signature, like RiskManager's
+    # ``sync_positions_from_disk``) so a dashboard-side manual trade or
+    # stop-trade close is never clobbered by the engine's next save.
+
+    def _file_signature(self) -> Optional[tuple[int, int]]:
+        try:
+            st = self._path.stat()
+            return (st.st_mtime_ns, st.st_size)
+        except OSError:
+            return None
+
+    def _maybe_reload(self) -> None:
+        sig = self._file_signature()
+        if sig == self._state_sig:
+            return
+        positions, pending = self._load()
+        self._positions = positions
+        self._pending = pending
+        self._order_seq = max(self._order_seq, self._max_order_seq())
+        self._state_sig = sig
+        self._log.debug(
+            "paper_broker.state_reloaded", open_positions=len(positions)
+        )
 
     # ------------------------------------------------------------- lifecycle
 
@@ -454,9 +483,11 @@ class PaperBroker:
     # ------------------------------------------------------------- positions
 
     def get_positions(self) -> Dict[str, int]:
+        self._maybe_reload()
         return {s: p.quantity for s, p in self._positions.items()}
 
     def get_position_detail(self, symbol: str) -> Optional[Dict[str, Any]]:
+        self._maybe_reload()
         pos = self._positions.get(symbol)
         return pos.to_dict() if pos else None
 
@@ -484,6 +515,7 @@ class PaperBroker:
         one-shot partial profit-taking at ``target_r * risk`` beyond the entry
         in the trade's favourable direction (see :meth:`poll_exits`).
         """
+        self._maybe_reload()
         side = str(side).lower()
         if side not in ("long", "short"):
             return BracketResult(False, reason=f"invalid_side:{side}")
@@ -568,6 +600,7 @@ class PaperBroker:
         buy, downward for a short sale).  The ladder is stored on the position
         and evaluated by :meth:`poll_exits`.
         """
+        self._maybe_reload()
         from execution.levels import ExitLevel, nearest_price
 
         side = str(side).lower()
@@ -641,6 +674,7 @@ class PaperBroker:
         partial_take_target_r: float = 0.0,
     ) -> BracketResult:
         """Rest a limit entry that fills on a dip to *limit_price* and expires."""
+        self._maybe_reload()
         if quantity <= 0:
             return BracketResult(False, reason="zero_quantity")
         self._order_seq += 1
@@ -684,6 +718,7 @@ class PaperBroker:
         partial_take_target_r: float = 0.0,
     ) -> List[BracketResult]:
         """Rest each ``(limit_price, qty)`` tranche as a separate limit order."""
+        self._maybe_reload()
         results: List[BracketResult] = []
         for price, qty in tranches:
             res = self.place_limit_order(
@@ -715,6 +750,7 @@ class PaperBroker:
         partial_take_target_r: float = 0.0,
     ) -> BracketResult:
         """Rest a market-on-close entry (fills at the next pending sweep)."""
+        self._maybe_reload()
         if quantity <= 0:
             return BracketResult(False, reason="zero_quantity")
         self._order_seq += 1
@@ -748,6 +784,7 @@ class PaperBroker:
         limit; an MOC order fills at the latest price.  Filled orders open (or
         average into) a position; expired orders are dropped.
         """
+        self._maybe_reload()
         fills: List[PendingFill] = []
         now = datetime.now()
         changed = False
@@ -854,6 +891,7 @@ class PaperBroker:
 
     def get_pending_orders(self) -> Dict[str, List[Dict[str, Any]]]:
         """Return a serialisable view of resting entry orders (for inspection)."""
+        self._maybe_reload()
         return {s: [o.to_dict() for o in orders] for s, orders in self._pending.items()}
 
     # ---------------------------------------------------------- poll exits
@@ -865,6 +903,7 @@ class PaperBroker:
         *not* close the position — it trims the share count and lets the
         remainder run — so the symbol survives into later sweeps.
         """
+        self._maybe_reload()
         events: List[ExitEvent] = []
         for symbol in list(self._positions.keys()):
             pos = self._positions[symbol]
@@ -1072,6 +1111,7 @@ class PaperBroker:
 
     def force_close(self, symbol: str, reason: ExitReason) -> Optional[ExitEvent]:
         """Close *symbol* at the current market price (used by exit manager)."""
+        self._maybe_reload()
         pos = self._positions.get(symbol)
         if pos is None:
             return None
@@ -1087,6 +1127,7 @@ class PaperBroker:
         A long stop only ever moves UP; a short's buy-stop only ever moves
         DOWN.  Either way protection never loosens.
         """
+        self._maybe_reload()
         pos = self._positions.get(symbol)
         if pos is None:
             return False
@@ -1156,6 +1197,9 @@ class PaperBroker:
                 with os.fdopen(fd, "w", encoding="utf-8") as f:
                     json.dump(payload, f, indent=2, default=str)
                 os.replace(tmp, str(self._path))
+                # Our own write is not a foreign change — adopt its signature
+                # so the next _maybe_reload keeps the in-memory state.
+                self._state_sig = self._file_signature()
             except BaseException:
                 try:
                     os.unlink(tmp)

@@ -1024,6 +1024,7 @@ from dashboard.alerts_router import router as _alerts_router  # noqa: E402
 from dashboard.rationale_router import router as _rationale_router  # noqa: E402
 from dashboard.ai_router import router as _ai_router  # noqa: E402
 from dashboard.ta_router import router as _ta_router  # noqa: E402
+from dashboard.positions_router import router as _positions_router  # noqa: E402
 
 for _r in (
     _watchlist_router,
@@ -1042,5 +1043,6 @@ for _r in (
     _rationale_router,
     _ai_router,
     _ta_router,
+    _positions_router,
 ):
     app.include_router(_r)

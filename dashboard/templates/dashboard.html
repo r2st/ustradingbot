@@ -1025,7 +1025,10 @@
             <td style="white-space:nowrap;"><button type="button" class="chip" style="cursor:pointer;"
                         onclick="showRationale('{{ pos.symbol }}','')">Why?</button>
                 <button type="button" class="chip" style="cursor:pointer;"
-                        onclick="showTAChart('{{ pos.symbol }}','')">TA Chart</button></td>
+                        onclick="showTAChart('{{ pos.symbol }}','')">TA Chart</button>
+                <button type="button" class="chip" style="cursor:pointer;color:var(--red,#e74c3c);"
+                        title="Close this position at market now (admin password required)"
+                        onclick="stopTrade('{{ pos.symbol }}')">Stop</button></td>
           </tr>
           {% endfor %}
         </tbody>
@@ -2991,7 +2994,10 @@
         '<td style="white-space:nowrap;"><button type="button" class="chip" style="cursor:pointer;" onclick="showRationale(\'' +
           esc(pos.symbol) + "','')\">Why?</button> " +
         '<button type="button" class="chip" style="cursor:pointer;" onclick="showTAChart(\'' +
-          esc(pos.symbol) + "','')\">TA Chart</button></td></tr>";
+          esc(pos.symbol) + "','')\">TA Chart</button> " +
+        '<button type="button" class="chip" style="cursor:pointer;color:var(--red,#e74c3c);" ' +
+          'title="Close this position at market now (admin password required)" onclick="stopTrade(\'' +
+          esc(pos.symbol) + "')\">Stop</button></td></tr>";
     }).join("");
     return '<div style="overflow-x:auto;"><table class="score-table"><thead><tr>' +
       "<th>Symbol</th><th>Strategy</th><th>Grade</th>" +
@@ -3064,6 +3070,22 @@
   }
 
   var _lastPaperData = null;
+
+  // ── Stop trade (update 2): close one live position at market ──
+  async function stopTrade(sym) {
+    if (!confirm("Stop this trade? " + sym + " will be closed at the current "
+        + "market price and the engine will stop managing it.")) return;
+    var pw = prompt("Admin password:");
+    if (pw === null) return;
+    try {
+      var d = await jsend("POST", "/api/positions/stop",
+        { symbol: sym, admin_password: pw });
+      alert(d.message || (d.ok ? "Position closed." : "Could not close the position."));
+      if (d.ok) { _paperSnapshot = null; refreshPaperAccount(); }
+    } catch (e) {
+      alert((e && e.detail) ? e.detail : String(e));
+    }
+  }
 
   async function refreshPaperAccount() {
     try {
@@ -3296,7 +3318,17 @@
   var _selSymbols = [];
   var _SEL_STRATEGY_LABELS = {
     vcp_breakout: "VCP Breakout", momentum: "Momentum", swing: "Swing",
-    mean_reversion: "Mean Reversion", pead: "PEAD (earnings drift)"
+    mean_reversion: "Mean Reversion", pead: "PEAD (earnings drift)",
+    short_gap_fail: "Short: Gap Fail",
+    short_earnings_pop_fade: "Short: Earnings Pop Fade",
+    short_support_breakdown: "Short: Support Breakdown",
+    short_bear_flag: "Short: Bear Flag",
+    short_buying_climax: "Short: Buying Climax",
+    short_overbought_fade: "Short: Overbought Fade",
+    short_vwap_rejection: "Short: VWAP Rejection",
+    short_ma_crossunder: "Short: MA Crossunder",
+    short_relative_weakness: "Short: Relative Weakness",
+    short_laggard_fade: "Short: Laggard Fade"
   };
   function _selEnabledText() {
     var on = document.getElementById("selEnabled").checked;
