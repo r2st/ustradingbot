@@ -237,9 +237,22 @@ def get_watchlist_store(data_dir: str | Path) -> WatchlistStore:
 def scan_symbols_for(settings) -> List[str]:
     """Return the symbols the engine should scan for *settings*.
 
-    Falls back to the hard-coded universe when the watchlist file feature is
-    disabled or the resolved list would be empty.
+    When the universe database exists and tiered scanning is enabled, returns
+    the Tier 1 watchlist from the database.  Otherwise falls back to the
+    JSON watchlist file, then to the hard-coded universe.
     """
+    # Try universe DB first (Full Stock Universe feature).
+    try:
+        from data_store.universe import db_exists, get_universe_db
+
+        if db_exists(settings.DATA_DIR):
+            db = get_universe_db(settings.DATA_DIR)
+            tier1 = db.get_tier1_symbols()
+            if tier1:
+                return tier1
+    except Exception:  # noqa: BLE001 -- never break the scan on DB issues
+        pass
+
     if not getattr(settings, "USE_WATCHLIST_FILE", True):
         return list(ALL_SYMBOLS)
     try:

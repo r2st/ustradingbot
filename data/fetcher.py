@@ -264,3 +264,164 @@ def fetch_multiple(
         failed=len(symbols) - len(results),
     )
     return results
+
+
+# ---------------------------------------------------------------------------
+# Batch OHLCV download (Full Stock Universe optimisation)
+# ---------------------------------------------------------------------------
+
+
+def fetch_batch_ohlcv(
+    symbols: List[str],
+    period: str = "2y",
+    batch_size: int = 50,
+    delay_between_batches: float = 1.0,
+) -> Dict[str, pd.DataFrame]:
+    """Download OHLCV data for many symbols using yfinance batch download.
+
+    Partitions *symbols* into batches of *batch_size* and calls
+    ``yf.download()`` (or the provider equivalent) with the whole batch at
+    once.  This is dramatically more efficient than per-symbol requests when
+    scanning thousands of tickers — the Full Stock Universe expansion can
+    fetch 7,000 symbols in ~140 batch calls instead of 7,000 serial ones.
+
+    Results are stored in the module cache so subsequent per-symbol calls
+    (e.g. from :func:`fetch_ohlcv`) get a cache hit.
+
+    Args:
+        symbols: Tickers to download (duplicates ignored).
+        period: Look-back window (yfinance semantics, e.g. ``"2y"``).
+        batch_size: Max symbols per ``yf.download()`` call.
+        delay_between_batches: Seconds to wait between batch calls to
+            avoid rate-limiting (adaptive: doubles on empty results).
+
+    Returns:
+        Dict mapping each successfully fetched symbol to its DataFrame.
+    """
+    import math
+
+    settings = get_settings()
+    unique = list(dict.fromkeys(symbols))  # deduplicate, preserve order
+    results: Dict[str, pd.DataFrame] = {}
+
+    # Check cache first and build the uncached list.
+    uncached: List[str] = []
+    for sym in unique:
+        key = ("ohlcv", sym, period)
+        if settings.DATA_CACHE_ENABLED:
+            cached = _cache.get(key)
+            if cached is not _MISS:
+                results[sym] = cached  # type: ignore[assignment]
+                continue
+        uncached.append(sym)
+
+    if not uncached:
+        logger.debug("fetch_batch_ohlcv.all_cached", count=len(results))
+        return results
+
+    n_batches = math.ceil(len(uncached) / batch_size)
+    logger.info(
+        "fetch_batch_ohlcv.start",
+        total=len(uncached),
+        batch_size=batch_size,
+        n_batches=n_batches,
+    )
+
+    current_delay = delay_between_batches
+    empty_streak = 0
+
+    for i in range(0, len(uncached), batch_size):
+        batch = uncached[i: i + batch_size]
+        batch_results = _download_batch(batch, period)
+
+        if not batch_results:
+            empty_streak += 1
+            if empty_streak >= 3:
+                # Adaptive backoff: triple the delay after 3 consecutive empties.
+                current_delay = min(current_delay * 3, 30.0)
+                logger.warning(
+                    "fetch_batch_ohlcv.adaptive_backoff",
+                    delay=current_delay,
+                    empty_streak=empty_streak,
+                )
+        else:
+            empty_streak = 0
+            current_delay = delay_between_batches
+
+        for sym, df in batch_results.items():
+            results[sym] = df
+            if settings.DATA_CACHE_ENABLED:
+                _cache.set(("ohlcv", sym, period), df, settings.OHLCV_CACHE_TTL_SECONDS)
+
+        # Rate-limit between batches.
+        if i + batch_size < len(uncached):
+            time.sleep(current_delay)
+
+    logger.info(
+        "fetch_batch_ohlcv.complete",
+        requested=len(uncached),
+        succeeded=len(results) - (len(unique) - len(uncached)),
+        cached=len(unique) - len(uncached),
+    )
+    return results
+
+
+def _download_batch(symbols: List[str], period: str) -> Dict[str, pd.DataFrame]:
+    """Download OHLCV for a batch of symbols using yf.download().
+
+    Returns a dict of symbol -> DataFrame.  Empty on any error.
+    """
+    try:
+        import yfinance as yf
+
+        data = yf.download(
+            tickers=symbols,
+            period=period,
+            group_by="ticker",
+            threads=True,
+            progress=False,
+        )
+        if data is None or data.empty:
+            return {}
+
+        results: Dict[str, pd.DataFrame] = {}
+        if len(symbols) == 1:
+            # Single symbol: yf.download returns a flat DataFrame.
+            sym = symbols[0]
+            df = data.copy()
+            if not df.empty and len(df) > 0:
+                # Normalise column names — multi-level columns from yf.download
+                if isinstance(df.columns, pd.MultiIndex):
+                    df.columns = df.columns.droplevel(0)
+                df = df.rename(columns=str.title)
+                needed = {"Open", "High", "Low", "Close", "Volume"}
+                if needed.issubset(set(df.columns)):
+                    results[sym] = df[list(needed)]
+        else:
+            # Multiple symbols: data has MultiIndex columns (ticker, field).
+            for sym in symbols:
+                try:
+                    if sym in data.columns.get_level_values(0):
+                        df = data[sym].copy()
+                    else:
+                        # Try case-insensitive match.
+                        found = [
+                            c for c in data.columns.get_level_values(0).unique()
+                            if str(c).upper() == sym.upper()
+                        ]
+                        if not found:
+                            continue
+                        df = data[found[0]].copy()
+                    df = df.dropna(how="all")
+                    if df.empty:
+                        continue
+                    df = df.rename(columns=str.title)
+                    needed = {"Open", "High", "Low", "Close", "Volume"}
+                    if needed.issubset(set(df.columns)):
+                        results[sym] = df[list(needed)]
+                except Exception:  # noqa: BLE001
+                    continue
+        return results
+    except Exception:
+        logger.exception("_download_batch.error", symbols=len(symbols))
+        return {}

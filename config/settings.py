@@ -482,6 +482,26 @@ class Settings(BaseSettings):
     # unchanged until the user edits their lists from the dashboard.
     USE_WATCHLIST_FILE: bool = True
 
+    # ── Tiered scanning (Full Stock Universe) ──────────────────────────────
+    # When the universe database exists (data_store/universe.db), the engine
+    # uses a three-tier scanning architecture to cover thousands of symbols
+    # efficiently.  Tier 1 (active watchlist) runs every cycle; Tier 2 rotates
+    # through sectors; Tier 3 sweeps the full universe daily.
+    TIERED_SCANNING_ENABLED: bool = True
+    # Tier 1: user's active watchlist — scanned every cycle.
+    TIER1_WORKERS: int = 4
+    # Tier 2: sector rotation — 1-2 sectors per cycle, rotated through all.
+    TIER2_ENABLED: bool = True
+    TIER2_WORKERS: int = 8
+    TIER2_INTERVAL_MINUTES: int = 30
+    # Tier 3: full universe sweep — once daily (lightweight pre-screen).
+    TIER3_ENABLED: bool = True
+    TIER3_WORKERS: int = 16
+    TIER3_PRESCREEN_PRICE_CHANGE_PCT: float = 0.03  # 3% daily move
+    TIER3_PRESCREEN_VOLUME_RATIO: float = 2.0       # 2x avg volume
+    # Batch data fetching for large symbol sets.
+    BATCH_DOWNLOAD_SIZE: int = 50
+
     # ── News sentiment filter (Finnhub) ─────────────────────────────────────
     # A free-tier Finnhub key (https://finnhub.io) fetches recent company news;
     # the built-in headline scorer rejects an entry when the average sentiment

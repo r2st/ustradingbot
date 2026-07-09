@@ -44,7 +44,7 @@ from execution.exit_manager import ExitManager
 from journal.btst_logger import RejectedSignalLogger
 from journal.trade_logger import TradeLogger
 from risk.manager import RiskManager
-from signals.screener import run_full_scan
+from signals.screener import run_full_scan, run_sector_scan, run_prescreen
 from signals.signal_types import Signal, TradeOrder
 
 log = structlog.get_logger(__name__)
@@ -162,6 +162,13 @@ class TradingEngine:
         # SIGTERM (e.g. a dashboard-triggered `systemctl stop/restart`) is
         # honoured within a second instead of waiting out a 60-minute sleep.
         self._stop_event: asyncio.Event | None = None
+
+        # ── Tiered scanning state ────────────────────────────────────────
+        # Sector rotation index for Tier 2 scanning; cycles through all
+        # GICS sectors across successive scan cycles.
+        self._sector_rotation_idx: int = 0
+        self._last_tier2_time: datetime | None = None
+        self._last_tier3_date: str | None = None
 
         log.info(
             "engine.init",
@@ -479,7 +486,14 @@ class TradingEngine:
             scan_symbols,
             min_grade=selection.effective_min_grade("B"),
             allowed_strategies=selection.allowed_strategies(),
+            max_workers=self.settings.TIER1_WORKERS,
         )
+
+        # Step 6a: Tiered scanning (Tier 2 sector rotation + Tier 3 full
+        # universe sweep) when the universe database is available.
+        tiered_signals = self._run_tiered_scans(selection)
+        if tiered_signals:
+            signals.extend(tiered_signals)
 
         # Step 6b: Short-side scan (short_strategies module).  Short signals
         # join the same list and flow through the identical entry pipeline —
@@ -565,6 +579,122 @@ class TradingEngine:
             min_grade=selection.effective_min_grade("B"),
             allowed_strategies=allowed,
             open_positions=self.risk_manager.get_open_positions(),
+        )
+
+    # ------------------------------------------------------------------
+    # Tiered scanning (Full Stock Universe)
+    # ------------------------------------------------------------------
+
+    def _run_tiered_scans(self, selection) -> List[Signal]:
+        """Run Tier 2 (sector rotation) and Tier 3 (full universe sweep).
+
+        Only runs when the universe database is available and tiered scanning
+        is enabled in settings.  Best-effort: failures never break the scan.
+        """
+        if not self.settings.TIERED_SCANNING_ENABLED:
+            return []
+        try:
+            from data_store.universe import db_exists
+
+            if not db_exists(self.settings.DATA_DIR):
+                return []
+        except Exception:  # noqa: BLE001
+            return []
+
+        signals: List[Signal] = []
+
+        # ── Tier 2: Sector rotation ──────────────────────────────────────
+        if self.settings.TIER2_ENABLED:
+            try:
+                signals.extend(self._run_tier2_scan(selection))
+            except Exception:
+                log.exception("engine.tier2_scan_error")
+
+        # ── Tier 3: Full universe sweep (once daily) ─────────────────────
+        if self.settings.TIER3_ENABLED:
+            try:
+                signals.extend(self._run_tier3_scan(selection))
+            except Exception:
+                log.exception("engine.tier3_scan_error")
+
+        return signals
+
+    def _run_tier2_scan(self, selection) -> List[Signal]:
+        """Tier 2: scan 1-2 sectors per cycle, rotating through all sectors."""
+        now = datetime.now(tz=ET)
+
+        # Throttle: only run every TIER2_INTERVAL_MINUTES.
+        if self._last_tier2_time is not None:
+            elapsed = (now - self._last_tier2_time).total_seconds() / 60.0
+            if elapsed < self.settings.TIER2_INTERVAL_MINUTES:
+                return []
+
+        from config.universe import get_all_sectors
+
+        all_sectors = get_all_sectors()
+        if not all_sectors:
+            return []
+
+        sector_names = [s["sector"] for s in all_sectors if s.get("sector")]
+        if not sector_names:
+            return []
+
+        # Pick 1-2 sectors to scan this cycle.
+        idx = self._sector_rotation_idx % len(sector_names)
+        sectors_to_scan = sector_names[idx: idx + 2]
+        self._sector_rotation_idx = (idx + 2) % len(sector_names)
+        self._last_tier2_time = now
+
+        signals: List[Signal] = []
+        for sector in sectors_to_scan:
+            log.info("engine.tier2_scan", sector=sector)
+            sector_signals = run_sector_scan(
+                sector,
+                min_grade=selection.effective_min_grade("B"),
+                allowed_strategies=selection.allowed_strategies(),
+                max_workers=self.settings.TIER2_WORKERS,
+            )
+            signals.extend(sector_signals)
+
+        if signals:
+            log.info(
+                "engine.tier2_complete",
+                sectors=sectors_to_scan,
+                signals=len(signals),
+            )
+        return signals
+
+    def _run_tier3_scan(self, selection) -> List[Signal]:
+        """Tier 3: full universe pre-screen sweep, once per day."""
+        today = datetime.now(tz=ET).strftime("%Y-%m-%d")
+        if self._last_tier3_date == today:
+            return []
+
+        from config.universe import get_tier3_symbols
+
+        all_symbols = get_tier3_symbols()
+        if not all_symbols or len(all_symbols) <= len(self.settings.CAPITAL_BY_CURRENCY):
+            return []
+
+        log.info("engine.tier3_prescreen_start", total=len(all_symbols))
+        qualifying = run_prescreen(
+            all_symbols,
+            price_change_pct=self.settings.TIER3_PRESCREEN_PRICE_CHANGE_PCT,
+            volume_ratio=self.settings.TIER3_PRESCREEN_VOLUME_RATIO,
+            max_workers=self.settings.TIER3_WORKERS,
+        )
+        self._last_tier3_date = today
+
+        if not qualifying:
+            log.info("engine.tier3_prescreen_none")
+            return []
+
+        log.info("engine.tier3_full_scan", qualifying=len(qualifying))
+        return run_full_scan(
+            qualifying,
+            min_grade=selection.effective_min_grade("B"),
+            allowed_strategies=selection.allowed_strategies(),
+            max_workers=self.settings.TIER2_WORKERS,
         )
 
     # ------------------------------------------------------------------

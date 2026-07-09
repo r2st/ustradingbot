@@ -59,7 +59,11 @@ service-account*.json
 node_modules/
 
 # ── Project-specific ─────────────────────────────────────────────────────────
-data_store/
+data_store/*.db
+data_store/*.jsonl
+data_store/*.json
+data_store/*.csv
+data_store/__pycache__/
 /*.csv
 open_positions.json
 rejected.jsonl

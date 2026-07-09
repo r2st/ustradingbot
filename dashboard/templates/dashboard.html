@@ -741,6 +741,73 @@
     .form-field { flex: 1 1 100%; }
     .mt-ladders { grid-template-columns: 1fr; }
   }
+
+  /* ── Universe Browser ────────────────────────────────────────────── */
+  .icon-universe { background: #1a4a3a; color: #2ecc71; }
+  .uni-stats-bar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+  .uni-stat { background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 14px; display: flex; flex-direction: column; min-width: 100px; }
+  .uni-stat .label { font-size: 11px; color: var(--text-muted); text-transform: uppercase;
+    letter-spacing: 0.4px; }
+  .uni-stat .value { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .uni-search-row { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
+  .uni-search-row input[type="text"] {
+    flex: 1; padding: 9px 12px; background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px; font-size: 14px; min-height: 40px;
+  }
+  .uni-filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end;
+    margin-bottom: 14px; padding: 12px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; }
+  .uni-filters .form-field { flex: 1 1 130px; min-width: 100px; }
+  .uni-filters .form-field input[type="number"] {
+    width: 100%; padding: 7px 8px; background: var(--surface); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; font-size: 13px; min-height: 36px; }
+  .uni-filters select {
+    width: 100%; padding: 7px 8px; background: var(--surface); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; font-size: 13px; min-height: 36px; }
+  .uni-bulk-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+    padding: 10px 14px; background: var(--accent-dim); border-radius: 8px;
+    margin-bottom: 12px; font-size: 13px; }
+  .uni-bulk-bar select { padding: 6px 8px; background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; font-size: 13px; }
+  .uni-pagination { display: flex; gap: 10px; align-items: center; margin-top: 12px; }
+  .uni-pagination .btn-secondary { min-width: 80px; }
+  .uni-wl-panel { margin-top: 20px; border-top: 1px solid var(--border); padding-top: 16px; }
+  .uni-wl-item { display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 12px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; margin-bottom: 6px; font-size: 13px; }
+  .uni-wl-item .wl-name { font-weight: 600; }
+  .uni-wl-item .wl-count { color: var(--text-muted); margin-left: 6px; }
+  .uni-wl-controls { display: flex; gap: 6px; align-items: center; }
+  .uni-toggle { position: relative; display: inline-block; width: 38px; height: 20px; }
+  .uni-toggle input { opacity: 0; width: 0; height: 0; }
+  .uni-toggle .slider { position: absolute; cursor: pointer; inset: 0;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 20px;
+    transition: background 0.2s; }
+  .uni-toggle .slider::before { content: ""; position: absolute; height: 14px; width: 14px;
+    left: 2px; bottom: 2px; background: var(--text-muted); border-radius: 50%;
+    transition: transform 0.2s, background 0.2s; }
+  .uni-toggle input:checked + .slider { background: var(--green-dim); border-color: var(--green); }
+  .uni-toggle input:checked + .slider::before { transform: translateX(18px); background: var(--green); }
+  .uni-tier-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  .uni-tier { background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px 12px; font-size: 12px; }
+  .uni-tier strong { color: var(--accent); }
+  .uni-templates { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .uni-seed-progress { margin-top: 8px; font-size: 13px; }
+  .uni-seed-progress .bar-track { height: 8px; background: var(--surface-2); border-radius: 4px;
+    overflow: hidden; margin-top: 4px; }
+  .uni-seed-progress .bar-fill { height: 100%; background: var(--green); border-radius: 4px;
+    transition: width 0.3s; }
+  .uni-not-init { text-align: center; padding: 40px 20px; }
+  .uni-not-init h3 { margin-bottom: 10px; color: var(--text-muted); }
+  @media (max-width: 600px) {
+    .uni-stats-bar { gap: 6px; }
+    .uni-stat { min-width: 80px; padding: 8px 10px; }
+    .uni-stat .value { font-size: 15px; }
+    .uni-filters .form-field { flex: 1 1 100%; }
+    .uni-bulk-bar { flex-direction: column; align-items: stretch; }
+  }
 </style>
 </head>
 <body>
@@ -775,6 +842,7 @@
     <a href="#nav-provider" onclick="closeNav()">Data</a>
     <a href="#nav-account" onclick="closeNav()">Account</a>
     <a href="#nav-watchlist" onclick="closeNav()">Watchlist</a>
+    <a href="#nav-universe" onclick="closeNav()">Universe</a>
     <a href="#nav-trade" onclick="closeNav()">Trade</a>
     <a href="#nav-scanner" onclick="closeNav()">Scanner</a>
     <a href="#nav-earnings" onclick="closeNav()">Earnings</a>
@@ -1999,6 +2067,200 @@
           <th class="num">Day %</th><th>Status</th><th>Detail</th></tr></thead>
         <tbody id="wlMonRows"><tr><td colspan="6" class="empty-note">Loading…</td></tr></tbody>
       </table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ UNIVERSE BROWSER ═══════════════════ -->
+<div class="section" id="nav-universe">
+  <div class="section-header">
+    <div class="section-icon icon-universe">U</div>
+    <h2>Universe Browser</h2>
+  </div>
+  <div class="section-body">
+    <!-- Not-initialized fallback (shown when universe unavailable) -->
+    <div id="uniNotInit" style="display:none;">
+      <div class="uni-not-init">
+        <h3>Universe not initialized</h3>
+        <p class="muted-note" style="margin-bottom:14px;">The symbol universe database has not been
+          built yet. Seed it to populate the full list of tradable stocks and ETFs.</p>
+        <button type="button" class="btn-primary" onclick="seedUniverse()">Seed Now</button>
+        <div id="uniSeedResultInit" class="modal-result" style="margin-top:8px;"></div>
+        <div id="uniSeedProgressInit" class="uni-seed-progress" style="display:none;">
+          <span id="uniSeedStatusInit">Seeding...</span>
+          <div class="bar-track"><div class="bar-fill" id="uniSeedBarInit" style="width:0%;"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main universe content (shown when universe is available) -->
+    <div id="uniMain" style="display:none;">
+      <!-- Stats bar -->
+      <div class="uni-stats-bar" id="uniStatsBar">
+        <div class="uni-stat"><span class="label">Total Symbols</span><span class="value" id="uniStatTotal">--</span></div>
+        <div class="uni-stat"><span class="label">Active</span><span class="value" id="uniStatActive">--</span></div>
+        <div class="uni-stat"><span class="label">NYSE</span><span class="value" id="uniStatNYSE">--</span></div>
+        <div class="uni-stat"><span class="label">NASDAQ</span><span class="value" id="uniStatNASDAQ">--</span></div>
+        <div class="uni-stat"><span class="label">AMEX</span><span class="value" id="uniStatAMEX">--</span></div>
+        <div class="uni-stat"><span class="label">TSX</span><span class="value" id="uniStatTSX">--</span></div>
+        <div class="uni-stat"><span class="label">Last Updated</span><span class="value small" id="uniStatUpdated" style="font-size:13px;">--</span></div>
+      </div>
+
+      <!-- Search bar -->
+      <div class="uni-search-row">
+        <input type="text" id="uniSearchInput" placeholder="Search by ticker or company name..."
+               autocomplete="off" oninput="uniDebouncedSearch()">
+        <button type="button" class="btn-secondary" onclick="uniClearSearch()">Clear</button>
+      </div>
+
+      <!-- Filters row -->
+      <div class="uni-filters">
+        <div class="form-field">
+          <label>Exchange</label>
+          <select id="uniFilterExchange" onchange="uniApplyFilters()">
+            <option value="">All</option>
+            <option value="NYSE">NYSE</option>
+            <option value="NASDAQ">NASDAQ</option>
+            <option value="AMEX">AMEX</option>
+            <option value="TSX">TSX</option>
+            <option value="TSX-V">TSX-V</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label>Sector</label>
+          <select id="uniFilterSector" onchange="uniApplyFilters()">
+            <option value="">All</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label>Asset Type</label>
+          <select id="uniFilterAssetType" onchange="uniApplyFilters()">
+            <option value="">All</option>
+            <option value="stock">Stocks</option>
+            <option value="etf">ETFs</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label>Min Price ($)</label>
+          <input type="number" id="uniFilterMinPrice" min="0" step="0.01"
+                 placeholder="0" onchange="uniApplyFilters()">
+        </div>
+        <div class="form-field">
+          <label>Min Volume</label>
+          <input type="number" id="uniFilterMinVolume" min="0" step="1000"
+                 placeholder="0" onchange="uniApplyFilters()">
+        </div>
+        <div class="form-field">
+          <label>Min Mkt Cap ($)</label>
+          <input type="number" id="uniFilterMinMktCap" min="0" step="1000000"
+                 placeholder="0" onchange="uniApplyFilters()">
+        </div>
+      </div>
+
+      <!-- Bulk actions bar (shown when checkboxes are selected) -->
+      <div class="uni-bulk-bar" id="uniBulkBar" style="display:none;">
+        <span id="uniBulkCount">0 selected</span>
+        <span>Add to watchlist:</span>
+        <select id="uniBulkWatchlist"></select>
+        <button type="button" class="btn-primary btn-sm" onclick="uniBulkAddToWatchlist()">Add</button>
+        <button type="button" class="btn-secondary btn-sm" onclick="uniSelectAllPage()">Select All on Page</button>
+        <button type="button" class="btn-secondary btn-sm" onclick="uniDeselectAll()">Deselect All</button>
+        <div id="uniBulkResult" class="modal-result" style="margin:0;"></div>
+      </div>
+
+      <!-- Symbols table -->
+      <div class="table-wrap">
+        <table class="data-table" id="uniTable">
+          <thead>
+            <tr>
+              <th style="width:30px;"><input type="checkbox" id="uniCheckAll"
+                   onchange="uniToggleAllPage(this.checked)"></th>
+              <th style="cursor:pointer;" onclick="uniSortBy('ticker')">Ticker</th>
+              <th style="cursor:pointer;" onclick="uniSortBy('name')">Name</th>
+              <th style="cursor:pointer;" onclick="uniSortBy('exchange')">Exchange</th>
+              <th style="cursor:pointer;" onclick="uniSortBy('sector')">Sector</th>
+              <th>Type</th>
+              <th class="num" style="cursor:pointer;" onclick="uniSortBy('market_cap')">Market Cap</th>
+              <th class="num" style="cursor:pointer;" onclick="uniSortBy('avg_volume')">Avg Volume</th>
+              <th class="num" style="cursor:pointer;" onclick="uniSortBy('last_price')">Last Price</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="uniTableBody">
+            <tr><td colspan="10" class="empty-note">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Pagination -->
+      <div class="uni-pagination">
+        <button type="button" class="btn-secondary" onclick="uniPageNav(-1)">Previous</button>
+        <span id="uniPageInfo" class="bt-hint">--</span>
+        <button type="button" class="btn-secondary" onclick="uniPageNav(1)">Next</button>
+      </div>
+
+      <!-- Scan tier indicator -->
+      <div class="uni-tier-bar" id="uniTierBar">
+        <div class="uni-tier"><strong>Tier 1</strong> (Watchlist): <span id="uniTier1">--</span> symbols</div>
+        <div class="uni-tier"><strong>Tier 2</strong> (Sector rotation): <span id="uniTier2">--</span> sectors</div>
+        <div class="uni-tier"><strong>Tier 3</strong> (Full universe): <span id="uniTier3">--</span> symbols</div>
+      </div>
+
+      <!-- Watchlist management panel -->
+      <div class="uni-wl-panel">
+        <h4>Watchlist Management
+          <button type="button" class="btn-secondary btn-sm" style="margin-left:10px;"
+                  onclick="uniShowCreateWatchlist()">Create New Watchlist</button>
+        </h4>
+        <div id="uniCreateWlForm" style="display:none;margin:10px 0;">
+          <div class="form-row">
+            <div class="form-field"><label>Watchlist name</label>
+              <input type="text" id="uniNewWlName" placeholder="e.g. My Picks" autocomplete="off"></div>
+            <button type="button" class="btn-primary btn-sm" onclick="uniCreateWatchlist()">Create</button>
+            <button type="button" class="btn-secondary btn-sm"
+                    onclick="document.getElementById('uniCreateWlForm').style.display='none'">Cancel</button>
+          </div>
+          <div id="uniCreateWlResult" class="modal-result"></div>
+        </div>
+        <p class="muted-note" style="margin:6px 0 10px;">Manage which watchlists the engine scans.
+          Use the quick-add templates to seed watchlists with common groupings.</p>
+        <div id="uniWatchlists"><div class="empty-note">Loading...</div></div>
+
+        <!-- Quick-add templates -->
+        <h4 style="margin-top:14px;">Quick-Add Templates</h4>
+        <p class="muted-note">Populate a watchlist from a pre-defined set of symbols.</p>
+        <div class="uni-templates">
+          <button type="button" class="btn-secondary btn-sm"
+                  onclick="uniAddTemplate('sp500_large_cap')">S&amp;P 500 Large Cap</button>
+          <button type="button" class="btn-secondary btn-sm"
+                  onclick="uniAddTemplate('tech_large_cap')">Tech Large Cap</button>
+          <button type="button" class="btn-secondary btn-sm"
+                  onclick="uniAddTemplate('canadian_energy')">Canadian Energy</button>
+          <button type="button" class="btn-secondary btn-sm"
+                  onclick="uniAddTemplate('all_etfs')">All ETFs</button>
+          <span style="display:inline-flex;align-items:center;gap:4px;">
+            <label style="font-size:12px;color:var(--text-muted);">Sector:</label>
+            <select id="uniTemplateSector" style="padding:5px 8px;background:var(--bg);color:var(--text);
+                    border:1px solid var(--border);border-radius:6px;font-size:12px;"></select>
+            <button type="button" class="btn-secondary btn-sm"
+                    onclick="uniAddTemplate('sector')">Add Sector</button>
+          </span>
+        </div>
+        <div id="uniTemplateResult" class="modal-result" style="margin-top:6px;"></div>
+      </div>
+
+      <!-- Seed / Rebuild -->
+      <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border);">
+        <h4>Universe Database</h4>
+        <p class="muted-note">Rebuild the symbol universe from exchange data sources.
+          This fetches all listed symbols and their metadata.</p>
+        <button type="button" class="btn-danger" id="uniSeedBtn" onclick="seedUniverse()">Rebuild Universe Database</button>
+        <div id="uniSeedResult" class="modal-result" style="margin-top:6px;"></div>
+        <div id="uniSeedProgress" class="uni-seed-progress" style="display:none;">
+          <span id="uniSeedStatus">Seeding...</span>
+          <div class="bar-track"><div class="bar-fill" id="uniSeedBar" style="width:0%;"></div></div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -4532,6 +4794,478 @@
     tip.style.top = Math.max(0, (ev.clientY - rect.top) - 30) + "px";
   }
 </script>
+<!-- ═══════════════════ UNIVERSE BROWSER CLIENT LOGIC ═══════════════════ -->
+<script>
+  // ── Universe state ──
+  var _uniPage = 1, _uniPerPage = 20, _uniTotal = 0, _uniTotalPages = 1;
+  var _uniSort = "ticker", _uniOrder = "asc";
+  var _uniSelected = {};  // ticker -> true
+  var _uniSearchTimer = null;
+  var _uniSeedPollTimer = null;
+  var _uniSectors = [];
+
+  // ── Format helpers ──
+  function formatMarketCap(value) {
+    if (value == null || isNaN(Number(value))) return "--";
+    var n = Number(value);
+    if (n >= 1e12) return "$" + (n / 1e12).toFixed(1) + "T";
+    if (n >= 1e9) return "$" + (n / 1e9).toFixed(1) + "B";
+    if (n >= 1e6) return "$" + (n / 1e6).toFixed(0) + "M";
+    if (n >= 1e3) return "$" + (n / 1e3).toFixed(0) + "K";
+    return "$" + n.toFixed(0);
+  }
+
+  function formatVolume(value) {
+    if (value == null || isNaN(Number(value))) return "--";
+    var n = Number(value);
+    if (n >= 1e9) return (n / 1e9).toFixed(1) + "B";
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
+    if (n >= 1e3) return (n / 1e3).toFixed(0) + "K";
+    return n.toFixed(0);
+  }
+
+  // ── Load universe stats ──
+  async function loadUniverseStats() {
+    try {
+      var d = await jget("/api/universe/stats");
+      if (d.available === false) {
+        document.getElementById("uniNotInit").style.display = "";
+        document.getElementById("uniMain").style.display = "none";
+        return;
+      }
+      document.getElementById("uniNotInit").style.display = "none";
+      document.getElementById("uniMain").style.display = "";
+      _setText("uniStatTotal", d.total_symbols != null ? d.total_symbols : "--");
+      _setText("uniStatActive", d.active_symbols != null ? d.active_symbols : "--");
+      var byExchange = d.by_exchange || {};
+      _setText("uniStatNYSE", byExchange.NYSE || byExchange.nyse || 0);
+      _setText("uniStatNASDAQ", byExchange.NASDAQ || byExchange.nasdaq || 0);
+      _setText("uniStatAMEX", byExchange.AMEX || byExchange.amex || 0);
+      _setText("uniStatTSX", (byExchange.TSX || byExchange.tsx || 0));
+      _setText("uniStatUpdated", d.last_updated
+        ? String(d.last_updated).slice(0, 19).replace("T", " ")
+        : "--");
+    } catch (e) {
+      document.getElementById("uniNotInit").style.display = "";
+      document.getElementById("uniMain").style.display = "none";
+    }
+  }
+
+  // ── Load sectors for filter dropdown ──
+  async function loadUniverseSectors() {
+    try {
+      var d = await jget("/api/universe/sectors");
+      _uniSectors = d.sectors || [];
+      var sel = document.getElementById("uniFilterSector");
+      sel.innerHTML = '<option value="">All</option>' + _uniSectors.map(function (s) {
+        return '<option value="' + esc(s) + '">' + esc(s) + '</option>';
+      }).join("");
+      var tsel = document.getElementById("uniTemplateSector");
+      tsel.innerHTML = _uniSectors.map(function (s) {
+        return '<option value="' + esc(s) + '">' + esc(s) + '</option>';
+      }).join("");
+    } catch (e) { /* sectors unavailable */ }
+  }
+
+  // ── Build query params from current filters ──
+  function _uniFilterParams() {
+    var p = [];
+    var ex = document.getElementById("uniFilterExchange").value;
+    if (ex) p.push("exchange=" + encodeURIComponent(ex));
+    var sec = document.getElementById("uniFilterSector").value;
+    if (sec) p.push("sector=" + encodeURIComponent(sec));
+    var at = document.getElementById("uniFilterAssetType").value;
+    if (at) p.push("asset_type=" + encodeURIComponent(at));
+    var mp = document.getElementById("uniFilterMinPrice").value;
+    if (mp) p.push("min_price=" + encodeURIComponent(mp));
+    var mv = document.getElementById("uniFilterMinVolume").value;
+    if (mv) p.push("min_volume=" + encodeURIComponent(mv));
+    var mc = document.getElementById("uniFilterMinMktCap").value;
+    if (mc) p.push("min_market_cap=" + encodeURIComponent(mc));
+    p.push("sort=" + _uniSort);
+    p.push("order=" + _uniOrder);
+    return p.join("&");
+  }
+
+  // ── Load symbols table ──
+  async function loadUniverseSymbols(page, filters) {
+    if (page != null) _uniPage = page;
+    var query = filters || _uniFilterParams();
+    var url = "/api/universe/search?page=" + _uniPage + "&limit=" + _uniPerPage + "&" + query;
+    var searchVal = document.getElementById("uniSearchInput").value.trim();
+    if (searchVal) url += "&q=" + encodeURIComponent(searchVal);
+    try {
+      var d = await jget(url);
+      _uniTotal = d.total || 0;
+      _uniTotalPages = Math.max(1, Math.ceil(_uniTotal / _uniPerPage));
+      var symbols = d.symbols || d.results || [];
+      var tb = document.getElementById("uniTableBody");
+      if (!symbols.length) {
+        tb.innerHTML = '<tr><td colspan="10" class="empty-note">No symbols match the current filters.</td></tr>';
+      } else {
+        tb.innerHTML = symbols.map(function (s) {
+          var checked = _uniSelected[s.ticker] ? " checked" : "";
+          return '<tr>' +
+            '<td><input type="checkbox" class="uni-cb" value="' + esc(s.ticker) + '"' + checked +
+              ' onchange="uniToggleSelect(\'' + esc(s.ticker) + '\', this.checked)"></td>' +
+            '<td><strong>' + esc(s.ticker) + '</strong></td>' +
+            '<td>' + esc(s.name || "") + '</td>' +
+            '<td>' + esc(s.exchange || "") + '</td>' +
+            '<td>' + esc(s.sector || "--") + '</td>' +
+            '<td>' + esc(s.asset_type || "--") + '</td>' +
+            '<td class="num">' + formatMarketCap(s.market_cap) + '</td>' +
+            '<td class="num">' + formatVolume(s.avg_volume) + '</td>' +
+            '<td class="num">' + (s.last_price != null ? "$" + Number(s.last_price).toFixed(2) : "--") + '</td>' +
+            '<td><button type="button" class="btn-secondary btn-sm" ' +
+              'onclick="uniQuickAddToWatchlist(\'' + esc(s.ticker) + '\')">+ Watchlist</button></td>' +
+            '</tr>';
+        }).join("");
+      }
+      document.getElementById("uniCheckAll").checked = false;
+      document.getElementById("uniPageInfo").textContent =
+        "Page " + _uniPage + " of " + _uniTotalPages + " (" + _uniTotal + " symbols)";
+    } catch (e) {
+      document.getElementById("uniTableBody").innerHTML =
+        '<tr><td colspan="10" class="empty-note">Failed to load symbols.</td></tr>';
+    }
+  }
+
+  // ── Search (debounced) ──
+  function uniDebouncedSearch() {
+    if (_uniSearchTimer) clearTimeout(_uniSearchTimer);
+    _uniSearchTimer = setTimeout(function () {
+      _uniPage = 1;
+      loadUniverseSymbols();
+    }, 300);
+  }
+
+  function uniClearSearch() {
+    document.getElementById("uniSearchInput").value = "";
+    _uniPage = 1;
+    loadUniverseSymbols();
+  }
+
+  function searchUniverse(query) {
+    document.getElementById("uniSearchInput").value = query || "";
+    _uniPage = 1;
+    loadUniverseSymbols();
+  }
+
+  // ── Filter apply ──
+  function uniApplyFilters() {
+    _uniPage = 1;
+    loadUniverseSymbols();
+  }
+
+  // ── Sort ──
+  function uniSortBy(col) {
+    if (_uniSort === col) {
+      _uniOrder = _uniOrder === "asc" ? "desc" : "asc";
+    } else {
+      _uniSort = col;
+      _uniOrder = col === "ticker" || col === "name" ? "asc" : "desc";
+    }
+    loadUniverseSymbols();
+  }
+
+  // ── Pagination ──
+  function uniPageNav(dir) {
+    var next = _uniPage + dir;
+    if (next < 1 || next > _uniTotalPages) return;
+    _uniPage = next;
+    loadUniverseSymbols();
+  }
+
+  // ── Selection ──
+  function uniToggleSelect(ticker, on) {
+    if (on) _uniSelected[ticker] = true;
+    else delete _uniSelected[ticker];
+    _uniUpdateBulkBar();
+  }
+
+  function uniToggleAllPage(on) {
+    document.querySelectorAll(".uni-cb").forEach(function (cb) {
+      cb.checked = on;
+      if (on) _uniSelected[cb.value] = true;
+      else delete _uniSelected[cb.value];
+    });
+    _uniUpdateBulkBar();
+  }
+
+  function uniSelectAllPage() {
+    uniToggleAllPage(true);
+    document.getElementById("uniCheckAll").checked = true;
+  }
+
+  function uniDeselectAll() {
+    _uniSelected = {};
+    document.querySelectorAll(".uni-cb").forEach(function (cb) { cb.checked = false; });
+    document.getElementById("uniCheckAll").checked = false;
+    _uniUpdateBulkBar();
+  }
+
+  function _uniUpdateBulkBar() {
+    var count = Object.keys(_uniSelected).length;
+    var bar = document.getElementById("uniBulkBar");
+    bar.style.display = count > 0 ? "flex" : "none";
+    document.getElementById("uniBulkCount").textContent = count + " selected";
+  }
+
+  // ── Add to watchlist ──
+  async function addToWatchlist(listName, tickers) {
+    if (!tickers || !tickers.length) return;
+    try {
+      var d = await jsend("POST", "/api/watchlist/symbols/bulk", {
+        list: listName, symbols: tickers
+      });
+      return d;
+    } catch (e) {
+      // Fallback: add one at a time
+      for (var i = 0; i < tickers.length; i++) {
+        try {
+          await jsend("POST", "/api/watchlist/symbols", {
+            list: listName, symbol: tickers[i]
+          });
+        } catch (e2) { /* skip failed adds */ }
+      }
+      return { ok: true, message: "Added " + tickers.length + " symbols." };
+    }
+  }
+
+  async function removeFromWatchlist(listName, tickers) {
+    for (var i = 0; i < tickers.length; i++) {
+      try {
+        await jsend("DELETE", "/api/watchlist/lists/" + encodeURIComponent(listName) +
+          "/symbols/" + encodeURIComponent(tickers[i]));
+      } catch (e) { /* skip */ }
+    }
+  }
+
+  async function toggleWatchlistEnabled(listName, enabled) {
+    try {
+      await jsend("POST", "/api/watchlist/lists/" + encodeURIComponent(listName) + "/enabled",
+        { enabled: enabled });
+    } catch (e) { /* best-effort */ }
+  }
+
+  async function uniQuickAddToWatchlist(ticker) {
+    var sel = document.getElementById("uniBulkWatchlist");
+    if (!sel || !sel.value) {
+      alert("Select a target watchlist first.");
+      return;
+    }
+    try {
+      await jsend("POST", "/api/watchlist/symbols", { list: sel.value, symbol: ticker });
+      setMsg("uniBulkResult", ticker + " added to " + sel.value + ".", true);
+    } catch (e) {
+      setMsg("uniBulkResult", "Failed to add " + ticker + ": " + String(e), false);
+    }
+  }
+
+  async function uniBulkAddToWatchlist() {
+    var sel = document.getElementById("uniBulkWatchlist");
+    if (!sel || !sel.value) return;
+    var tickers = Object.keys(_uniSelected);
+    if (!tickers.length) return;
+    setMsg("uniBulkResult", "Adding " + tickers.length + " symbols...", true);
+    try {
+      await addToWatchlist(sel.value, tickers);
+      setMsg("uniBulkResult", tickers.length + " symbols added to " + sel.value + ".", true);
+      uniDeselectAll();
+      loadWatchlists();
+    } catch (e) {
+      setMsg("uniBulkResult", "Failed: " + String(e), false);
+    }
+  }
+
+  // ── Watchlist panel ──
+  async function loadWatchlists() {
+    try {
+      var d = await jget("/api/watchlist");
+      var lists = d.lists || [];
+      // Update the bulk watchlist dropdown
+      var sel = document.getElementById("uniBulkWatchlist");
+      sel.innerHTML = lists.map(function (l) {
+        return '<option value="' + esc(l.name) + '">' + esc(l.name) + '</option>';
+      }).join("");
+      // Render watchlist items
+      var container = document.getElementById("uniWatchlists");
+      if (!lists.length) {
+        container.innerHTML = '<div class="empty-note">No watchlists yet. Create one above.</div>';
+        return;
+      }
+      container.innerHTML = lists.map(function (l) {
+        return '<div class="uni-wl-item">' +
+          '<div><span class="wl-name">' + esc(l.name) + '</span>' +
+          '<span class="wl-count">' + (l.count || l.symbols.length || 0) + ' symbols</span></div>' +
+          '<div class="uni-wl-controls">' +
+          '<label class="uni-toggle" title="' + (l.enabled ? "Enabled — engine scans this list" : "Disabled") + '">' +
+            '<input type="checkbox"' + (l.enabled ? " checked" : "") +
+            ' onchange="toggleWatchlistEnabled(\'' + esc(l.name) + '\', this.checked)">' +
+            '<span class="slider"></span></label>' +
+          '<button type="button" class="chip" style="cursor:pointer;color:var(--red);" ' +
+            'onclick="uniDeleteWatchlist(\'' + esc(l.name) + '\')">delete</button>' +
+          '</div></div>';
+      }).join("");
+    } catch (e) {
+      document.getElementById("uniWatchlists").innerHTML =
+        '<div class="empty-note">Failed to load watchlists.</div>';
+    }
+  }
+
+  function uniShowCreateWatchlist() {
+    document.getElementById("uniCreateWlForm").style.display = "";
+    document.getElementById("uniNewWlName").focus();
+  }
+
+  async function uniCreateWatchlist() {
+    var name = document.getElementById("uniNewWlName").value.trim();
+    if (!name) { setMsg("uniCreateWlResult", "Enter a name.", false); return; }
+    try {
+      await jsend("POST", "/api/watchlist/lists", { name: name });
+      document.getElementById("uniNewWlName").value = "";
+      document.getElementById("uniCreateWlForm").style.display = "none";
+      setMsg("uniCreateWlResult", "", true);
+      loadWatchlists();
+      loadWatchlist();  // refresh the other watchlist section too
+    } catch (e) { setMsg("uniCreateWlResult", String(e), false); }
+  }
+
+  async function uniDeleteWatchlist(name) {
+    if (!confirm("Delete watchlist '" + name + "'? This cannot be undone.")) return;
+    try {
+      await jsend("DELETE", "/api/watchlist/lists/" + encodeURIComponent(name));
+      loadWatchlists();
+      loadWatchlist();
+    } catch (e) { /* best-effort */ }
+  }
+
+  // ── Quick-add templates ──
+  async function uniAddTemplate(template) {
+    var body = { template: template };
+    if (template === "sector") {
+      var sec = document.getElementById("uniTemplateSector").value;
+      if (!sec) { setMsg("uniTemplateResult", "Select a sector.", false); return; }
+      body.sector = sec;
+    }
+    setMsg("uniTemplateResult", "Adding symbols from template...", true);
+    try {
+      var d = await jsend("POST", "/api/universe/template", body);
+      setMsg("uniTemplateResult", d.message || "Template applied.", d.ok !== false);
+      loadWatchlists();
+      loadWatchlist();
+    } catch (e) {
+      setMsg("uniTemplateResult", String(e), false);
+    }
+  }
+
+  // ── Load scan tiers ──
+  async function loadUniverseTiers() {
+    try {
+      var d = await jget("/api/universe/tiers");
+      _setText("uniTier1", d.tier1 != null ? d.tier1 : "--");
+      _setText("uniTier2", d.tier2 != null ? d.tier2 : "--");
+      _setText("uniTier3", d.tier3 != null ? d.tier3 : "--");
+    } catch (e) { /* tiers unavailable */ }
+  }
+
+  // ── Seed universe ──
+  async function seedUniverse() {
+    var resultEl = document.getElementById("uniSeedResult") ||
+                   document.getElementById("uniSeedResultInit");
+    var progressEl = document.getElementById("uniSeedProgress") ||
+                     document.getElementById("uniSeedProgressInit");
+    var statusEl = document.getElementById("uniSeedStatus") ||
+                   document.getElementById("uniSeedStatusInit");
+    var barEl = document.getElementById("uniSeedBar") ||
+                document.getElementById("uniSeedBarInit");
+    var btn = document.getElementById("uniSeedBtn");
+    if (btn) btn.disabled = true;
+
+    setMsg(resultEl ? resultEl.id : "uniSeedResult", "Starting universe rebuild...", true);
+    if (progressEl) progressEl.style.display = "";
+
+    try {
+      var d = await jsend("POST", "/api/universe/seed", {});
+      if (d.job_id) {
+        _pollSeed(d.job_id, resultEl, statusEl, barEl, progressEl, btn);
+      } else {
+        if (resultEl) {
+          resultEl.textContent = d.message || "Seed complete.";
+          resultEl.style.color = "var(--green)";
+        }
+        if (progressEl) progressEl.style.display = "none";
+        if (btn) btn.disabled = false;
+        // Reload everything
+        loadUniverseStats();
+        loadUniverseSymbols(1);
+        loadUniverseSectors();
+        loadUniverseTiers();
+      }
+    } catch (e) {
+      if (resultEl) {
+        resultEl.textContent = "Seed failed: " + String(e);
+        resultEl.style.color = "var(--red)";
+      }
+      if (progressEl) progressEl.style.display = "none";
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  function _pollSeed(jobId, resultEl, statusEl, barEl, progressEl, btn) {
+    if (_uniSeedPollTimer) clearInterval(_uniSeedPollTimer);
+    _uniSeedPollTimer = setInterval(async function () {
+      try {
+        var d = await jget("/api/universe/seed/status/" + jobId);
+        if (d.state === "running") {
+          var pct = d.progress || 0;
+          if (statusEl) statusEl.textContent = d.message || ("Seeding... " + pct + "%");
+          if (barEl) barEl.style.width = pct + "%";
+          return;
+        }
+        clearInterval(_uniSeedPollTimer);
+        _uniSeedPollTimer = null;
+        if (btn) btn.disabled = false;
+        if (d.state === "done") {
+          if (resultEl) {
+            resultEl.textContent = d.message || "Universe rebuilt successfully.";
+            resultEl.style.color = "var(--green)";
+          }
+          if (progressEl) progressEl.style.display = "none";
+          loadUniverseStats();
+          loadUniverseSymbols(1);
+          loadUniverseSectors();
+          loadUniverseTiers();
+        } else {
+          if (resultEl) {
+            resultEl.textContent = d.message || "Seed failed.";
+            resultEl.style.color = "var(--red)";
+          }
+          if (progressEl) progressEl.style.display = "none";
+        }
+      } catch (e) {
+        clearInterval(_uniSeedPollTimer);
+        _uniSeedPollTimer = null;
+        if (btn) btn.disabled = false;
+        if (resultEl) {
+          resultEl.textContent = "Lost connection to seed job.";
+          resultEl.style.color = "var(--red)";
+        }
+        if (progressEl) progressEl.style.display = "none";
+      }
+    }, 2000);
+  }
+
+  // ── Boot the Universe section ──
+  (function () {
+    loadUniverseStats();
+    loadUniverseSectors();
+    loadUniverseSymbols(1);
+    loadUniverseTiers();
+    loadWatchlists();
+  })();
+</script>
+
 <script src="/pwa/pwa.js" defer></script>
 </body>
 </html>

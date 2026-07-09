@@ -6,6 +6,9 @@ order, and returns the best-qualifying signal per symbol.  This module
 is the bridge between raw indicator scoring (:mod:`signals.combined_filter`)
 and the trading engine (:mod:`engine`).
 
+Supports parallel scanning via :class:`concurrent.futures.ThreadPoolExecutor`
+when the tiered scanning feature is enabled.
+
 Usage::
 
     from signals.screener import run_full_scan
@@ -19,6 +22,7 @@ Usage::
 from __future__ import annotations
 
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Optional
 
 import structlog
@@ -179,6 +183,7 @@ def run_full_scan(
     symbols: List[str],
     min_grade: str = "B",
     allowed_strategies: Optional[List[str]] = None,
+    max_workers: Optional[int] = None,
 ) -> List[Signal]:
     """Scan the full universe and return qualifying signals.
 
@@ -186,6 +191,9 @@ def run_full_scan(
     (``vcp_breakout -> pead -> momentum -> swing -> mean_reversion``).
     The first strategy that produces a signal with a grade at or above
     *min_grade* wins for that symbol.
+
+    When *max_workers* > 1, symbols are scanned in parallel using a
+    :class:`~concurrent.futures.ThreadPoolExecutor`.
 
     The returned list is sorted by ``signal_strength`` in descending
     order (strongest signals first).
@@ -196,6 +204,9 @@ def run_full_scan(
             ``"B"`` (scores >= 0.65).
         allowed_strategies: Optional strategy whitelist (user trade
             selection); ``None`` runs every strategy.
+        max_workers: Thread pool size.  ``None`` or ``1`` disables
+            parallelism and uses a simple sequential loop (the legacy
+            behaviour).
 
     Returns:
         List of :class:`Signal` objects, sorted by signal strength
@@ -205,21 +216,46 @@ def run_full_scan(
     signals: List[Signal] = []
     errors: int = 0
 
+    # Default to settings-based worker count when not specified.
+    if max_workers is None:
+        settings = get_settings()
+        workers = getattr(settings, "TIER1_WORKERS", 1)
+        max_workers = workers if workers > 1 else 1
+
     log.info(
         "run_full_scan.start",
         total_symbols=len(symbols),
         min_grade=min_grade,
         strategies=allowed_strategies or STRATEGY_PRIORITY,
+        max_workers=max_workers,
     )
 
-    for symbol in symbols:
-        try:
-            signal = _scan_symbol(symbol, min_grade, allowed_strategies)
-            if signal is not None:
-                signals.append(signal)
-        except Exception:
-            errors += 1
-            log.exception("run_full_scan.symbol_error", symbol=symbol)
+    if max_workers <= 1 or len(symbols) <= 3:
+        # Sequential scan (legacy behaviour / small batches).
+        for symbol in symbols:
+            try:
+                signal = _scan_symbol(symbol, min_grade, allowed_strategies)
+                if signal is not None:
+                    signals.append(signal)
+            except Exception:
+                errors += 1
+                log.exception("run_full_scan.symbol_error", symbol=symbol)
+    else:
+        # Parallel scan using ThreadPoolExecutor.
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            future_to_symbol = {
+                pool.submit(_scan_symbol, sym, min_grade, allowed_strategies): sym
+                for sym in symbols
+            }
+            for future in as_completed(future_to_symbol):
+                symbol = future_to_symbol[future]
+                try:
+                    signal = future.result()
+                    if signal is not None:
+                        signals.append(signal)
+                except Exception:
+                    errors += 1
+                    log.exception("run_full_scan.symbol_error", symbol=symbol)
 
     # Sort strongest signals first.
     signals.sort(key=lambda s: s.signal_strength, reverse=True)
@@ -231,6 +267,97 @@ def run_full_scan(
         signals_found=len(signals),
         errors=errors,
         elapsed_seconds=round(elapsed, 2),
+        max_workers=max_workers,
     )
 
     return signals
+
+
+# ---------------------------------------------------------------------------
+# Tiered scanning helpers (called by the engine for Tier 2 / Tier 3)
+# ---------------------------------------------------------------------------
+
+
+def run_sector_scan(
+    sector: str,
+    min_grade: str = "B",
+    allowed_strategies: Optional[List[str]] = None,
+    max_workers: int = 8,
+) -> List[Signal]:
+    """Tier 2 scan: scan all active symbols in a GICS sector.
+
+    This is used by the engine's sector rotation loop.
+    """
+    from config.universe import get_tier2_symbols
+
+    symbols = get_tier2_symbols(sector)
+    if not symbols:
+        log.debug("run_sector_scan.empty_sector", sector=sector)
+        return []
+    log.info("run_sector_scan.start", sector=sector, symbols=len(symbols))
+    return run_full_scan(
+        symbols,
+        min_grade=min_grade,
+        allowed_strategies=allowed_strategies,
+        max_workers=max_workers,
+    )
+
+
+def run_prescreen(
+    symbols: List[str],
+    price_change_pct: float = 0.03,
+    volume_ratio: float = 2.0,
+    max_workers: int = 16,
+) -> List[str]:
+    """Tier 3 pre-screen: lightweight filter for the full universe sweep.
+
+    Returns tickers with a daily price move > *price_change_pct* or daily
+    volume > *volume_ratio* times their average.  These qualifying symbols
+    are then promoted to Tier 2 for a full scan.
+    """
+    start = time.monotonic()
+    qualifying: List[str] = []
+
+    def _check(symbol: str) -> Optional[str]:
+        try:
+            df = fetch_ohlcv(symbol, period="5d")
+            if df is None or len(df) < 2:
+                return None
+            latest = df.iloc[-1]
+            prev = df.iloc[-2]
+            if prev["Close"] <= 0:
+                return None
+            daily_change = abs(latest["Close"] - prev["Close"]) / prev["Close"]
+            if daily_change >= price_change_pct:
+                return symbol
+            avg_vol = df["Volume"].mean()
+            if avg_vol > 0 and latest["Volume"] / avg_vol >= volume_ratio:
+                return symbol
+        except Exception:  # noqa: BLE001
+            pass
+        return None
+
+    if max_workers <= 1:
+        for sym in symbols:
+            result = _check(sym)
+            if result:
+                qualifying.append(result)
+    else:
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {pool.submit(_check, sym): sym for sym in symbols}
+            for future in as_completed(futures):
+                try:
+                    result = future.result()
+                    if result:
+                        qualifying.append(result)
+                except Exception:  # noqa: BLE001
+                    pass
+
+    elapsed = time.monotonic() - start
+    log.info(
+        "run_prescreen.complete",
+        total=len(symbols),
+        qualifying=len(qualifying),
+        elapsed_seconds=round(elapsed, 2),
+    )
+    return qualifying

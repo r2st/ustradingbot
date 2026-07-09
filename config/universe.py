@@ -3,9 +3,18 @@ Trading universe — curated watchlists of US and Canadian equities.
 
 This module defines the set of symbols the scanner evaluates on each cycle.
 Symbols can be added or removed here without touching any other module.
+
+When the SQLite universe database (``data_store/universe.db``) is available,
+:func:`get_sector` queries it for sector classification and :func:`get_all_sectors`
+returns the full sector list with counts.  Otherwise the legacy hardcoded maps
+are used seamlessly as a fallback.
 """
 
 from __future__ import annotations
+
+import structlog
+
+log = structlog.get_logger(__name__)
 
 # ── US equities (NYSE / NASDAQ) ─────────────────────────────────────────────
 
@@ -120,20 +129,67 @@ SECTOR_BY_SYMBOL: dict[str, str] = {
 
 
 def get_sector(symbol: str) -> str:
-    """Return the sector tag for *symbol* (``"Unknown"`` if unclassified)."""
+    """Return the sector tag for *symbol* (``"Unknown"`` if unclassified).
+
+    When the universe database is available, looks up the sector there first
+    (covers 10,000+ symbols); falls back to the hardcoded map for the original
+    41 symbols.
+    """
+    # Try universe DB first (covers the full expanded universe).
+    try:
+        from data_store.universe import db_exists, get_universe_db
+        from config.settings import get_settings
+
+        settings = get_settings()
+        if db_exists(settings.DATA_DIR):
+            db = get_universe_db(settings.DATA_DIR)
+            rows = db.search_symbols(symbol.upper(), limit=1)
+            for row in rows:
+                if row.get("ticker", "").upper() == symbol.upper() and row.get("sector"):
+                    return row["sector"]
+    except Exception:  # noqa: BLE001 — never break on DB lookup
+        pass
     return SECTOR_BY_SYMBOL.get(symbol.upper(), "Unknown")
+
+
+def get_all_sectors() -> list[dict]:
+    """Return all GICS sectors with symbol counts from the universe DB.
+
+    Falls back to a deduplicated list from :data:`SECTOR_BY_SYMBOL` when the
+    database is unavailable.
+
+    Returns:
+        List of ``{"sector": str, "count": int}`` dicts, sorted by sector name.
+    """
+    try:
+        from data_store.universe import db_exists, get_universe_db
+        from config.settings import get_settings
+
+        settings = get_settings()
+        if db_exists(settings.DATA_DIR):
+            return get_universe_db(settings.DATA_DIR).get_sectors()
+    except Exception:  # noqa: BLE001
+        pass
+    # Fallback: derive from the hardcoded map.
+    counts: dict[str, int] = {}
+    for sector in SECTOR_BY_SYMBOL.values():
+        counts[sector] = counts.get(sector, 0) + 1
+    return sorted(
+        [{"sector": s, "count": c} for s, c in counts.items()],
+        key=lambda x: x["sector"],
+    )
 
 
 def is_canadian(symbol: str) -> bool:
     """Return ``True`` if *symbol* trades on a Canadian exchange.
 
-    The heuristic is simple: any ticker ending with ``.TO`` (Toronto Stock
-    Exchange) is treated as Canadian.
+    Recognises both TSX (``.TO``) and TSX Venture (``.V``) suffixes.
 
     Args:
         symbol: Ticker string, e.g. ``"SHOP.TO"`` or ``"AAPL"``.
     """
-    return symbol.upper().endswith(".TO")
+    upper = symbol.upper()
+    return upper.endswith(".TO") or upper.endswith(".V")
 
 
 def get_currency(symbol: str) -> str:
@@ -143,6 +199,64 @@ def get_currency(symbol: str) -> str:
         symbol: Ticker string.
 
     Returns:
-        ``"CAD"`` for TSX-listed tickers (suffix ``.TO``), ``"USD"`` otherwise.
+        ``"CAD"`` for Canadian-exchange tickers (``.TO`` or ``.V`` suffix),
+        ``"USD"`` otherwise.
     """
     return "CAD" if is_canadian(symbol) else "USD"
+
+
+# ── Tiered symbol loading (uses universe DB when available) ────────────────
+
+
+def get_tier1_symbols() -> list[str]:
+    """Return Tier 1 symbols: user's active watchlist.
+
+    Falls back to :data:`ALL_SYMBOLS` when the universe DB is unavailable.
+    """
+    try:
+        from data_store.universe import db_exists, get_universe_db
+        from config.settings import get_settings
+
+        settings = get_settings()
+        if db_exists(settings.DATA_DIR):
+            symbols = get_universe_db(settings.DATA_DIR).get_tier1_symbols()
+            if symbols:
+                return symbols
+    except Exception:  # noqa: BLE001
+        log.debug("universe.tier1_fallback", exc_info=True)
+    return list(ALL_SYMBOLS)
+
+
+def get_tier2_symbols(sector: str) -> list[str]:
+    """Return Tier 2 symbols: all active symbols in a given GICS sector.
+
+    Falls back to filtering :data:`SECTOR_BY_SYMBOL` when the universe DB
+    is unavailable.
+    """
+    try:
+        from data_store.universe import db_exists, get_universe_db
+        from config.settings import get_settings
+
+        settings = get_settings()
+        if db_exists(settings.DATA_DIR):
+            return get_universe_db(settings.DATA_DIR).get_tier2_symbols(sector)
+    except Exception:  # noqa: BLE001
+        log.debug("universe.tier2_fallback", exc_info=True)
+    return [s for s, sec in SECTOR_BY_SYMBOL.items() if sec == sector]
+
+
+def get_tier3_symbols() -> list[str]:
+    """Return Tier 3 symbols: full filtered universe.
+
+    Falls back to :data:`ALL_SYMBOLS` when the universe DB is unavailable.
+    """
+    try:
+        from data_store.universe import db_exists, get_universe_db
+        from config.settings import get_settings
+
+        settings = get_settings()
+        if db_exists(settings.DATA_DIR):
+            return get_universe_db(settings.DATA_DIR).get_tier3_symbols()
+    except Exception:  # noqa: BLE001
+        log.debug("universe.tier3_fallback", exc_info=True)
+    return list(ALL_SYMBOLS)

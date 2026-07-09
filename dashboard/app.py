@@ -1008,6 +1008,7 @@ async def backtest_status_api(job_id: str, _user: str = Depends(require_auth)):
 # shares the HTTP Basic auth dependency (dashboard.auth.require_auth).
 # ---------------------------------------------------------------------------
 
+from dashboard.universe_router import router as _universe_router  # noqa: E402
 from dashboard.watchlist_router import router as _watchlist_router  # noqa: E402
 from dashboard.notes_router import router as _notes_router  # noqa: E402
 from dashboard.manual_trade_router import router as _manual_trade_router  # noqa: E402
@@ -1027,6 +1028,7 @@ from dashboard.ta_router import router as _ta_router  # noqa: E402
 from dashboard.positions_router import router as _positions_router  # noqa: E402
 
 for _r in (
+    _universe_router,
     _watchlist_router,
     _notes_router,
     _manual_trade_router,
