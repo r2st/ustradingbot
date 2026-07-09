@@ -148,9 +148,11 @@ def _position_row(
     entry_time = pos.get("entry_time") or pos.get("opened_at")
     try:
         opened = datetime.fromisoformat(str(entry_time))
-        if opened.tzinfo is not None:
-            opened = opened.astimezone(ET).replace(tzinfo=None)
-        hours = (datetime.now() - opened).total_seconds() / 3600.0
+        if opened.tzinfo is None:
+            opened = opened.replace(tzinfo=ET)
+        else:
+            opened = opened.astimezone(ET)
+        hours = (datetime.now(tz=ET) - opened).total_seconds() / 3600.0
         row["time_in_trade_hours"] = round(max(0.0, hours), 1)
     except (ValueError, TypeError):
         row["time_in_trade_hours"] = None

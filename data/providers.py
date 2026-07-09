@@ -27,6 +27,8 @@ from typing import Callable, List, Optional, Protocol, runtime_checkable
 import pandas as pd
 import structlog
 
+from config.settings import EASTERN
+
 logger = structlog.get_logger(__name__)
 
 # Canonical OHLCV columns every provider must emit.
@@ -124,7 +126,7 @@ def _period_can_hold(period: Optional[str], rows: int) -> bool:
     """
     if not period:
         return True
-    calendar_days = (datetime.now() - period_to_start(period)).days
+    calendar_days = (datetime.now(tz=EASTERN) - period_to_start(period)).days
     return calendar_days * 252 / 365 >= rows
 
 
@@ -134,7 +136,7 @@ def period_to_start(period: str, *, now: Optional[datetime] = None) -> datetime:
     Understands ``Nd`` / ``Nmo`` / ``Ny`` (e.g. ``"5d"``, ``"6mo"``, ``"2y"``)
     and the special value ``"max"``.  Unknown values fall back to ~6 months.
     """
-    now = now or datetime.now()
+    now = now or datetime.now(tz=EASTERN)
     p = period.strip().lower()
     if p == "max":
         return now - timedelta(days=3650)
@@ -379,7 +381,7 @@ class PolygonProvider:
             log.debug("provider.symbol_unsupported", symbol=symbol)
             return None
         start = period_to_start(period).strftime("%Y-%m-%d")
-        end = datetime.now().strftime("%Y-%m-%d")
+        end = datetime.now(tz=EASTERN).strftime("%Y-%m-%d")
         url = (
             f"{self._BASE}/v2/aggs/ticker/{symbol}/range/1/day/{start}/{end}"
         )

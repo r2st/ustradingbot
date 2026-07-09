@@ -18,6 +18,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
+from config.settings import EASTERN
+
 import pandas as pd
 import structlog
 
@@ -166,7 +168,7 @@ class TradeLogger:
             "max_risk_dollars": round(order.max_risk_dollars, 2),
             "currency": order.currency,
             "entry_fill_price": round(fill_price, 4),
-            "entry_time": datetime.now().isoformat(),
+            "entry_time": datetime.now(tz=EASTERN).isoformat(),
             "entry_commission": round(commission, 4),
             "stop_price": round(signal.stop_price, 4),
             "target_price": round(signal.target_price, 4),
@@ -246,7 +248,7 @@ class TradeLogger:
             )
             return
 
-        exit_time = exit_event.exit_date or datetime.now()
+        exit_time = exit_event.exit_date or datetime.now(tz=EASTERN)
         exit_price = exit_event.exit_price
 
         # Manual sell trades journal direction="short"; every automated entry
@@ -365,7 +367,7 @@ class TradeLogger:
             return
         runner_qty = open_qty - take_qty
         exit_price = exit_event.exit_price
-        exit_time = exit_event.exit_date or datetime.now()
+        exit_time = exit_event.exit_date or datetime.now(tz=EASTERN)
 
         # Short-aware maths (manual sell trades journal direction="short").
         direction = str(df.at[idx, "direction"] or "long").strip().lower() \
@@ -476,7 +478,7 @@ class TradeLogger:
             or ``0.0`` if no trades were closed.
         """
         if date is None:
-            date = datetime.now()
+            date = datetime.now(tz=EASTERN)
         target_date = date.date()
 
         try:

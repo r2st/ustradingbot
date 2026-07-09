@@ -13,6 +13,8 @@ import json
 import os
 from datetime import datetime
 from pathlib import Path
+
+from config.settings import EASTERN
 from typing import Any, Dict, List
 
 import structlog
@@ -67,7 +69,7 @@ class RejectedSignalLogger:
             detail: Optional human-readable detail or context.
         """
         record: Dict[str, Any] = {
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(tz=EASTERN).isoformat(),
             "symbol": signal.symbol,
             "strategy": signal.strategy,
             "direction": signal.direction,

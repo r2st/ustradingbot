@@ -17,7 +17,7 @@ from typing import Any, Dict, List
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 
-from config.settings import get_settings
+from config.settings import EASTERN, get_settings
 from dashboard.auth import require_auth
 from dashboard.pdf_report import simple_pdf
 
@@ -74,7 +74,7 @@ async def export_trades_pdf(_user: str = Depends(require_auth)):
 
     trades = _analytics_report().recent_trades
     lines = [
-        f"Generated {datetime.now():%Y-%m-%d %H:%M}",
+        f"Generated {datetime.now(tz=EASTERN):%Y-%m-%d %H:%M %Z}",
         "",
         f"{'Symbol':<10}{'Strategy':<16}{'Exit':<12}{'P&L net':>12}{'R':>8}",
         "-" * 58,
@@ -113,7 +113,7 @@ async def export_analytics_pdf(_user: str = Depends(require_auth)):
     report = _analytics_report()
     s = report.summary
     lines = [
-        f"Generated {datetime.now():%Y-%m-%d %H:%M}",
+        f"Generated {datetime.now(tz=EASTERN):%Y-%m-%d %H:%M %Z}",
         "",
         "Portfolio summary",
         "-" * 44,

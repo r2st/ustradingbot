@@ -14,7 +14,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends
 from starlette.concurrency import run_in_threadpool
 
-from config.settings import get_settings
+from config.settings import EASTERN, get_settings
 from config.watchlist import get_watchlist_store
 from dashboard.auth import require_auth
 
@@ -65,7 +65,7 @@ async def earnings(_user: str = Depends(require_auth)):
     except Exception:  # noqa: BLE001
         entries = []
     return {
-        "as_of": datetime.now().isoformat(timespec="seconds"),
+        "as_of": datetime.now(tz=EASTERN).isoformat(timespec="seconds"),
         "earnings": [e.to_dict() for e in entries],
     }
 
@@ -82,7 +82,7 @@ async def premarket(_user: str = Depends(require_auth)):
     except Exception:  # noqa: BLE001
         hits = []
     return {
-        "as_of": datetime.now().isoformat(timespec="seconds"),
+        "as_of": datetime.now(tz=EASTERN).isoformat(timespec="seconds"),
         "thresholds": {
             "gap_pct": settings.PREMARKET_GAP_PCT,
             "volume_ratio": settings.PREMARKET_VOLUME_RATIO,

@@ -33,7 +33,7 @@ from typing import Any, Dict, Generator, List, Optional, Protocol
 
 import structlog
 
-from config.settings import Settings
+from config.settings import EASTERN, Settings
 from data.fetcher import fetch_current_price, fetch_ohlcv
 from execution.advanced_orders import (
     expiry_at,
@@ -319,7 +319,7 @@ class _PaperPosition:
             target_price=float(d["target_price"]),
             currency=d.get("currency", "USD"),
             order_id=d.get("order_id", ""),
-            opened_at=d.get("opened_at", datetime.now().isoformat()),
+            opened_at=d.get("opened_at", datetime.now(tz=EASTERN).isoformat()),
             partial_take_price=float(d.get("partial_take_price", 0.0) or 0.0),
             partial_take_pct=float(d.get("partial_take_pct", 0.0) or 0.0),
             partial_taken=bool(d.get("partial_taken", False)),
@@ -377,7 +377,7 @@ class _PendingOrder:
             target_price=float(d["target_price"]),
             currency=d.get("currency", "USD"),
             order_id=d.get("order_id", ""),
-            placed_at=d.get("placed_at", datetime.now().isoformat()),
+            placed_at=d.get("placed_at", datetime.now(tz=EASTERN).isoformat()),
             expiry_hours=float(d.get("expiry_hours", 0.0) or 0.0),
             kind=d.get("kind", "limit"),
             partial_take_pct=float(d.get("partial_take_pct", 0.0) or 0.0),
@@ -578,7 +578,7 @@ class PaperBroker:
             target_price=round(target_price, 4),
             currency=currency,
             order_id=order_id,
-            opened_at=datetime.now().isoformat(),
+            opened_at=datetime.now(tz=EASTERN).isoformat(),
             partial_take_price=pt_price,
             partial_take_pct=partial_take_pct if pt_price > 0 else 0.0,
             side=side,
@@ -653,7 +653,7 @@ class PaperBroker:
             target_price=nearest_price(parsed, "target", side),
             currency=currency,
             order_id=order_id,
-            opened_at=datetime.now().isoformat(),
+            opened_at=datetime.now(tz=EASTERN).isoformat(),
             side=side,
             levels=[l.to_dict() for l in parsed],
         )
@@ -705,7 +705,7 @@ class PaperBroker:
                 target_price=round(target_price, 4),
                 currency=currency,
                 order_id=order_id,
-                placed_at=datetime.now().isoformat(),
+                placed_at=datetime.now(tz=EASTERN).isoformat(),
                 expiry_hours=float(expiry_hours),
                 kind="limit",
                 partial_take_pct=partial_take_pct,
@@ -781,7 +781,7 @@ class PaperBroker:
                 target_price=round(target_price, 4),
                 currency=currency,
                 order_id=order_id,
-                placed_at=datetime.now().isoformat(),
+                placed_at=datetime.now(tz=EASTERN).isoformat(),
                 expiry_hours=0.0,  # MOC never times out; it fills at the close
                 kind="moc",
                 partial_take_pct=partial_take_pct,
@@ -803,7 +803,7 @@ class PaperBroker:
         """
         self._maybe_reload()
         fills: List[PendingFill] = []
-        now = datetime.now()
+        now = datetime.now(tz=EASTERN)
         changed = False
         for symbol in list(self._pending.keys()):
             remaining: List[_PendingOrder] = []
@@ -872,7 +872,7 @@ class PaperBroker:
                 target_price=order.target_price,
                 currency=order.currency,
                 order_id=order.order_id,
-                opened_at=datetime.now().isoformat(),
+                opened_at=datetime.now(tz=EASTERN).isoformat(),
                 partial_take_price=pt_price,
                 partial_take_pct=order.partial_take_pct if pt_price > 0 else 0.0,
             )
@@ -1133,7 +1133,7 @@ class PaperBroker:
             symbol=pos.symbol,
             exit_price=round(exit_price, 4),
             exit_reason=reason,
-            exit_date=datetime.now(),
+            exit_date=datetime.now(tz=EASTERN),
             pnl_gross=round(pnl, 2),
             fill_details={
                 "order_id": pos.order_id,
@@ -1257,7 +1257,7 @@ class PaperBroker:
                 s: [o.to_dict() for o in orders]
                 for s, orders in self._pending.items()
             },
-            "saved_at": datetime.now().isoformat(),
+            "saved_at": datetime.now(tz=EASTERN).isoformat(),
         }
         with self._file_lock():
             try:
@@ -1523,7 +1523,7 @@ class IBKRBroker:
             order = LimitOrder("BUY", int(quantity), round(limit_price, 2))
             # Good-till-date time-in-force enforces the expiry broker-side.
             order.tif = "GTD"
-            order.goodTillDate = _fmt_gtd(datetime.now(), expiry_hours)
+            order.goodTillDate = _fmt_gtd(datetime.now(tz=EASTERN), expiry_hours)
             trade = self._ib.placeOrder(contract, order)
         except Exception as exc:  # noqa: BLE001
             self._log.error("ibkr.limit_failed", symbol=symbol, error=str(exc))
@@ -1539,7 +1539,7 @@ class IBKRBroker:
                 "target_price": round(target_price, 2),
                 "currency": currency,
                 "order_id": order_id,
-                "placed_at": datetime.now().isoformat(),
+                "placed_at": datetime.now(tz=EASTERN).isoformat(),
                 "expiry_hours": float(expiry_hours),
                 "kind": "limit",
                 "partial_take_pct": partial_take_pct,
@@ -1611,7 +1611,7 @@ class IBKRBroker:
                 "target_price": round(target_price, 2),
                 "currency": currency,
                 "order_id": order_id,
-                "placed_at": datetime.now().isoformat(),
+                "placed_at": datetime.now(tz=EASTERN).isoformat(),
                 "expiry_hours": 0.0,
                 "kind": "moc",
                 "partial_take_pct": partial_take_pct,
@@ -1773,7 +1773,7 @@ class IBKRBroker:
             symbol=symbol,
             exit_price=round(exit_price, 4),
             exit_reason=ExitReason.PARTIAL_TAKE,
-            exit_date=datetime.now(),
+            exit_date=datetime.now(tz=EASTERN),
             pnl_gross=round(position_pnl(side, entry, exit_price, take_qty), 2),
             fill_details={"quantity": take_qty, "partial": True},
         )
@@ -1807,7 +1807,7 @@ class IBKRBroker:
                 symbol=symbol,
                 exit_price=round(exit_price, 4),
                 exit_reason=reason,
-                exit_date=datetime.now(),
+                exit_date=datetime.now(tz=EASTERN),
                 pnl_gross=round(position_pnl(side, entry, exit_price, qty), 2),
                 fill_details={
                     "order_id": str(getattr(getattr(trade, "order", None), "orderId", "")),
@@ -1954,7 +1954,7 @@ class IBKRBroker:
             symbol=symbol,
             exit_price=round(fill_price, 4),
             exit_reason=reason,
-            exit_date=datetime.now(),
+            exit_date=datetime.now(tz=EASTERN),
             pnl_gross=round(position_pnl(side, entry, fill_price, qty), 2),
             fill_details={"quantity": qty},
         )

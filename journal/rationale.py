@@ -23,6 +23,8 @@ from typing import Any, Dict, List, Optional
 
 import structlog
 
+from config.settings import EASTERN
+
 log = structlog.get_logger(__name__)
 
 RATIONALE_FILE = "trade_rationale.jsonl"
@@ -256,7 +258,7 @@ class RationaleStore:
                 "strategy": getattr(signal, "strategy", ""),
                 "direction": getattr(signal, "direction", "long"),
                 "grade": getattr(getattr(signal, "grade", None), "value", ""),
-                "entry_time": entry_time or datetime.now().isoformat(),
+                "entry_time": entry_time or datetime.now(tz=EASTERN).isoformat(),
                 "entry_price": (
                     float(entry_price)
                     if entry_price is not None

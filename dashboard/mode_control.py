@@ -27,7 +27,7 @@ from typing import Dict, Iterable, Tuple
 
 import structlog
 
-from config.settings import Settings
+from config.settings import EASTERN, Settings
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -89,7 +89,7 @@ def request_restart(data_dir: Path, target_mode: str) -> None:
     data_dir.mkdir(parents=True, exist_ok=True)
     sentinel = data_dir / RESTART_SENTINEL
     sentinel.write_text(
-        f"{target_mode}\n{datetime.now().isoformat()}\n", encoding="utf-8"
+        f"{target_mode}\n{datetime.now(tz=EASTERN).isoformat()}\n", encoding="utf-8"
     )
 
 

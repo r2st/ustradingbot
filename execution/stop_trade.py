@@ -20,6 +20,7 @@ from typing import Any, Dict, Optional
 
 import structlog
 
+from config.settings import EASTERN
 from signals.signal_types import ExitEvent, ExitReason
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -66,7 +67,7 @@ def _synthesise_exit(symbol: str, pos: Dict[str, Any]) -> ExitEvent:
         symbol=symbol,
         exit_price=round(float(price), 4),
         exit_reason=ExitReason.MANUAL,
-        exit_date=datetime.now(),
+        exit_date=datetime.now(tz=EASTERN),
         pnl_gross=round(pnl, 2),
         fill_details={"quantity": qty, "commission": 0.0},
     )

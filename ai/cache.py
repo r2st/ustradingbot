@@ -23,6 +23,8 @@ from typing import Any, Dict, Optional
 
 import structlog
 
+from config.settings import EASTERN
+
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 
@@ -77,7 +79,7 @@ class AICache:
         except (KeyError, ValueError, TypeError):
             return None
 
-        if datetime.now() - cached_at > self.ttl:
+        if datetime.now(tz=EASTERN) - cached_at > self.ttl:
             self._log.debug("ai_cache.expired", symbol=symbol, strategy=strategy)
             return None
 
@@ -106,7 +108,7 @@ class AICache:
         self._store[self._key(symbol, strategy)] = {
             "decision": decision,
             "reasoning": reasoning,
-            "cached_at": datetime.now().isoformat(),
+            "cached_at": datetime.now(tz=EASTERN).isoformat(),
         }
         self._save()
 

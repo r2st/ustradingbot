@@ -543,7 +543,7 @@ class RiskManager:
             "ai_decision": order.ai_decision,
             "ai_reasoning": order.ai_reasoning,
             "ai_cost_usd": order.ai_cost_usd,
-            "entry_time": datetime.now().isoformat(),
+            "entry_time": datetime.now(tz=_ET).isoformat(),
         }
         self._save_positions()
         self._log.info(
@@ -592,7 +592,7 @@ class RiskManager:
                 "symbol": symbol,
                 "exit_reason": exit_event.exit_reason.value,
                 "exit_ts": (
-                    exit_event.exit_date or datetime.now()
+                    exit_event.exit_date or datetime.now(tz=_ET)
                 ).isoformat(),
                 "exit_price": exit_event.exit_price,
                 "pnl_gross": exit_event.pnl_gross,
@@ -983,7 +983,7 @@ class RiskManager:
             The remaining cooldown as a ``timedelta`` if the symbol is
             still blocked, or ``None`` if it is free to re-enter.
         """
-        now = datetime.now()
+        now = datetime.now(tz=_ET)
 
         # Walk the exit history in reverse to find the most recent exit
         # for this symbol.

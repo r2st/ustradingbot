@@ -11,9 +11,17 @@ import functools
 import os
 from pathlib import Path
 from typing import Any, ClassVar, Dict
+from zoneinfo import ZoneInfo
 
 from pydantic import Field, computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# ── Canonical timezone for the trading bot ────────────────────────────────
+# All user-facing timestamps (dashboard, journal, exports) and
+# market-hours logic should reference this single constant so there is
+# exactly one place to change if the deployment ever targets a different
+# exchange timezone.
+EASTERN = ZoneInfo("America/New_York")
 
 # ── Loose key files (keys/ directory) ───────────────────────────────────────
 # Some credentials are kept as loose files under ``keys/`` (gitignored) rather

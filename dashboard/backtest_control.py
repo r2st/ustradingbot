@@ -24,7 +24,7 @@ from typing import Any, Dict, List, Tuple
 import pandas as pd
 import structlog
 
-from config.settings import get_settings
+from config.settings import EASTERN, get_settings
 from config.universe import ALL_SYMBOLS
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -77,7 +77,7 @@ _lock = threading.Lock()
 
 def options() -> Dict[str, Any]:
     """Return the choices the backtest form needs (symbols, strategies, dates)."""
-    end = datetime.now().date()
+    end = datetime.now(tz=EASTERN).date()
     start = end - timedelta(days=365)
     return {
         "symbols": list(ALL_SYMBOLS),

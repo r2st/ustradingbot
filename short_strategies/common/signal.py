@@ -11,8 +11,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import partial
 from typing import Any, Dict, List
 
+from config.settings import EASTERN
 from signals.signal_types import Grade, Signal
 
 
@@ -43,7 +45,7 @@ class ShortSignal:
     stop_price: float
     target_price: float
     side: str = "SHORT"
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=partial(datetime.now, tz=EASTERN))
     filters_passed: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
 

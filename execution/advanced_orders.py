@@ -18,6 +18,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any, List, Optional, Tuple
 
+from config.settings import EASTERN
+
 
 def compute_scale_in_tranches(
     entry_price: float,
@@ -105,7 +107,7 @@ def is_expired(
     is treated as *not* expired (fail-safe — never silently drop an order we
     cannot time).
     """
-    now = now or datetime.now()
+    now = now or datetime.now(tz=EASTERN)
     if isinstance(placed_at, datetime):
         placed = placed_at
     else:

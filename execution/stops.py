@@ -35,7 +35,7 @@ from typing import Any, Dict, Optional
 
 import pandas as pd
 
-from config.settings import Settings
+from config.settings import EASTERN, Settings
 
 
 # ---------------------------------------------------------------------------
@@ -220,7 +220,7 @@ def compute_dynamic_stop(
         config: Resolved :class:`StopConfig` for the position's strategy.
         now: Reference time for the time-based mechanism (defaults to now).
     """
-    now = now or datetime.now()
+    now = now or datetime.now(tz=EASTERN)
 
     entry = _f(position.get("entry_price"))
     current_stop = _f(position.get("stop_price"))

@@ -27,7 +27,7 @@ from typing import Any, Dict, Optional
 
 import structlog
 
-from config.settings import Settings
+from config.settings import EASTERN, Settings
 from data.fetcher import fetch_current_price, fetch_ohlcv
 from execution.broker import Broker
 from execution.stops import compute_dynamic_stop, resolve_stop_config
@@ -369,7 +369,7 @@ class ExitManager:
                 symbol=symbol,
                 exit_price=round(price, 4),
                 exit_reason=reason,
-                exit_date=datetime.now(),
+                exit_date=datetime.now(tz=EASTERN),
                 pnl_gross=round(pnl, 2),
             )
         self._finalise_exit(event)
@@ -390,4 +390,4 @@ class ExitManager:
             entry_time = datetime.fromisoformat(str(ts))
         except (ValueError, TypeError):
             return None
-        return (datetime.now() - entry_time).total_seconds() / 86_400.0
+        return (datetime.now(tz=EASTERN) - entry_time).total_seconds() / 86_400.0

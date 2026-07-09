@@ -119,6 +119,8 @@ async def watchlist_monitor(_user: str = Depends(require_auth)):
     """
     import json as _json
     from datetime import datetime, timedelta
+
+    from config.settings import EASTERN
     from pathlib import Path
 
     from config.trade_selection import load_trade_selection
@@ -162,11 +164,13 @@ async def watchlist_monitor(_user: str = Depends(require_auth)):
         for s in (last_scan.get("signals") or [])
     }
     rejections = RejectedSignalLogger(str(data_dir)).get_recent_rejections(500)
-    cutoff = datetime.now() - timedelta(days=2)
+    cutoff = datetime.now(tz=EASTERN) - timedelta(days=2)
     rejection_by_symbol: Dict[str, dict] = {}
     for rec in rejections:  # oldest → newest, so later entries win
         try:
             ts = datetime.fromisoformat(str(rec.get("timestamp", "")))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=EASTERN)
         except (ValueError, TypeError):
             continue
         if ts < cutoff:

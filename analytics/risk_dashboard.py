@@ -35,6 +35,7 @@ from analytics.performance import (
     load_completed_trades,
     max_drawdown,
 )
+from config.settings import EASTERN
 from config.universe import get_sector
 
 
@@ -349,7 +350,7 @@ def pnl_breakdown(
     recent_months: int = 12,
 ) -> Dict[str, Any]:
     """Return realised P&L for today / this week / this month plus recent series."""
-    now = now or datetime.now()
+    now = now or datetime.now(tz=EASTERN)
     empty = {
         "today": 0.0, "week": 0.0, "month": 0.0,
         "daily": [], "weekly": [], "monthly": [],

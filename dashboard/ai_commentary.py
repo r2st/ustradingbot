@@ -832,7 +832,7 @@ class CommentaryEngine:
             ts = datetime.fromisoformat(str(gen))
         except ValueError:
             return None
-        now = datetime.now(tz=ts.tzinfo) if ts.tzinfo else datetime.now()
+        now = datetime.now(tz=ts.tzinfo) if ts.tzinfo else datetime.now(tz=ET)
         return max(0.0, (now - ts).total_seconds())
 
     def is_stale(self) -> bool:

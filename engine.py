@@ -819,7 +819,7 @@ class TradingEngine:
             rationale.get("criteria", []),
             quantity=quantity,
             entry_price=fill_price,
-            entry_time=datetime.now().isoformat(),
+            entry_time=datetime.now(tz=ET).isoformat(),
             bars=rationale.get("bars", []),
             indicators=rationale.get("indicators"),
         )
@@ -1224,10 +1224,13 @@ class TradingEngine:
             if both checks pass, and *reason* is ``"passed"`` or a
             descriptive rejection string.
         """
-        now = datetime.now()
+        now = datetime.now(tz=ET)
 
-        # 1. Age check.
-        age = now - sig.timestamp
+        # 1. Age check — ensure both sides are tz-aware for the delta.
+        sig_ts = sig.timestamp
+        if sig_ts.tzinfo is None:
+            sig_ts = sig_ts.replace(tzinfo=ET)
+        age = now - sig_ts
         max_age = timedelta(minutes=self.settings.SIGNAL_MAX_AGE_MINUTES)
         if age > max_age:
             age_minutes = age.total_seconds() / 60.0

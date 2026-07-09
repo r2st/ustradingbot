@@ -38,7 +38,7 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from analytics.performance import analyze_journal
-from config.settings import Settings, get_settings, momentum_weights, swing_weights
+from config.settings import EASTERN, Settings, get_settings, momentum_weights, swing_weights
 from config.universe import ALL_SYMBOLS, CA_WATCHLIST, US_WATCHLIST
 from fastapi.templating import Jinja2Templates
 from signals.signal_types import Grade
@@ -96,7 +96,7 @@ def _build_system_status() -> Dict[str, Any]:
         "us_symbols": len(US_WATCHLIST),
         "ca_symbols": len(CA_WATCHLIST),
         "total_symbols": len(ALL_SYMBOLS),
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "timestamp": datetime.now(tz=EASTERN).strftime("%Y-%m-%d %H:%M:%S %Z"),
     }
 
 
@@ -345,7 +345,7 @@ def _paper_today_pnl(data_dir: Path) -> float:
     if df.empty or "exit_time" not in df.columns or "pnl_net" not in df.columns:
         return 0.0
     exits = pd.to_datetime(df["exit_time"], errors="coerce")
-    mask = exits.dt.date == datetime.now().date()
+    mask = exits.dt.date == datetime.now(tz=EASTERN).date()
     return float(pd.to_numeric(df.loc[mask, "pnl_net"], errors="coerce").fillna(0).sum())
 
 
@@ -598,7 +598,7 @@ async def health():
         "status": "ok",
         "trading_mode": settings.TRADING_MODE,
         "broker": settings.BROKER,
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now(tz=EASTERN).isoformat(),
     }
 
 

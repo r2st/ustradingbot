@@ -11,7 +11,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from functools import partial
 from typing import Any, Dict, Optional
+
+from config.settings import EASTERN
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +152,7 @@ class Signal:
 
     # --- metadata ----------------------------------------------------------
     raw_data: Dict[str, Any] = field(default_factory=dict)
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=partial(datetime.now, tz=EASTERN))
 
     # --- derived helpers ---------------------------------------------------
 

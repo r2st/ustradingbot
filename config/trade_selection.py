@@ -39,6 +39,8 @@ from pathlib import Path
 from threading import RLock
 from typing import Any, Dict, List
 
+from config.settings import EASTERN
+
 #: Long strategy keys the engine understands (mirrors signals.screener).
 LONG_STRATEGIES = (
     "vcp_breakout",
@@ -232,7 +234,7 @@ def _normalize(payload: Dict[str, Any], strict: bool = True) -> TradeSelection:
         symbols=symbols,
         strategies=strategies,
         min_grade=min_grade,
-        updated_at=datetime.now().isoformat(timespec="seconds"),
+        updated_at=datetime.now(tz=EASTERN).isoformat(timespec="seconds"),
     )
 
 

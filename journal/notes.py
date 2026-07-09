@@ -23,6 +23,8 @@ from pathlib import Path
 from threading import RLock
 from typing import Dict, List, Optional
 
+from config.settings import EASTERN
+
 _FILENAME = "trade_notes.json"
 _TAG_RE = re.compile(r"[^a-z0-9_\-]+")
 
@@ -126,7 +128,7 @@ class TradeNotesStore:
             if tags is not None:
                 cleaned = [normalize_tag(t) for t in tags if normalize_tag(t)]
                 existing.tags = sorted(dict.fromkeys(cleaned))
-            existing.updated_at = (now or datetime.now()).isoformat(timespec="seconds")
+            existing.updated_at = (now or datetime.now(tz=EASTERN)).isoformat(timespec="seconds")
             self._notes[tid] = existing
             self._save()
             return existing

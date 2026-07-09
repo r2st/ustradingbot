@@ -19,6 +19,8 @@ from typing import Callable, Dict, List, Optional
 
 import structlog
 
+from config.settings import EASTERN
+
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _WEEKDAYS = {
@@ -140,7 +142,7 @@ class SimpleScheduler:
     def _run(self) -> None:
         while not self._stop.is_set():
             try:
-                self.tick(datetime.now())
+                self.tick(datetime.now(tz=EASTERN))
             except Exception as exc:  # noqa: BLE001
                 self._log.warning("scheduler.tick_failed", error=str(exc))
             self._stop.wait(self._poll)

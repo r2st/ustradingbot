@@ -18,6 +18,8 @@ from typing import Optional
 
 import structlog
 
+from config.settings import EASTERN
+
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 
@@ -41,7 +43,7 @@ def build_report(settings, period: str = "daily", now: Optional[datetime] = None
     Reads ``DATA_DIR/trades.csv`` and composes a text summary.  Never raises —
     returns a minimal report if the journal cannot be read.
     """
-    now = now or datetime.now()
+    now = now or datetime.now(tz=EASTERN)
     period = period.lower()
     label = "Weekly" if period == "weekly" else "Daily"
     data_dir = Path(settings.DATA_DIR)
