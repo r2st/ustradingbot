@@ -16,12 +16,14 @@ files under ``settings.DATA_DIR`` so the bot can resume after a restart.
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import tempfile
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Generator, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 import structlog
@@ -121,6 +123,7 @@ class RiskManager:
         # Exit history: list of dicts with symbol, exit_reason, exit_ts
         self._exit_history: List[Dict[str, Any]] = self._load_exit_history()
 
+        self._lock_path = self._data_dir / ".open_positions.lock"
         self._log = log.bind(component="RiskManager")
         self._log.info(
             "risk_manager.initialised",
@@ -129,6 +132,25 @@ class RiskManager:
             daily_pnl=round(self._daily_pnl, 2),
             pnl_date=self._pnl_date,
         )
+
+    @contextmanager
+    def _file_lock(self) -> Generator[None, None, None]:
+        """Acquire an exclusive file lock to prevent TOCTOU races.
+
+        The lock file lives alongside open_positions.json.  On platforms
+        without ``fcntl`` (Windows) the lock is a no-op so the bot still
+        starts — the worst case is the same race window that existed before.
+        """
+        try:
+            fd = os.open(str(self._lock_path), os.O_CREAT | os.O_RDWR)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX)
+                yield
+            finally:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+                os.close(fd)
+        except (OSError, AttributeError):
+            yield  # graceful fallback if locking is unavailable
 
     # -------------------------------------------------------------- pre_check
 
@@ -769,44 +791,73 @@ class RiskManager:
             return data
         except (json.JSONDecodeError, OSError) as exc:
             log.error("load_positions.failed", path=str(path), error=str(exc))
+            # Attempt restore from backup before silently dropping all positions.
+            backup = path.with_suffix(".json.bak")
+            if backup.exists():
+                try:
+                    data = json.loads(backup.read_text(encoding="utf-8"))
+                    if isinstance(data, dict):
+                        log.warning(
+                            "load_positions.restored_from_backup",
+                            positions=len(data),
+                        )
+                        return data
+                except Exception as bak_exc:  # noqa: BLE001
+                    log.error(
+                        "load_positions.backup_also_corrupt", error=str(bak_exc)
+                    )
+            log.critical(
+                "load_positions.starting_empty_after_corruption",
+                path=str(path),
+            )
             return {}
 
     def _save_positions(self) -> None:
-        """Persist open positions to JSON using atomic write.
+        """Persist open positions to JSON using atomic write with file locking.
 
         Writes to a temporary file in the same directory, then renames
         to the target path.  This prevents corruption from crashes
-        during write.
+        during write.  A backup of the previous state is kept so a
+        corrupt write doesn't silently lose all position data.
         """
         target = self._data_dir / "open_positions.json"
-        try:
-            fd, tmp_path = tempfile.mkstemp(
-                dir=str(self._data_dir),
-                prefix=".open_positions_",
-                suffix=".tmp",
-            )
-            try:
-                with os.fdopen(fd, "w", encoding="utf-8") as f:
-                    json.dump(self._positions, f, indent=2, default=str)
-                # Record the signature from the temp file: the rename below
-                # preserves the inode, so the target inherits exactly this
-                # mtime/size and our own write never registers as external.
-                st = os.stat(tmp_path)
-                os.replace(tmp_path, str(target))
-                self._positions_file_sig = (st.st_mtime_ns, st.st_size)
-            except BaseException:
-                # Clean up the temp file on any failure
+        with self._file_lock():
+            # Create a backup before overwriting.
+            if target.exists():
+                backup = target.with_suffix(".json.bak")
                 try:
-                    os.unlink(tmp_path)
+                    import shutil
+                    shutil.copy2(str(target), str(backup))
                 except OSError:
-                    pass
-                raise
-        except OSError as exc:
-            self._log.error(
-                "save_positions.failed",
-                path=str(target),
-                error=str(exc),
-            )
+                    pass  # best-effort backup
+            try:
+                fd, tmp_path = tempfile.mkstemp(
+                    dir=str(self._data_dir),
+                    prefix=".open_positions_",
+                    suffix=".tmp",
+                )
+                try:
+                    with os.fdopen(fd, "w", encoding="utf-8") as f:
+                        json.dump(self._positions, f, indent=2, default=str)
+                    # Record the signature from the temp file: the rename below
+                    # preserves the inode, so the target inherits exactly this
+                    # mtime/size and our own write never registers as external.
+                    st = os.stat(tmp_path)
+                    os.replace(tmp_path, str(target))
+                    self._positions_file_sig = (st.st_mtime_ns, st.st_size)
+                except BaseException:
+                    # Clean up the temp file on any failure
+                    try:
+                        os.unlink(tmp_path)
+                    except OSError:
+                        pass
+                    raise
+            except OSError as exc:
+                self._log.error(
+                    "save_positions.failed",
+                    path=str(target),
+                    error=str(exc),
+                )
 
     def _load_daily_pnl(self) -> Tuple[float, str]:
         """Load the persisted daily P&L, honouring the trading-day boundary.

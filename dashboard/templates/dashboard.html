@@ -3413,7 +3413,7 @@
           '<div class="stat-cards">' + st.map(function (r) {
             var name = _SEL_STRATEGY_LABELS[r.strategy || r.key] || r.strategy || r.key;
             var pnl = r.total_pnl != null ? r.total_pnl : 0;
-            return '<div class="stat-card"><div class="label">' + esc(name) + '</div>' +
+            return '<div class="stat-card"><div class="label" style="font-size:0.65em;color:#999;letter-spacing:0.05em;">BACKTEST</div><div class="label">' + esc(name) + '</div>' +
               '<div class="value small ' + (pnl >= 0 ? "pnl-pos" : "pnl-neg") + '">$' +
               Number(pnl).toFixed(0) + '</div><div class="label">' +
               (r.trades != null ? r.trades : "?") + " trades · " +

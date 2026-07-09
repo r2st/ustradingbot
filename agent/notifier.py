@@ -39,14 +39,18 @@ class TelegramNotifier:
     def enabled(self) -> bool:
         return self._enabled
 
-    async def send(self, text: str) -> None:
-        """Send a raw message (Markdown).  No-op when disabled."""
+    async def send(self, text: str) -> bool:
+        """Send a raw message (Markdown).  No-op when disabled.
+
+        Returns ``True`` if the message was delivered successfully,
+        ``False`` on any failure (including disabled state).
+        """
         if not self._enabled:
-            return
+            return False
         url = f"https://api.telegram.org/bot{self._token}/sendMessage"
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
-                await client.post(
+                resp = await client.post(
                     url,
                     json={
                         "chat_id": self._chat_id,
@@ -55,13 +59,29 @@ class TelegramNotifier:
                         "disable_web_page_preview": True,
                     },
                 )
+            if resp.status_code != 200:
+                self._log.warning(
+                    "telegram.send_http_error",
+                    status=resp.status_code,
+                    body=resp.text[:200],
+                )
+                return False
+            data = resp.json()
+            if not data.get("ok"):
+                self._log.warning(
+                    "telegram.send_api_error",
+                    description=data.get("description", "unknown"),
+                )
+                return False
+            return True
         except Exception as exc:  # noqa: BLE001 -- never break the loop
             self._log.warning("telegram.send_failed", error=str(exc))
+            return False
 
-    async def notify_entry(self, order: TradeOrder, fill_price: float) -> None:
-        """Announce a new position."""
+    async def notify_entry(self, order: TradeOrder, fill_price: float) -> bool:
+        """Announce a new position.  Returns ``True`` on success."""
         sig = order.signal
-        await self.send(
+        return await self.send(
             f"🟢 *ENTRY* `{sig.symbol}` ({sig.strategy})\n"
             f"Grade {sig.grade.value} · score {sig.signal_strength:.2f}\n"
             f"Qty {order.quantity} @ {fill_price:.2f} {order.currency}\n"
@@ -69,10 +89,10 @@ class TelegramNotifier:
             f"AI: {order.ai_decision}"
         )
 
-    async def notify_exit(self, event: ExitEvent) -> None:
-        """Announce a closed position."""
+    async def notify_exit(self, event: ExitEvent) -> bool:
+        """Announce a closed position.  Returns ``True`` on success."""
         emoji = "✅" if event.pnl_gross >= 0 else "🔴"
-        await self.send(
+        return await self.send(
             f"{emoji} *EXIT* `{event.symbol}` — {event.exit_reason.value}\n"
             f"@ {event.exit_price:.2f} · P&L {event.pnl_gross:+.2f}"
         )

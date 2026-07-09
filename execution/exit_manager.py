@@ -93,6 +93,7 @@ class ExitManager:
 
     def manage_exits(self) -> ExitSummary:
         """Run all four exit checks in order and return a summary."""
+        self._reconcile_stores()
         self._events: list = []
         summary = ExitSummary()
         summary.broker_exits = self._check_broker_exits()
@@ -101,6 +102,34 @@ class ExitManager:
         summary.trails_updated = self._check_dynamic_stops()
         summary.events = list(self._events)
         return summary
+
+    def _reconcile_stores(self) -> None:
+        """Log warnings when the risk manager and broker position sets diverge.
+
+        The risk manager (``open_positions.json``) and the broker
+        (``paper_broker.json`` or IBKR ``_brackets``) track positions
+        independently.  If they diverge — one has a symbol the other doesn't —
+        it means a past exit or entry partially failed.  This check runs at the
+        top of every exit sweep so the operator is alerted quickly.
+        """
+        risk_symbols = set(self._risk.get_open_positions().keys())
+        broker_symbols = set(self._broker.get_positions().keys())
+        only_risk = risk_symbols - broker_symbols
+        only_broker = broker_symbols - risk_symbols
+        if only_risk:
+            self._log.warning(
+                "exit.reconcile_divergence",
+                only_in_risk_manager=sorted(only_risk),
+                detail="These positions are tracked by the risk manager but "
+                       "not by the broker — they may lack stop-loss protection.",
+            )
+        if only_broker:
+            self._log.warning(
+                "exit.reconcile_divergence",
+                only_in_broker=sorted(only_broker),
+                detail="These positions are tracked by the broker but not by "
+                       "the risk manager — they won't count toward limits.",
+            )
 
     # --------------------------------------------------- 1. broker exits
 
@@ -175,6 +204,10 @@ class ExitManager:
             current = fetch_current_price(symbol)
             entry = float(pos.get("entry_price", 0) or 0)
             if current is None or entry <= 0:
+                if current is None:
+                    self._log.warning(
+                        "exit.time_check_skipped_no_price", symbol=symbol
+                    )
                 continue
             # Direction-aware unrealised move: a short profits as price falls.
             is_short = self._is_short(pos)
@@ -223,6 +256,10 @@ class ExitManager:
                 continue
             df = fetch_ohlcv(symbol)
             if df is None or len(df) < self._settings.MIN_OHLCV_ROWS:
+                if df is None:
+                    self._log.warning(
+                        "exit.health_check_skipped_no_data", symbol=symbol
+                    )
                 continue
             strategy = pos.get("strategy", "momentum")
 
@@ -254,7 +291,8 @@ class ExitManager:
         per-strategy configuration overrides.  Each mechanism only ever raises
         the stop, and the highest (most protective) candidate wins.
         """
-        if not self._settings.ENABLE_PARTIAL_TAKE_TRAIL:
+        if not (self._settings.ENABLE_DYNAMIC_STOPS
+                and self._settings.ENABLE_PARTIAL_TAKE_TRAIL):
             return 0
         count = 0
         for symbol, pos in list(self._risk.get_open_positions().items()):
@@ -267,6 +305,10 @@ class ExitManager:
                 continue
             df = fetch_ohlcv(symbol, period="3mo")
             if df is None or len(df) < 20:
+                if df is None:
+                    self._log.warning(
+                        "exit.dynamic_stop_skipped_no_data", symbol=symbol
+                    )
                 continue
             config = resolve_stop_config(
                 self._settings, str(pos.get("strategy", "momentum"))

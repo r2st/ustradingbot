@@ -21,13 +21,15 @@ reality (mirroring the IBKR-is-source-of-truth invariant from the design doc).
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass, field as dc_field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Protocol
+from typing import Any, Dict, Generator, List, Optional, Protocol
 
 import structlog
 
@@ -430,6 +432,8 @@ class PaperBroker:
         self._data_dir = Path(settings.DATA_DIR)
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._path = self._data_dir / "paper_broker.json"
+        self._lock_path = self._data_dir / ".paper_broker.lock"
+        self._log = log.bind(component="PaperBroker")
         loaded = self._load()
         self._positions: Dict[str, _PaperPosition] = loaded[0]
         # Resting entry orders keyed by symbol (a list, since scale-in places
@@ -437,7 +441,20 @@ class PaperBroker:
         self._pending: Dict[str, List[_PendingOrder]] = loaded[1]
         self._order_seq = self._max_order_seq()
         self._state_sig = self._file_signature()
-        self._log = log.bind(component="PaperBroker")
+
+    @contextmanager
+    def _file_lock(self) -> Generator[None, None, None]:
+        """Acquire an exclusive file lock to prevent TOCTOU races."""
+        try:
+            fd = os.open(str(self._lock_path), os.O_CREAT | os.O_RDWR)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX)
+                yield
+            finally:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+                os.close(fd)
+        except (OSError, AttributeError):
+            yield  # graceful fallback
 
     # ------------------------------------------------- cross-process state
     #
@@ -953,6 +970,14 @@ class PaperBroker:
         if bar is None:
             return [], False
         bar_open, bar_low, bar_high = bar
+
+        # Supplement the daily bar with real-time price so level exits trigger
+        # even when the OHLCV data is stale.
+        current = fetch_current_price(pos.symbol)
+        if current is not None:
+            bar_low = min(bar_low, current)
+            bar_high = max(bar_high, current)
+
         slip = self._settings.PAPER_SLIPPAGE_BPS
         is_long = pos.side != "short"
 
@@ -1009,11 +1034,22 @@ class PaperBroker:
         then partial-take (does not close), then full target (closes).
         Side-aware: a short's stop is a buy-stop hit by the bar HIGH, and its
         target/partial-take are buy-to-cover limits hit by the bar LOW.
+
+        The stop check uses BOTH the daily bar low/high AND the current
+        real-time price, so a stop is triggered even when the daily OHLCV bar
+        hasn't updated yet (fixes the "HD stop-loss miss" bug).
         """
         bar = self._latest_bar(pos.symbol)
         if bar is None:
             return None
         bar_open, bar_low, bar_high = bar
+
+        # Supplement the daily bar with the current real-time price so stops
+        # trigger even when the OHLCV data is stale or hasn't updated yet.
+        current = fetch_current_price(pos.symbol)
+        if current is not None:
+            bar_low = min(bar_low, current)
+            bar_high = max(bar_high, current)
 
         slippage_bps = self._settings.PAPER_SLIPPAGE_BPS
         is_long = pos.side != "short"
@@ -1177,7 +1213,41 @@ class PaperBroker:
                 for s, orders in raw.get("pending", {}).items()
             }
             return positions, pending
-        except (json.JSONDecodeError, OSError, KeyError, TypeError):
+        except (json.JSONDecodeError, OSError, KeyError, TypeError) as exc:
+            # Corrupt state file — attempt to restore from backup before
+            # falling back to an empty state (which would silently drop all
+            # stop-loss protection).
+            self._log.error(
+                "paper_broker.load_corrupt",
+                path=str(self._path),
+                error=str(exc),
+            )
+            backup = self._path.with_suffix(".json.bak")
+            if backup.exists():
+                try:
+                    raw = json.loads(backup.read_text(encoding="utf-8"))
+                    positions = {
+                        s: _PaperPosition.from_dict(d)
+                        for s, d in raw.get("positions", {}).items()
+                    }
+                    pending = {
+                        s: [_PendingOrder.from_dict(o) for o in orders]
+                        for s, orders in raw.get("pending", {}).items()
+                    }
+                    self._log.warning(
+                        "paper_broker.restored_from_backup",
+                        positions=len(positions),
+                        pending=len(pending),
+                    )
+                    return positions, pending
+                except Exception as bak_exc:  # noqa: BLE001
+                    self._log.error(
+                        "paper_broker.backup_also_corrupt", error=str(bak_exc)
+                    )
+            self._log.critical(
+                "paper_broker.starting_empty_after_corruption",
+                path=str(self._path),
+            )
             return {}, {}
 
     def _save(self) -> None:
@@ -1189,25 +1259,36 @@ class PaperBroker:
             },
             "saved_at": datetime.now().isoformat(),
         }
-        try:
-            fd, tmp = tempfile.mkstemp(
-                dir=str(self._data_dir), prefix=".paper_broker_", suffix=".tmp"
-            )
+        with self._file_lock():
             try:
-                with os.fdopen(fd, "w", encoding="utf-8") as f:
-                    json.dump(payload, f, indent=2, default=str)
-                os.replace(tmp, str(self._path))
-                # Our own write is not a foreign change — adopt its signature
-                # so the next _maybe_reload keeps the in-memory state.
-                self._state_sig = self._file_signature()
-            except BaseException:
+                # Create a backup of the current file before overwriting so a
+                # corrupt write doesn't silently lose all position data.
+                if self._path.exists():
+                    backup = self._path.with_suffix(".json.bak")
+                    try:
+                        import shutil
+                        shutil.copy2(str(self._path), str(backup))
+                    except OSError:
+                        pass  # best-effort backup
+
+                fd, tmp = tempfile.mkstemp(
+                    dir=str(self._data_dir), prefix=".paper_broker_", suffix=".tmp"
+                )
                 try:
-                    os.unlink(tmp)
-                except OSError:
-                    pass
-                raise
-        except OSError as exc:
-            self._log.error("paper_broker.save_failed", error=str(exc))
+                    with os.fdopen(fd, "w", encoding="utf-8") as f:
+                        json.dump(payload, f, indent=2, default=str)
+                    os.replace(tmp, str(self._path))
+                    # Our own write is not a foreign change — adopt its signature
+                    # so the next _maybe_reload keeps the in-memory state.
+                    self._state_sig = self._file_signature()
+                except BaseException:
+                    try:
+                        os.unlink(tmp)
+                    except OSError:
+                        pass
+                    raise
+            except OSError as exc:
+                self._log.error("paper_broker.save_failed", error=str(exc))
 
 
 # ---------------------------------------------------------------------------
@@ -1332,6 +1413,7 @@ class IBKRBroker:
                 "entry_price": round(entry_price, 4),
                 "stop_price": round(stop_price, 2),
                 "target_price": round(target_price, 2),
+                "side": str(side).lower(),
                 "parent_trade": trades[0],
                 "target_trade": trades[1] if len(trades) > 1 else None,
                 "stop_trade": trades[2] if len(trades) > 2 else None,
@@ -1398,6 +1480,15 @@ class IBKRBroker:
             from ib_insync import LimitOrder  # type: ignore
 
             order = LimitOrder("SELL", take_qty, round(pt_price, 2))
+            # Place the partial-take in the same OCA group as the bracket's
+            # stop and target legs so it auto-cancels when a bracket leg fills.
+            stop_trade = bracket.get("stop_trade")
+            oca_group = getattr(
+                getattr(stop_trade, "order", None), "ocaGroup", ""
+            )
+            if oca_group:
+                order.ocaGroup = oca_group
+                order.ocaType = 1  # cancel remaining on fill
             trade = self._ib.placeOrder(bracket["contract"], order)
         except Exception as exc:  # noqa: BLE001
             self._log.warning("ibkr.partial_arm_failed", symbol=symbol, error=str(exc))
@@ -1609,6 +1700,7 @@ class IBKRBroker:
             "entry_price": round(fill_price, 4),
             "stop_price": entry["stop_price"],
             "target_price": entry["target_price"],
+            "side": entry.get("side", "long"),
             "parent_trade": entry.get("entry_trade"),
             "target_trade": target,
             "stop_trade": stop,
@@ -1671,6 +1763,7 @@ class IBKRBroker:
             return None
         exit_price = fill_price or float(bracket.get("partial_take_price", 0.0))
         entry = float(bracket["entry_price"])
+        side = str(bracket.get("side", "long"))
         bracket["partial_taken"] = True
         bracket["quantity"] = max(0, int(bracket["quantity"]) - take_qty)
         self._log.info(
@@ -1681,7 +1774,7 @@ class IBKRBroker:
             exit_price=round(exit_price, 4),
             exit_reason=ExitReason.PARTIAL_TAKE,
             exit_date=datetime.now(),
-            pnl_gross=round((exit_price - entry) * take_qty, 2),
+            pnl_gross=round(position_pnl(side, entry, exit_price, take_qty), 2),
             fill_details={"quantity": take_qty, "partial": True},
         )
 
@@ -1702,6 +1795,7 @@ class IBKRBroker:
             exit_price = fill_price or float(bracket[price_key])
             entry = float(bracket["entry_price"])
             qty = int(bracket["quantity"])
+            side = str(bracket.get("side", "long"))
             self._cancel_sibling(bracket, leg_key)
             self._log.info(
                 "ibkr.exit_detected",
@@ -1714,7 +1808,7 @@ class IBKRBroker:
                 exit_price=round(exit_price, 4),
                 exit_reason=reason,
                 exit_date=datetime.now(),
-                pnl_gross=round((exit_price - entry) * qty, 2),
+                pnl_gross=round(position_pnl(side, entry, exit_price, qty), 2),
                 fill_details={
                     "order_id": str(getattr(getattr(trade, "order", None), "orderId", "")),
                     "quantity": qty,
@@ -1750,10 +1844,13 @@ class IBKRBroker:
     # ------------------------------------------------------------- modify stop
 
     def modify_stop(self, symbol: str, new_stop: float) -> bool:
-        """Ratchet the stop-loss leg upward (never down).
+        """Ratchet the stop-loss leg protectively per side.
+
+        A long stop only moves UP; a short's buy-stop only moves DOWN.
+        Either way protection never loosens.
 
         The existing stop order is re-placed with the same ``orderId`` and a
-        higher ``auxPrice``.  Re-placing (rather than cancel-then-new) is the
+        new ``auxPrice``.  Re-placing (rather than cancel-then-new) is the
         idiomatic ib_insync modification and avoids leaving the position
         unprotected in the window between a cancel and a fresh placement.
         """
@@ -1763,7 +1860,12 @@ class IBKRBroker:
         if bracket is None:
             return False
         new_stop = round(new_stop, 2)
-        if new_stop <= float(bracket["stop_price"]):
+        side = str(bracket.get("side", "long"))
+        if side == "short":
+            # Short's buy-stop moves DOWN (more protective).
+            if new_stop >= float(bracket["stop_price"]) or new_stop <= 0:
+                return False
+        elif new_stop <= float(bracket["stop_price"]):
             return False
         stop_trade = bracket.get("stop_trade")
         order = getattr(stop_trade, "order", None)
@@ -1782,24 +1884,54 @@ class IBKRBroker:
     # ------------------------------------------------------------- force close
 
     def force_close(self, symbol: str, reason: ExitReason) -> Optional[ExitEvent]:
-        """Cancel the resting bracket legs and market-sell the position."""
+        """Cancel the resting bracket legs and market-sell the position.
+
+        Waits for cancel confirmations before sending the market order to
+        prevent a race where a bracket leg fills between cancel and sell,
+        which could create an unintended short position.
+        """
         if self._ib is None:
             return None
         bracket = self._brackets.get(symbol)
         if bracket is None:
             return None
-        # Cancel both resting legs first so the market order is the only exit.
-        for leg_key in ("stop_trade", "target_trade"):
+        side = str(bracket.get("side", "long"))
+
+        # Cancel both resting legs and wait for confirmation so no fill
+        # sneaks in between the cancel and the closing market order.
+        for leg_key in ("stop_trade", "target_trade", "partial_trade"):
             trade = bracket.get(leg_key)
-            if trade is not None:
-                try:
-                    self._ib.cancelOrder(trade.order)
-                except Exception as exc:  # noqa: BLE001
-                    self._log.warning("ibkr.cancel_leg_failed", error=str(exc))
+            if trade is None:
+                continue
+            try:
+                self._ib.cancelOrder(trade.order)
+            except Exception as exc:  # noqa: BLE001
+                self._log.warning("ibkr.cancel_leg_failed", error=str(exc))
+        # Allow 0.5s for IBKR to process the cancels before placing the
+        # closing order; ib_insync processes events synchronously in sleep.
+        try:
+            self._ib.sleep(0.5)
+        except Exception:  # noqa: BLE001
+            pass
+
+        # Verify no bracket leg filled during the cancel window.
+        for leg_key in ("stop_trade", "target_trade"):
+            filled, _ = self._leg_fill(bracket.get(leg_key))
+            if filled:
+                self._log.warning(
+                    "ibkr.force_close_leg_filled_during_cancel",
+                    symbol=symbol,
+                    leg=leg_key,
+                )
+                del self._brackets[symbol]
+                return None  # let poll_exits pick up the fill
+
+        # Determine the closing action based on position side.
+        close_action = "BUY" if side == "short" else "SELL"
         try:
             from ib_insync import MarketOrder  # type: ignore
 
-            order = MarketOrder("SELL", int(bracket["quantity"]))
+            order = MarketOrder(close_action, int(bracket["quantity"]))
             trade = self._ib.placeOrder(bracket["contract"], order)
         except Exception as exc:  # noqa: BLE001
             self._log.error("ibkr.force_close_failed", symbol=symbol, error=str(exc))
@@ -1823,7 +1955,7 @@ class IBKRBroker:
             exit_price=round(fill_price, 4),
             exit_reason=reason,
             exit_date=datetime.now(),
-            pnl_gross=round((fill_price - entry) * qty, 2),
+            pnl_gross=round(position_pnl(side, entry, fill_price, qty), 2),
             fill_details={"quantity": qty},
         )
 

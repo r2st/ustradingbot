@@ -84,6 +84,9 @@ class _FakeRisk:
     def __init__(self):
         self.registered = []
 
+    def pre_check(self, signal):
+        return True, ""
+
     def register_position(self, order, fill_price):
         self.registered.append((order.signal.symbol, fill_price))
 

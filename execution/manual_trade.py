@@ -251,13 +251,20 @@ def place_manual_trade(
     if trade_logger is None:
         from journal.trade_logger import TradeLogger
 
-        trade_logger = TradeLogger(str(settings.DATA_DIR))
+        trade_logger = TradeLogger(str(settings.DATA_DIR), trading_mode=settings.TRADING_MODE)
     if risk_manager is None:
         from risk.manager import RiskManager
 
         risk_manager = RiskManager(settings)
 
     sig = order.signal
+
+    # Run risk management pre-checks (position limits, daily loss, cooldowns,
+    # R:R) so manual trades cannot bypass safety guardrails.
+    passed, reason = risk_manager.pre_check(sig)
+    if not passed:
+        return ManualTradeResult(False, f"Risk check failed: {reason}", sig.symbol)
+
     try:
         if not broker.is_connected():
             broker.connect()

@@ -186,8 +186,10 @@ def test_partial_take_trims_then_runs(settings: Settings, monkeypatch) -> None:
     assert detail["partial_take_price"] == pytest.approx(105.1, abs=0.2)
 
     # Bar reaches the partial target but not the final target -> partial take.
+    # Also mock fetch_current_price so the real-time stop check is consistent.
     monkeypatch.setattr("execution.broker.fetch_ohlcv",
                         lambda s, period="5d": _bar(104, 106, 103, 105))
+    monkeypatch.setattr("execution.broker.fetch_current_price", lambda s: 105.0)
     events = broker.poll_exits()
     assert len(events) == 1
     assert events[0].exit_reason == ExitReason.PARTIAL_TAKE
@@ -202,6 +204,7 @@ def test_partial_take_trims_then_runs(settings: Settings, monkeypatch) -> None:
     # Runner reaches the final target -> full close of remaining 5.
     monkeypatch.setattr("execution.broker.fetch_ohlcv",
                         lambda s, period="5d": _bar(129, 131, 128, 130))
+    monkeypatch.setattr("execution.broker.fetch_current_price", lambda s: 130.0)
     events = broker.poll_exits()
     assert len(events) == 1
     assert events[0].exit_reason == ExitReason.TARGET_HIT

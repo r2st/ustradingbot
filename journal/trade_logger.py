@@ -37,6 +37,7 @@ SCHEMA_COLUMNS: List[str] = [
     "symbol",
     "strategy",
     "direction",
+    "trading_mode",  # "PAPER" or "LIVE" — records the bot's mode at entry time
     # -- signal metadata --
     "signal_strength",
     "grade",
@@ -81,7 +82,7 @@ SCHEMA_COLUMNS: List[str] = [
 ]
 
 _NUM_COLUMNS = len(SCHEMA_COLUMNS)
-assert _NUM_COLUMNS == 37, f"Expected 37 columns, got {_NUM_COLUMNS}"
+assert _NUM_COLUMNS == 38, f"Expected 38 columns, got {_NUM_COLUMNS}"
 
 
 class TradeLogger:
@@ -95,17 +96,20 @@ class TradeLogger:
         csv_path: Absolute path to the ``trades.csv`` file.
     """
 
-    def __init__(self, data_dir: str) -> None:
+    def __init__(self, data_dir: str, trading_mode: str = "PAPER") -> None:
         """Initialise the trade logger.
 
         Creates the CSV file with headers if it does not exist.
 
         Args:
             data_dir: Directory where ``trades.csv`` will be stored.
+            trading_mode: ``"PAPER"`` or ``"LIVE"`` — recorded per trade so
+                paper and live results can be distinguished in analytics.
         """
         self._data_dir = Path(data_dir)
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self.csv_path: Path = self._data_dir / "trades.csv"
+        self._trading_mode = trading_mode
         self._log = log.bind(component="TradeLogger")
 
         if not self.csv_path.exists():
@@ -142,6 +146,7 @@ class TradeLogger:
             "symbol": signal.symbol,
             "strategy": signal.strategy,
             "direction": signal.direction,
+            "trading_mode": self._trading_mode,
             "signal_strength": round(signal.signal_strength, 4),
             "grade": signal.grade.value,
             "rsi_value": round(signal.rsi_value, 2),

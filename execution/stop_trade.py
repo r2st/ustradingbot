@@ -107,7 +107,7 @@ def stop_open_position(
     if trade_logger is None:
         from journal.trade_logger import TradeLogger
 
-        trade_logger = TradeLogger(str(settings.DATA_DIR))
+        trade_logger = TradeLogger(str(settings.DATA_DIR), trading_mode=settings.TRADING_MODE)
 
     try:
         risk_manager.sync_positions_from_disk()

@@ -183,11 +183,11 @@ class AlertManager:
         results: Dict[str, bool] = {}
         if "telegram" in channels and self.telegram.enabled:
             if telegram_coro is not None:
-                await telegram_coro
+                tg_ok = await telegram_coro
                 telegram_coro = None
             else:
-                await self.telegram.send(text)
-            results["telegram"] = True
+                tg_ok = await self.telegram.send(text)
+            results["telegram"] = bool(tg_ok)
         if telegram_coro is not None:
             telegram_coro.close()  # telegram channel skipped for this event
         if "email" in channels and self.email.enabled:

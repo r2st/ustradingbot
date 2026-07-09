@@ -78,15 +78,19 @@ class _FakeTelegram:
 
     async def send(self, text):
         self.sent.append(("send", text))
+        return True
 
     async def notify_entry(self, order, fill_price):
         self.sent.append(("entry", order.signal.symbol))
+        return True
 
     async def notify_exit(self, event):
         self.sent.append(("exit", event.symbol))
+        return True
 
     async def notify_cycle(self, *args):
         self.sent.append(("cycle", args))
+        return True
 
 
 class _FakeEmail:

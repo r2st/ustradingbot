@@ -104,8 +104,14 @@ class Settings(BaseSettings):
     ORDER_CUTOFF_MINUTES_BEFORE_CLOSE: int = 5
     GHOST_POSITION_MAX_DEFER_HOURS: int = 48
 
-    # ── Partial-take / trailing stop ────────────────────────────────────────
-    ENABLE_PARTIAL_TAKE_TRAIL: bool = True
+    # ── Dynamic stop management ──────────────────────────────────────────────
+    # Master switch for ALL dynamic stop mechanisms (trailing, breakeven,
+    # time-based tightening).  ``ENABLE_PARTIAL_TAKE_TRAIL`` is the legacy
+    # name kept for backward compatibility; new deployments should use
+    # ``ENABLE_DYNAMIC_STOPS`` instead.  If either is explicitly set to
+    # ``False`` in the environment, dynamic stops are disabled.
+    ENABLE_DYNAMIC_STOPS: bool = True
+    ENABLE_PARTIAL_TAKE_TRAIL: bool = True  # legacy alias — prefer ENABLE_DYNAMIC_STOPS
 
     # ── Market hours (Eastern Time) ─────────────────────────────────────────
     MARKET_OPEN_HOUR: int = 9
@@ -283,7 +289,7 @@ class Settings(BaseSettings):
     # ~160 redundant Yahoo calls per scan cycle.  Current price is cached
     # briefly; OHLCV history (daily bars) is stable for far longer.
     PRICE_CACHE_TTL_SECONDS: float = 300.0  # 5 minutes
-    OHLCV_CACHE_TTL_SECONDS: float = 3600.0  # 1 hour
+    OHLCV_CACHE_TTL_SECONDS: float = 300.0  # 5 minutes (was 1 hour; reduced so stop-loss checks see fresh bar data)
     DATA_CACHE_ENABLED: bool = True
 
     # ── Dashboard quote service (monitoring F1) ─────────────────────────────

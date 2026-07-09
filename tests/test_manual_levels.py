@@ -113,6 +113,9 @@ class _FakeRisk:
     def __init__(self):
         self.registered = []
 
+    def pre_check(self, signal):
+        return True, ""
+
     def register_position(self, order, fill_price):
         self.registered.append((order.signal.symbol, fill_price))
 
@@ -190,6 +193,7 @@ def test_paper_long_partial_stop_then_full_stop(paper, monkeypatch):
 
     # Day 1: dips to 96.5 — only the first stop (97) triggers, partial exit.
     monkeypatch.setattr(broker_mod, "fetch_ohlcv", lambda *a, **k: _bar(99, 96.5, 100))
+    monkeypatch.setattr(broker_mod, "fetch_current_price", lambda s: 96.5)
     events = paper.poll_exits()
     assert len(events) == 1
     ev = events[0]
@@ -201,6 +205,7 @@ def test_paper_long_partial_stop_then_full_stop(paper, monkeypatch):
     # Day 2: crashes through 95 AND 92 — both remaining stops fire; the last
     # one empties the position and closes it as STOP_HIT.
     monkeypatch.setattr(broker_mod, "fetch_ohlcv", lambda *a, **k: _bar(94, 91, 94))
+    monkeypatch.setattr(broker_mod, "fetch_current_price", lambda s: 91.0)
     events = paper.poll_exits()
     assert [e.exit_reason for e in events] == [
         ExitReason.PARTIAL_TAKE, ExitReason.STOP_HIT,
@@ -212,6 +217,7 @@ def test_paper_long_targets_scale_out(paper, monkeypatch):
     _place_long(paper)
 
     monkeypatch.setattr(broker_mod, "fetch_ohlcv", lambda *a, **k: _bar(104, 103, 106))
+    monkeypatch.setattr(broker_mod, "fetch_current_price", lambda s: 104.0)
     events = paper.poll_exits()
     assert len(events) == 1
     assert events[0].exit_reason == ExitReason.PARTIAL_TAKE
@@ -219,6 +225,7 @@ def test_paper_long_targets_scale_out(paper, monkeypatch):
     assert events[0].pnl_gross == pytest.approx((105 - 100) * 29)
 
     monkeypatch.setattr(broker_mod, "fetch_ohlcv", lambda *a, **k: _bar(112, 111, 116))
+    monkeypatch.setattr(broker_mod, "fetch_current_price", lambda s: 112.0)
     events = paper.poll_exits()
     # 110 and 115 both reached: partial then the closing TARGET_HIT.
     assert [e.exit_reason for e in events] == [
@@ -232,6 +239,7 @@ def test_paper_stop_checked_before_target_same_bar(paper, monkeypatch):
     # Wild bar touching both the first stop and the first target: the stop
     # slice exits first (conservative), then the target slice for the rest.
     monkeypatch.setattr(broker_mod, "fetch_ohlcv", lambda *a, **k: _bar(100, 96.9, 105.1))
+    monkeypatch.setattr(broker_mod, "fetch_current_price", lambda s: 100.0)
     events = paper.poll_exits()
     assert events[0].exit_reason == ExitReason.PARTIAL_TAKE
     assert events[0].fill_details["level"].startswith("stop@97")
@@ -252,6 +260,7 @@ def test_paper_short_ladder(paper, monkeypatch):
 
     # Price falls to 94: first target (95) triggers — profit on a short.
     monkeypatch.setattr(broker_mod, "fetch_ohlcv", lambda *a, **k: _bar(96, 94, 97))
+    monkeypatch.setattr(broker_mod, "fetch_current_price", lambda s: 96.0)
     events = paper.poll_exits()
     assert len(events) == 1
     assert events[0].exit_reason == ExitReason.PARTIAL_TAKE
@@ -260,6 +269,7 @@ def test_paper_short_ladder(paper, monkeypatch):
     # Price rips to 106: the first stop's 30-share slice covers everything
     # that remains, so one STOP_HIT closes the short at a loss.
     monkeypatch.setattr(broker_mod, "fetch_ohlcv", lambda *a, **k: _bar(102, 101, 106))
+    monkeypatch.setattr(broker_mod, "fetch_current_price", lambda s: 102.0)
     events = paper.poll_exits()
     assert [e.exit_reason for e in events] == [ExitReason.STOP_HIT]
     assert events[0].exit_price == 103.0
@@ -275,6 +285,7 @@ def test_paper_short_stop_gap_through_fills_at_open(paper, monkeypatch):
                                [l.to_dict() for l in levels])
     # Gaps open above the stop: buy-to-cover fills at the (worse) open.
     monkeypatch.setattr(broker_mod, "fetch_ohlcv", lambda *a, **k: _bar(107, 106, 108))
+    monkeypatch.setattr(broker_mod, "fetch_current_price", lambda s: 107.0)
     events = paper.poll_exits()
     assert events[0].exit_reason == ExitReason.STOP_HIT
     assert events[0].exit_price == 107.0
@@ -283,6 +294,7 @@ def test_paper_short_stop_gap_through_fills_at_open(paper, monkeypatch):
 def test_paper_level_position_survives_restart(paper, settings, monkeypatch):
     _place_long(paper)
     monkeypatch.setattr(broker_mod, "fetch_ohlcv", lambda *a, **k: _bar(99, 96.5, 100))
+    monkeypatch.setattr(broker_mod, "fetch_current_price", lambda s: 96.5)
     paper.poll_exits()
 
     # A new broker instance over the same DATA_DIR restores the ladder state.

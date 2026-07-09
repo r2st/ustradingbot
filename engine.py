@@ -97,7 +97,7 @@ class TradingEngine:
 
         # Journals.  Rejections are mirrored into the activity feed via the
         # callback so the two logs stay in lockstep gate-for-gate.
-        self.trade_logger = TradeLogger(data_dir)
+        self.trade_logger = TradeLogger(data_dir, trading_mode=self.settings.TRADING_MODE)
         self.rejected_logger = RejectedSignalLogger(
             data_dir, on_rejection=self._on_rejection_activity
         )
