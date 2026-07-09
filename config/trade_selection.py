@@ -64,8 +64,18 @@ SHORT_STRATEGIES = (
     "short_laggard_fade",
 )
 
-#: Every strategy key selectable from the dashboard (long + short).
-VALID_STRATEGIES = LONG_STRATEGIES + SHORT_STRATEGIES
+#: Highly selective strategy keys (mirrors selective_strategies.strategies).
+SELECTIVE_STRATEGIES = (
+    "hs_rsi2_reversal",
+    "hs_triple_timeframe",
+    "hs_bb_climax",
+    "hs_pead_drift",
+    "hs_gap_fill",
+    "hs_turnaround_tuesday",
+)
+
+#: Every strategy key selectable from the dashboard (long + short + selective).
+VALID_STRATEGIES = LONG_STRATEGIES + SHORT_STRATEGIES + SELECTIVE_STRATEGIES
 
 #: Grades the engine will accept as a minimum (F would mean "trade anything").
 VALID_MIN_GRADES = ("A", "B", "C")

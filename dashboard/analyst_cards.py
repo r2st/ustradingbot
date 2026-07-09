@@ -126,6 +126,13 @@ STRATEGY_TAGS: Dict[str, str] = {
     "short_ma_crossunder": "Short position — average crossed down",
     "short_relative_weakness": "Short position — weakest in group",
     "short_laggard_fade": "Short position — sector laggard",
+    # Highly selective strategies
+    "hs_rsi2_reversal": "Selective — RSI-2 reversal at structure",
+    "hs_triple_timeframe": "Selective — triple-timeframe breakout",
+    "hs_bb_climax": "Selective — Bollinger climax reversal",
+    "hs_pead_drift": "Selective — post-earnings drift",
+    "hs_gap_fill": "Selective — statistical gap fade",
+    "hs_turnaround_tuesday": "Selective — Turnaround Tuesday",
 }
 
 

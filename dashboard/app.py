@@ -164,6 +164,81 @@ def _build_strategies() -> List[Dict[str, Any]]:
             "weights": swing_weights,
             "size_modifier": "50%",
         },
+        # ── Highly Selective strategies ──────────────────────────────────
+        {
+            "name": "RSI-2 Reversal",
+            "family": "selective",
+            "description": (
+                "Mean reversion at structural support/resistance when RSI(2) "
+                "hits an extreme (<5 or >95) with volume confirmation. "
+                "Requires trend filter + oscillator extreme + level "
+                "confluence + volume — all four rarely align."
+            ),
+            "max_positions": settings.MAX_SELECTIVE_POSITIONS,
+            "weights": swing_weights,
+            "size_modifier": "75% (selective risk budget)",
+        },
+        {
+            "name": "Triple-Timeframe Breakout",
+            "family": "selective",
+            "description": (
+                "Breakout requiring agreement across daily trend, 4H "
+                "consolidation structure, and 1H trigger bar — filters "
+                "for breakouts backed by genuine institutional participation. "
+                "Includes macro event blackout."
+            ),
+            "max_positions": settings.MAX_SELECTIVE_POSITIONS,
+            "weights": momentum_weights,
+            "size_modifier": "75% (selective risk budget)",
+        },
+        {
+            "name": "BB Climax Reversal",
+            "family": "selective",
+            "description": (
+                "Bollinger Band touch + volume/volatility climax (top 5% "
+                "volume) + reversal candle pattern + multi-day acceleration. "
+                "Designed to catch capitulation bottoms, not routine pullbacks."
+            ),
+            "max_positions": settings.MAX_SELECTIVE_POSITIONS,
+            "weights": swing_weights,
+            "size_modifier": "75% (selective risk budget)",
+        },
+        {
+            "name": "Post-Earnings Drift",
+            "family": "selective",
+            "description": (
+                "PEAD with volume-confirmed follow-through: large gap, "
+                "holds above open, 2x+ volume, strong close. Only fires "
+                "~4x/year per name (earnings season)."
+            ),
+            "max_positions": settings.MAX_SELECTIVE_POSITIONS,
+            "weights": momentum_weights,
+            "size_modifier": "75% (selective risk budget)",
+        },
+        {
+            "name": "Gap-Fill Fade",
+            "family": "selective",
+            "description": (
+                "Statistical gap fade on small-to-moderate gaps (0.3–1.0%) "
+                "with no macro event and indecisive opening candle. "
+                "Targets the prior close (gap fill)."
+            ),
+            "max_positions": settings.MAX_SELECTIVE_POSITIONS,
+            "weights": swing_weights,
+            "size_modifier": "75% (selective risk budget)",
+        },
+        {
+            "name": "Turnaround Tuesday",
+            "family": "selective",
+            "description": (
+                "Day-of-week seasonal: long at Monday's close when Monday "
+                "drops ≥1% from Friday with low IBS. Published calendar "
+                "anomaly — fires at most weekly."
+            ),
+            "max_positions": settings.MAX_SELECTIVE_POSITIONS,
+            "weights": swing_weights,
+            "size_modifier": "75% (selective risk budget)",
+        },
     ]
 
 

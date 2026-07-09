@@ -61,6 +61,13 @@ STRATEGIES: List[Tuple[str, str, bool]] = [
     ("short_ma_crossunder", "Short: MA Crossunder", False),
     ("short_relative_weakness", "Short: Relative Weakness", False),
     ("short_laggard_fade", "Short: Laggard Fade", False),
+    # Highly selective strategies (opt-in).
+    ("hs_rsi2_reversal", "Selective: RSI-2 Reversal", False),
+    ("hs_triple_timeframe", "Selective: Triple-Timeframe Breakout", False),
+    ("hs_bb_climax", "Selective: BB Climax Reversal", False),
+    ("hs_pead_drift", "Selective: Post-Earnings Drift", False),
+    ("hs_gap_fill", "Selective: Gap-Fill Fade", False),
+    ("hs_turnaround_tuesday", "Selective: Turnaround Tuesday", False),
 ]
 _VALID_STRATEGIES = {value for value, _, _ in STRATEGIES}
 

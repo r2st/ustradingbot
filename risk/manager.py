@@ -67,6 +67,9 @@ def _strategy_family(strategy: str) -> str:
     # one position-cap family so the short book stays bounded as a whole.
     if s.startswith("short_"):
         return "short"
+    # Highly selective strategies share one position-cap family.
+    if s.startswith("hs_"):
+        return "selective"
     return s
 
 
@@ -280,6 +283,8 @@ class RiskManager:
             cap = 1
         elif family == "short":
             cap = self._short_positions_cap()
+        elif family == "selective":
+            cap = self._settings.MAX_SELECTIVE_POSITIONS
         else:
             # Unknown strategy -- allow but log a warning
             self._log.warning("strategy_cap.unknown_strategy", strategy=strategy)

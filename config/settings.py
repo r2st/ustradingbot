@@ -89,6 +89,7 @@ class Settings(BaseSettings):
     MAX_MOMENTUM_POSITIONS: int = 18
     MAX_SWING_POSITIONS: int = 15
     MAX_PEAD_POSITIONS: int = 5
+    MAX_SELECTIVE_POSITIONS: int = 3
     DAILY_LOSS_LIMIT_PCT: float = 0.015
     ATR_STOP_MULTIPLIER: float = 1.5
     RISK_REWARD_MIN: float = 1.8

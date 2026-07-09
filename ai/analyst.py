@@ -118,6 +118,50 @@ def _strategy_guidance(strategy: str) -> str:
             "insider buying, or an obviously crowded short. Otherwise "
             "APPROVE."
         )
+    if s == "hs_rsi2_reversal":
+        return (
+            "This is a HIGHLY SELECTIVE RSI-2 mean-reversion trade at a "
+            "structural support/resistance level. REJECT if the stock has "
+            "fundamental deterioration (guidance cut, lost customer, fraud) "
+            "that makes the support level unreliable. APPROVE if the drop "
+            "appears to be a panic selloff at a tested level."
+        )
+    if s == "hs_triple_timeframe":
+        return (
+            "This is a HIGHLY SELECTIVE triple-timeframe breakout requiring "
+            "daily, 4H, and 1H alignment. REJECT if there is a major "
+            "negative catalyst or a scheduled event (earnings, FDA, FOMC) "
+            "that could invalidate the breakout. APPROVE otherwise."
+        )
+    if s == "hs_bb_climax":
+        return (
+            "This is a HIGHLY SELECTIVE Bollinger Band climax reversal "
+            "targeting capitulation bottoms. REJECT if the selloff has a "
+            "fundamental cause (fraud, major litigation, guidance cut) that "
+            "makes a bounce unlikely. APPROVE if it looks like panic selling."
+        )
+    if s == "hs_pead_drift":
+        return (
+            "This is a HIGHLY SELECTIVE post-earnings drift trade. Check "
+            "whether the earnings reaction is being reversed by negative "
+            "follow-up news: guidance cut after the print, analyst "
+            "downgrades, restated numbers, or executive departure. REJECT "
+            "if the thesis is broken; APPROVE otherwise."
+        )
+    if s == "hs_gap_fill":
+        return (
+            "This is a HIGHLY SELECTIVE gap-fade trade betting the gap will "
+            "fill. REJECT if the gap is driven by material news (earnings, "
+            "M&A, FDA, upgrade/downgrade) that is unlikely to reverse "
+            "intraday. APPROVE if the gap appears noise-driven."
+        )
+    if s == "hs_turnaround_tuesday":
+        return (
+            "This is a HIGHLY SELECTIVE Turnaround Tuesday calendar trade. "
+            "REJECT if Monday's decline was driven by a major macro shock "
+            "(rate hike, geopolitical crisis, systemic contagion) likely "
+            "to persist through Tuesday. APPROVE for routine pullbacks."
+        )
     # vcp_breakout / momentum / swing
     return (
         "Standard news check. Only REJECT for MAJOR negative news in roughly "

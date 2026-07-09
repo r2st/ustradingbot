@@ -62,6 +62,32 @@ _DEDICATED_DETECTORS: Dict[str, Callable[[str, pd.DataFrame], Optional[Signal]]]
     "mean_reversion": detect_mean_reversion,
 }
 
+# Highly selective strategy detectors (lazy-loaded to avoid import errors
+# when the selective_strategies module is not installed).
+_SELECTIVE_DETECTORS_LOADED = False
+
+
+def _load_selective_detectors() -> None:
+    """Lazy-load highly selective strategy detectors into the dispatch table."""
+    global _SELECTIVE_DETECTORS_LOADED
+    if _SELECTIVE_DETECTORS_LOADED:
+        return
+    try:
+        from selective_strategies.strategies import DETECTORS as sel_dets
+
+        for sid, detector in sel_dets.items():
+            # Wrap: selective detectors return SelectiveSignal; the backtester
+            # needs a pipeline-native Signal.
+            def _wrap(sym, df, _det=detector):
+                sig = _det(sym, df)
+                return sig.to_core_signal() if sig is not None else None
+
+            _DEDICATED_DETECTORS[sid] = _wrap
+    except Exception:  # noqa: BLE001
+        log.debug("backtest.selective_detectors_unavailable")
+    _SELECTIVE_DETECTORS_LOADED = True
+
+
 # Per-strategy maximum hold (calendar/trading days) — mirrors the exit manager.
 _MAX_HOLD_DAYS: Dict[str, int] = {
     "momentum": 20,
@@ -69,6 +95,13 @@ _MAX_HOLD_DAYS: Dict[str, int] = {
     "swing": 15,
     "pead": 30,
     "mean_reversion": 7,
+    # Highly selective strategies
+    "hs_rsi2_reversal": 6,
+    "hs_triple_timeframe": 20,
+    "hs_bb_climax": 5,
+    "hs_pead_drift": 10,
+    "hs_gap_fill": 1,
+    "hs_turnaround_tuesday": 1,
 }
 
 # Strategies run by default: the technical detectors that need no live feed.
@@ -86,11 +119,17 @@ def _family(strategy: str) -> str:
     s = strategy.lower()
     if s.startswith("short_"):
         return "short"
+    if s.startswith("hs_"):
+        return "selective"
     return "momentum" if s in _MOMENTUM_FAMILY else s
 
 
 def _is_short_strategy(strategy: str) -> bool:
     return str(strategy).lower().startswith("short_")
+
+
+def _is_selective_strategy(strategy: str) -> bool:
+    return str(strategy).lower().startswith("hs_")
 
 
 def _short_risk_modifier() -> float:
@@ -111,6 +150,16 @@ def _short_positions_cap() -> int:
         return int(get_short_config().filters.max_short_positions)
     except Exception:  # noqa: BLE001
         return 5
+
+
+def _selective_risk_modifier() -> float:
+    """Risk-budget scale for highly selective trades (mirrors RiskManager)."""
+    try:
+        from selective_strategies.config import get_selective_config
+
+        return float(get_selective_config().risk_modifier)
+    except Exception:  # noqa: BLE001 -- missing module must not block sizing
+        return 0.75
 
 
 # ---------------------------------------------------------------------------
@@ -366,6 +415,10 @@ class Backtester:
 
     def run(self) -> BacktestResult:
         """Execute the backtest and return a :class:`BacktestResult`."""
+        # Lazy-load selective strategy detectors if any hs_* strategies are
+        # in the config (avoids import overhead for standard backtests).
+        if any(_is_selective_strategy(s) for s in self._config.strategies):
+            _load_selective_detectors()
         trading_dates = self._trading_dates()
         log.info(
             "backtest.start",
@@ -794,6 +847,8 @@ class Backtester:
         capital = self._config.starting_capital
         if _is_short_strategy(signal.strategy):
             strategy_mod = _short_risk_modifier()
+        elif _is_selective_strategy(signal.strategy):
+            strategy_mod = _selective_risk_modifier()
         elif signal.strategy.lower() == "mean_reversion":
             strategy_mod = 0.5
         else:
@@ -824,6 +879,8 @@ class Backtester:
             cap = 1
         elif family == "short":
             cap = _short_positions_cap()
+        elif family == "selective":
+            cap = self._settings.MAX_SELECTIVE_POSITIONS
         else:
             return True
         return count < cap
