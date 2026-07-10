@@ -33,9 +33,11 @@ Typical usage::
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import date, datetime, timedelta, timezone
+from threading import RLock
+from typing import Any, Callable, Dict, List, Optional
 
 import pandas as pd
 import structlog
@@ -69,6 +71,201 @@ class EarningsInfo:
     price_move_pct: float
     volume_ratio: float
     gap_direction: str  # "up" | "down" | "flat"
+
+
+@dataclass
+class EarningsResult:
+    """Reported earnings result — fundamental beat/miss context (Feature 1b).
+
+    Attributes:
+        report_date: The date the result was reported (ISO ``date``).
+        eps_actual / eps_estimate: Reported vs consensus EPS.
+        eps_surprise_pct: ``(actual - estimate) / |estimate| * 100``.
+        rev_actual / rev_estimate: Reported vs consensus revenue (``None`` when
+            the source does not provide it — Finnhub's free EPS endpoint omits
+            revenue).
+        rev_surprise_pct: Revenue surprise percent, or ``None``.
+        verdict: ``"beat"`` / ``"miss"`` / ``"inline"`` derived from the EPS
+            surprise against a small dead-band.
+    """
+
+    report_date: Optional[date]
+    eps_actual: Optional[float]
+    eps_estimate: Optional[float]
+    eps_surprise_pct: Optional[float]
+    rev_actual: Optional[float]
+    rev_estimate: Optional[float]
+    rev_surprise_pct: Optional[float]
+    verdict: str  # "beat" | "miss" | "inline"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "report_date": self.report_date.isoformat() if self.report_date else None,
+            "eps_actual": self.eps_actual,
+            "eps_estimate": self.eps_estimate,
+            "eps_surprise_pct": self.eps_surprise_pct,
+            "rev_actual": self.rev_actual,
+            "rev_estimate": self.rev_estimate,
+            "rev_surprise_pct": self.rev_surprise_pct,
+            "verdict": self.verdict,
+        }
+
+
+# ---------------------------------------------------------------------------
+# Earnings results (beat/miss) — Finnhub-backed, TTL-cached, fail-open
+# ---------------------------------------------------------------------------
+
+# Dead-band (percent) inside which an EPS surprise counts as "inline".
+_INLINE_BAND_PCT = 2.0
+
+_result_cache: Dict[str, tuple[float, Optional["EarningsResult"]]] = {}
+_result_cache_lock = RLock()
+
+
+def _verdict_from_surprise(surprise_pct: Optional[float]) -> str:
+    """Classify an EPS surprise into beat / miss / inline."""
+    if surprise_pct is None:
+        return "inline"
+    if surprise_pct > _INLINE_BAND_PCT:
+        return "beat"
+    if surprise_pct < -_INLINE_BAND_PCT:
+        return "miss"
+    return "inline"
+
+
+def clear_result_cache() -> None:
+    """Drop the earnings-result cache (used by tests)."""
+    with _result_cache_lock:
+        _result_cache.clear()
+
+
+def get_earnings_result(
+    symbol: str,
+    settings: Any = None,
+    fetcher: Optional[Callable[[str], List[dict]]] = None,
+) -> Optional[EarningsResult]:
+    """Return the most recent reported earnings result for *symbol*.
+
+    Finnhub's ``/stock/earnings`` endpoint (free tier, EPS actual/estimate/
+    surprise) is the default source; revenue is left ``None`` when the source
+    omits it.  Results are TTL-cached (``EARNINGS_RESULTS_CACHE_TTL_MINUTES``,
+    default 6 h) since a quarter's result never changes intraday.
+
+    **Fail-open:** returns ``None`` on missing config, no data, or any error —
+    never raises — so a broken results feed can't stop the scan.
+
+    Args:
+        symbol: Ticker symbol.
+        settings: Application settings (reads ``FINNHUB_API_KEY`` and the
+            cache TTL).  When ``None``, :func:`config.settings.get_settings`.
+        fetcher: ``fetcher(symbol) -> list[dict]`` returning Finnhub-shaped
+            earnings rows (``actual``, ``estimate``, ``surprisePercent``,
+            ``period``).  Defaults to a live Finnhub fetch.
+    """
+    symbol = str(symbol or "").upper()
+    if settings is None:
+        from config.settings import get_settings
+
+        settings = get_settings()
+
+    log = logger.bind(symbol=symbol)
+    default_fetch = fetcher is None
+    if default_fetch and not getattr(settings, "FINNHUB_API_KEY", ""):
+        return None
+
+    ttl = float(getattr(settings, "EARNINGS_RESULTS_CACHE_TTL_MINUTES", 360.0)) * 60.0
+    now = time.monotonic()
+    with _result_cache_lock:
+        entry = _result_cache.get(symbol)
+        if entry is not None and now - entry[0] <= ttl:
+            return entry[1]
+
+    fetch = fetcher or _finnhub_earnings_fetch
+    try:
+        rows = fetch(symbol) or []
+    except Exception as exc:  # noqa: BLE001 -- fail-open on any fetch error
+        log.warning("earnings_result.fetch_failed", error=str(exc))
+        return None
+
+    result = _parse_earnings_rows(rows)
+    with _result_cache_lock:
+        _result_cache[symbol] = (now, result)
+    return result
+
+
+def _parse_earnings_rows(rows: List[dict]) -> Optional[EarningsResult]:
+    """Build an :class:`EarningsResult` from Finnhub-shaped rows.
+
+    Rows carry ``actual``/``estimate``/``surprisePercent``/``period``.  Only
+    rows with a reported ``actual`` count; the most recent by ``period`` wins.
+    """
+    reported = [
+        r for r in rows
+        if isinstance(r, dict) and r.get("actual") is not None
+    ]
+    if not reported:
+        return None
+
+    def _period(r: dict):
+        return str(r.get("period", "") or "")
+
+    latest = max(reported, key=_period)
+    eps_actual = _as_float(latest.get("actual"))
+    eps_estimate = _as_float(latest.get("estimate"))
+    surprise_pct = _as_float(latest.get("surprisePercent"))
+    if surprise_pct is None and eps_actual is not None and eps_estimate:
+        surprise_pct = round((eps_actual - eps_estimate) / abs(eps_estimate) * 100.0, 2)
+
+    rev_actual = _as_float(latest.get("revenueActual"))
+    rev_estimate = _as_float(latest.get("revenueEstimate"))
+    rev_surprise_pct: Optional[float] = None
+    if rev_actual is not None and rev_estimate:
+        rev_surprise_pct = round((rev_actual - rev_estimate) / abs(rev_estimate) * 100.0, 2)
+
+    report_date: Optional[date] = None
+    raw_period = str(latest.get("period", "") or "")
+    try:
+        if raw_period:
+            report_date = date.fromisoformat(raw_period[:10])
+    except ValueError:
+        report_date = None
+
+    return EarningsResult(
+        report_date=report_date,
+        eps_actual=eps_actual,
+        eps_estimate=eps_estimate,
+        eps_surprise_pct=surprise_pct,
+        rev_actual=rev_actual,
+        rev_estimate=rev_estimate,
+        rev_surprise_pct=rev_surprise_pct,
+        verdict=_verdict_from_surprise(surprise_pct),
+    )
+
+
+def _as_float(value: Any) -> Optional[float]:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _finnhub_earnings_fetch(symbol: str) -> List[dict]:
+    """Fetch recent EPS surprises from Finnhub (best-effort)."""
+    import httpx
+
+    from config.settings import get_settings
+
+    token = getattr(get_settings(), "FINNHUB_API_KEY", "")
+    with httpx.Client(timeout=10.0) as client:
+        resp = client.get(
+            "https://finnhub.io/api/v1/stock/earnings",
+            params={"symbol": symbol, "token": token},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    return data if isinstance(data, list) else []
 
 
 # ---------------------------------------------------------------------------

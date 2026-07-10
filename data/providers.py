@@ -38,6 +38,23 @@ _EXPECTED_COLS: List[str] = ["Open", "High", "Low", "Close", "Volume"]
 _MIN_ROWS_FOR_EMA200 = 200
 
 
+def _extended_hours_session(now: datetime) -> str:
+    """Classify an Eastern-time datetime into a market session tag.
+
+    Returns ``"pre"`` (04:00–09:30), ``"regular"`` (09:30–16:00),
+    ``"post"`` (16:00–20:00), or ``"closed"`` otherwise.  Used to label
+    extended-hours quotes.
+    """
+    minutes = now.hour * 60 + now.minute
+    if 4 * 60 <= minutes < 9 * 60 + 30:
+        return "pre"
+    if 9 * 60 + 30 <= minutes < 16 * 60:
+        return "regular"
+    if 16 * 60 <= minutes < 20 * 60:
+        return "post"
+    return "closed"
+
+
 # ---------------------------------------------------------------------------
 # Protocol
 # ---------------------------------------------------------------------------
@@ -64,6 +81,11 @@ class MarketDataProvider(Protocol):
     def supports_streaming(self) -> bool:
         """Return whether the provider can stream realtime trades."""
         ...
+
+    # Optional (Feature 4): extended-hours quote.  Providers that cannot serve
+    # pre/post-market prints simply omit this method — callers duck-type it via
+    # ``getattr(provider, "get_extended_hours_quote", None)`` and fail-open to
+    # ``None``.  Declared here for documentation; not required by the Protocol.
 
 
 # ---------------------------------------------------------------------------
@@ -303,6 +325,39 @@ class AlpacaProvider:
 
     def supports_streaming(self) -> bool:
         return True
+
+    # ------------------------------------------------------ extended hours
+
+    def get_extended_hours_quote(self, symbol: str) -> Optional[dict]:
+        """Return a pre/post-market quote for *symbol* (Feature 4), or ``None``.
+
+        Uses Alpaca's latest trade (which includes extended-hours prints on the
+        IEX feed) plus today's prior daily close for the overnight gap.  Returns
+        a plain dict (``last``, ``prev_close``, ``session``, ``ext_volume``,
+        ``avg_ext_volume``) that :mod:`data.extended_hours` wraps in an
+        ``ExtQuote``.  Best-effort: any error returns ``None``.
+        """
+        log = self._log.bind(symbol=symbol)
+        try:
+            last = self.get_current_price(symbol)
+            if not last:
+                return None
+            # Prior daily close from a short history window.
+            hist = self.get_ohlcv(symbol, period="5d")
+            prev_close = (
+                float(hist["Close"].iloc[-1]) if hist is not None and len(hist) else None
+            )
+            session = _extended_hours_session(datetime.now(tz=EASTERN))
+            return {
+                "last": float(last),
+                "prev_close": prev_close,
+                "session": session,
+                "ext_volume": None,
+                "avg_ext_volume": None,
+            }
+        except Exception as exc:  # noqa: BLE001 -- fail-open
+            log.warning("provider.ext_hours_failed", symbol=symbol, error=str(exc))
+            return None
 
     # -------------------------------------------------------------- stream
 
@@ -596,6 +651,24 @@ class FallbackProvider:
         # Streaming exits key off the primary's capabilities; the fallback is
         # only used for one-shot REST fetches.
         return self._primary.supports_streaming()
+
+    def get_extended_hours_quote(self, symbol: str) -> Optional[dict]:
+        """Duck-typed passthrough (Feature 4): try primary then fallback.
+
+        A provider without the method contributes ``None``; the whole thing
+        fails open so extended-hours support is best-effort per provider.
+        """
+        for provider in (self._primary, self._fallback):
+            method = getattr(provider, "get_extended_hours_quote", None)
+            if not callable(method):
+                continue
+            try:
+                result = method(symbol)
+            except Exception:  # noqa: BLE001 -- fail-open
+                result = None
+            if result is not None:
+                return result
+        return None
 
 
 # ---------------------------------------------------------------------------

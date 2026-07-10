@@ -116,6 +116,7 @@ STRATEGY_TAGS: Dict[str, str] = {
     "vcp_breakout": "Breakout position",
     "pead": "Earnings-drift position",
     "mean_reversion": "Rebound position",
+    "sector_rotation": "Sector-rotation position",
     "short_gap_fail": "Short position — failed gap",
     "short_earnings_pop_fade": "Short position — earnings fade",
     "short_support_breakdown": "Short position — broken support",
@@ -134,6 +135,48 @@ STRATEGY_TAGS: Dict[str, str] = {
     "hs_gap_fill": "Selective — statistical gap fade",
     "hs_turnaround_tuesday": "Selective — Turnaround Tuesday",
 }
+
+
+def build_ratings(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Render a card's third-party ratings block (Feature 5), or ``None``.
+
+    Reads a pre-fetched ratings snapshot from ``row["ratings"]`` (a dict shaped
+    like :meth:`data.ratings.RatingSnapshot.to_dict`) so card assembly stays
+    free of network I/O — the router attaches the (TTL-cached) snapshot when the
+    ratings feature is enabled.  Fail-open: returns ``None`` when absent so the
+    UI shows "—".
+    """
+    snap = row.get("ratings")
+    if not isinstance(snap, dict) or not snap.get("quant_rating"):
+        return None
+    price = row.get("price") or row.get("current_price")
+    target = snap.get("price_target")
+    upside = None
+    try:
+        if target and price and float(price) > 0:
+            upside = round((float(target) / float(price) - 1.0) * 100.0, 2)
+    except (TypeError, ValueError):
+        upside = None
+    return {
+        "quant_rating": snap.get("quant_rating"),
+        "quant_rating_rank": snap.get("quant_rating_rank"),
+        "consensus": snap.get("consensus"),
+        "factor_grades": snap.get("factor_grades") or {},
+        "price_target": target,
+        "upside_pct": upside,
+        "recent_change": snap.get("recent_change"),
+        "as_of": snap.get("as_of"),
+    }
+
+
+def _asset_type(symbol: Optional[str]) -> str:
+    """Return ``"etf"`` or ``"stock"`` for a card's identity (fail-safe)."""
+    try:
+        from config.etf_universe import asset_type
+
+        return asset_type(str(symbol or ""))
+    except Exception:  # noqa: BLE001
+        return "stock"
 
 
 def strategy_tag(strategy: str, is_position: bool) -> str:
@@ -664,8 +707,15 @@ _GATE_EXPLANATIONS: Dict[str, str] = {
                     "its rules allow",
     "pending_order_guard": "the bot already holds or is entering this "
                            "symbol",
+    "earnings_filter": "an earnings report is due within the blackout "
+                       "window, so the bot is holding off to avoid the "
+                       "binary gap risk",
     "ai_veto": "the AI review flagged a risk (often nearby earnings) and "
                "vetoed the entry",
+    "ratings_filter": "a third-party quant rating for this stock is below "
+                      "the minimum you set",
+    "gap_filter": "the price gapped sharply overnight, so the bot skipped "
+                  "or resized the entry",
     "news_sentiment": "recent news about this company was strongly "
                       "negative",
     "regime_autotune": "market conditions currently disfavour this type "
@@ -781,8 +831,10 @@ def build_position_card(row: Dict[str, Any],
             "change_label": "since entry",
             "tag": strategy_tag(row.get("strategy", ""), is_position=True),
             "direction": "short" if is_short else "long",
+            "asset_type": _asset_type(row.get("symbol")),
         },
         "summary": _position_summary(row, is_short),
+        "ratings": build_ratings(row),
         "conditions": build_conditions(ind, is_short),
         "reasoning": build_reasoning(ind, levels, is_short),
         "invalidation": build_invalidation(
@@ -858,9 +910,11 @@ def build_watchlist_card(row: Dict[str, Any], settings,
             "tag": (strategy_tag(strategy, is_position=False)
                     if strategy else "Watchlist"),
             "direction": "short" if is_short else "long",
+            "asset_type": _asset_type(row.get("symbol")),
         },
         "summary": _watchlist_summary(row),
         "status_plain": rejection_plain,
+        "ratings": build_ratings(row),
         "conditions": build_conditions(ind, is_short),
         "reasoning": build_reasoning(ind, levels, is_short),
         "invalidation": build_invalidation(ind, levels, stop, is_short),

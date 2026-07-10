@@ -267,12 +267,22 @@ def score_symbol(
         return None
 
     # --- Hard vetoes (checked before any scoring) ---------------------------
+    # ETFs are calm by construction; hold them to a lower ATR% floor so a
+    # diversified basket isn't vetoed purely for being less volatile than a
+    # single name.
+    from config.etf_universe import is_etf
+
+    min_atr_pct = (
+        float(getattr(settings, "MIN_ATR_PCT_ETF", 0.008))
+        if is_etf(symbol)
+        else settings.MIN_ATR_PCT
+    )
     veto_checks = [
         _check_bear_regime(ema_state),
         _check_obv_divergence(volume_state),
         _check_bearish_volume_surge(volume_state),
         _check_ripster_cross_below(ripster_state),
-        _check_low_atr(df, settings.MIN_ATR_PCT),
+        _check_low_atr(df, min_atr_pct),
     ]
 
     for veto_reason in veto_checks:

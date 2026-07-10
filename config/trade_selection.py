@@ -48,6 +48,7 @@ LONG_STRATEGIES = (
     "swing",
     "mean_reversion",
     "pead",
+    "sector_rotation",
 )
 
 #: Short strategy keys (mirrors short_strategies.strategies.STRATEGY_PRIORITY).

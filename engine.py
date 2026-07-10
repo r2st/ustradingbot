@@ -130,6 +130,22 @@ class TradingEngine:
 
         self.news_filter = NewsSentimentFilter(self.settings)
 
+        # Earnings block/flag entry filter (Feature 1a) — off by default, PEAD
+        # exempt.  Fail-open: a broken earnings calendar never halts the scan.
+        from signals.earnings_filter import EarningsEntryFilter
+
+        self.earnings_filter = EarningsEntryFilter(self.settings)
+
+        # Ratings entry filter (Feature 5) — off by default, fail-open.
+        from signals.ratings_filter import RatingsFilter
+
+        self.ratings_filter = RatingsFilter(self.settings)
+
+        # Overnight-gap entry filter (Feature 4) — off by default, fail-open.
+        from signals.gap_filter import GapEntryFilter
+
+        self.gap_filter = GapEntryFilter(self.settings)
+
         # Market-regime + auto-tune state (features 12, 13); refreshed each
         # cycle.  Start neutral so a data outage never blocks entries.
         from analytics.regime import RegimeResult
@@ -515,6 +531,15 @@ class TradingEngine:
         except Exception:  # noqa: BLE001
             log.exception("engine.selective_scan_error")
 
+        # Step 6d: Sector-rotation scan (Feature 3).  Ranks the 11 sector ETFs
+        # by relative strength vs SPY and goes long the top-N leaders.  Off by
+        # default; best-effort so a failure never costs the other scans.
+        try:
+            rotation_signals = self._run_sector_rotation_scan(selection)
+            signals.extend(rotation_signals)
+        except Exception:  # noqa: BLE001
+            log.exception("engine.sector_rotation_scan_error")
+
         self.activity.log(
             "scan_complete",
             cycle_id=self._cycle_id,
@@ -611,6 +636,25 @@ class TradingEngine:
             scan_symbols,
             min_grade=selection.effective_min_grade("B"),
             allowed_strategies=allowed,
+        )
+
+    def _run_sector_rotation_scan(self, selection) -> List[Signal]:
+        """Run the sector-rotation scan (Feature 3); empty when disabled.
+
+        Honours the trade-selection strategy whitelist: when the operator pinned
+        specific strategies, ``sector_rotation`` must be among them for the scan
+        to run.
+        """
+        if not getattr(self.settings, "SECTOR_ROTATION_ENABLED", False):
+            return []
+        allowed = selection.allowed_strategies()
+        if allowed is not None and "sector_rotation" not in allowed:
+            return []
+        from signals.sector_rotation import run_sector_rotation_scan
+
+        return run_sector_rotation_scan(
+            self.settings,
+            min_grade=selection.effective_min_grade("B"),
         )
 
     # ------------------------------------------------------------------
@@ -773,6 +817,22 @@ class TradingEngine:
                 self.rejected_logger.log_rejection(sig, "trade_selection", reason)
                 return False
 
+        # (a1) Earnings block/flag gate (Feature 1a).  Cheap, runs before the
+        #      paid AI call so an earnings-proximate entry is rejected early.
+        #      In flag mode it only annotates the signal and lets it through;
+        #      PEAD is exempt.  Fail-open on any calendar error.
+        earnings_check = self.earnings_filter.check(sig)
+        if not earnings_check.allowed:
+            bound_log.info(
+                "engine.rejected", gate="earnings_filter", reason=earnings_check.reason
+            )
+            self.rejected_logger.log_rejection(
+                sig, "earnings_filter", earnings_check.reason
+            )
+            return False
+        if earnings_check.mode == "flag":
+            bound_log.info("engine.earnings_flag", reason=earnings_check.reason)
+
         # (a) Risk manager pre-check (already-held, cooldown, daily loss,
         #     max positions, invalid stop/target, R:R minimum).
         ok, reason = self.risk_manager.pre_check(sig)
@@ -813,6 +873,15 @@ class TradingEngine:
             self.rejected_logger.log_rejection(sig, "news_sentiment", news.reason)
             return False
 
+        # (d4) Third-party ratings veto (Feature 5) — reject when the quant
+        #      rating is below the operator's minimum.  Off by default and
+        #      fail-open; grouped with news as an external-context veto.
+        ratings = await asyncio.to_thread(self.ratings_filter.check, sig.symbol)
+        if not ratings.approved:
+            bound_log.info("engine.rejected", gate="ratings_filter", reason=ratings.reason)
+            self.rejected_logger.log_rejection(sig, "ratings_filter", ratings.reason)
+            return False
+
         # (d3) Market-regime + auto-tune floor (features 12, 13).  In a regime
         #      that disfavours this strategy family, or when a cold streak has
         #      raised the adaptive bar, only the strongest setups get through.
@@ -832,6 +901,30 @@ class TradingEngine:
                 sig, "build_order", "position size rounded to zero shares"
             )
             return False
+
+        # (f2) Overnight-gap filter (Feature 4).  A "has the world moved since
+        #      the setup?" check, like freshness: skip a morning entry that
+        #      gapped sharply against the trade overnight, or shrink it on a
+        #      moderate adverse gap.  Off by default and fail-open.
+        gap = self.gap_filter.check(sig)
+        if not gap.allowed:
+            bound_log.info("engine.rejected", gate="gap_filter", reason=gap.reason)
+            self.rejected_logger.log_rejection(sig, "gap_filter", gap.reason)
+            return False
+        if gap.action == "resize" and gap.size_modifier < 1.0:
+            resized = int(order.quantity * gap.size_modifier)
+            if resized <= 0:
+                bound_log.info("engine.rejected", gate="gap_filter", reason="resize_to_zero")
+                self.rejected_logger.log_rejection(
+                    sig, "gap_filter", f"{gap.reason} (rounded to zero shares)"
+                )
+                return False
+            bound_log.info(
+                "engine.gap_resize", reason=gap.reason,
+                from_qty=order.quantity, to_qty=resized,
+            )
+            order.quantity = resized
+            sig.raw_data["gap_size_modifier"] = gap.size_modifier
 
         # (f) Freshness check (signal age + price drift).
         fresh, reason = self.freshness_check(sig)

@@ -464,6 +464,23 @@ class Settings(BaseSettings):
     # ── Hard veto thresholds ────────────────────────────────────────────────
     MIN_ATR_PCT: float = 0.015  # 1.5 % — below this ATR%  the stock is untradeable
 
+    # ── ETF support (Feature 3) ─────────────────────────────────────────────
+    # ETFs are diversified baskets: lower single-name idiosyncratic risk and
+    # lower realised volatility than individual stocks.  They therefore get a
+    # slightly larger risk budget and a larger notional cap, but must not be
+    # vetoed purely for being calm — hence a lower ATR% floor.
+    ETF_RISK_MODIFIER: float = 1.3          # risk-budget multiplier vs a stock
+    ETF_NOTIONAL_CAP_PCT: float = 0.15      # max notional per ETF (vs 0.10 stock)
+    STOCK_NOTIONAL_CAP_PCT: float = 0.10    # explicit single-name notional cap
+    MIN_ATR_PCT_ETF: float = 0.008          # 0.8 % ATR floor for ETFs
+    # Sector-rotation strategy: rank the 11 sector ETFs by relative strength vs
+    # SPY and go long the top-N rotating leaders.  Off by default (a new
+    # strategy competing for capital); also selectable from the Trade Selection
+    # UI so the operator can enable it per their preference.
+    SECTOR_ROTATION_ENABLED: bool = False
+    SECTOR_ROTATION_TOP_N: int = 3
+    SECTOR_ROTATION_LOOKBACK_DAYS: int = 63  # ~3 trading months
+
     # ── Minimum OHLCV rows for indicator calculation ────────────────────────
     MIN_OHLCV_ROWS: int = 200
 
@@ -515,6 +532,38 @@ class Settings(BaseSettings):
     NEWS_MIN_ARTICLES: int = 2
     NEWS_CACHE_TTL_MINUTES: float = 30.0
 
+    # ── Earnings filter + results (Features 1, 2) ───────────────────────────
+    # A first-class, configurable pre-earnings gate that supersedes the coarse
+    # 14-day AI-layer blackout.  ``block`` rejects new entries within
+    # EARNINGS_BLOCK_DAYS of a scheduled report; ``flag`` lets the trade through
+    # but annotates it for the dashboard; ``off`` disables the gate (the AI
+    # blackout still applies).  PEAD is always exempt (it trades the drift).
+    EARNINGS_FILTER_MODE: str = "off"      # off | flag | block
+    EARNINGS_BLOCK_DAYS: int = 2
+    # Earnings *results* (beat/miss, EPS/revenue surprise) from Finnhub, used by
+    # the beat-aware PEAD signal and the daily earnings tracker.  Fail-open.
+    EARNINGS_RESULTS_ENABLED: bool = False
+    EARNINGS_RESULTS_CACHE_TTL_MINUTES: float = 360.0  # 6 h
+    # Optional Financial Modeling Prep key (richer earnings/ratings source).
+    FMP_API_KEY: str = ""
+    # Daily earnings tracker (Feature 2): same-sector contagion alert fires when
+    # a bellwether's EPS surprise exceeds this magnitude (percent).
+    CONTAGION_SURPRISE_THRESHOLD: float = 5.0
+    EARNINGS_HISTORY_ENABLED: bool = True
+
+    # ── Third-party ratings filter (Feature 5) ──────────────────────────────
+    # An entry filter over a normalized quant rating (STRONG_BUY > BUY > HOLD >
+    # SELL > STRONG_SELL) sourced from a clean, licensed API — Finnhub by
+    # default (analyst recommendation trends + price targets; key already in
+    # repo), FMP optionally.  Seeking Alpha is a documented, user-supplied
+    # extension only (its ToS prohibit scraping) and is never shipped.  Off by
+    # default and fail-open: a symbol with no coverage passes through.
+    RATINGS_FILTER_ENABLED: bool = False
+    RATINGS_PROVIDER: str = "finnhub"      # finnhub | fmp
+    RATINGS_MIN: str = "hold"              # strong_sell | sell | hold | buy | strong_buy
+    RATINGS_FAIL_OPEN: bool = True
+    RATINGS_CACHE_TTL_MINUTES: float = 720.0  # 12 h (ratings change daily at most)
+
     # ── Market regime detection ─────────────────────────────────────────────
     # Classify the broad market as bull / bear / sideways from a benchmark's
     # moving-average structure and realised volatility, then scale each
@@ -555,6 +604,22 @@ class Settings(BaseSettings):
     # trading at more than PREMARKET_VOLUME_RATIO times their average volume.
     PREMARKET_GAP_PCT: float = 0.02
     PREMARKET_VOLUME_RATIO: float = 1.5
+
+    # ── Extended-hours data + overnight-gap filter (Feature 4) ──────────────
+    # When enabled, the provider abstraction is asked for true pre/post-market
+    # quotes (IBKR in live mode, else Alpaca IEX) instead of the daily-bar gap
+    # proxy.  The gap filter then skips or resizes a morning entry when the
+    # stock gapped sharply against the trade overnight.  All off by default and
+    # fail-open: no extended-hours data means the entry proceeds untouched.
+    EXTENDED_HOURS_ENABLED: bool = False
+    EXT_HOURS_PROVIDER: str = "auto"        # auto | ibkr | alpaca
+    EXT_HOURS_CACHE_TTL_SECONDS: float = 60.0
+    GAP_FILTER_ENABLED: bool = False
+    GAP_DOWN_SKIP_PCT: float = -0.05        # skip longs gapping <= -5% overnight
+    GAP_UP_CHASE_PCT: float = 0.08          # skip longs already gapped up >= +8%
+    GAP_RESIZE_PCT: float = 0.03            # resize (not skip) beyond this gap
+    GAP_RESIZE_MODIFIER: float = 0.5        # size multiplier when resizing
+    EXT_UNUSUAL_VOLUME_RATIO: float = 3.0
 
     # ── Monte Carlo projection ──────────────────────────────────────────────
     MONTE_CARLO_RUNS: int = 1000
@@ -603,7 +668,7 @@ def weights_for_strategy(strategy: str) -> Dict[str, float]:
         ValueError: If *strategy* is not recognised.
     """
     strategy_lower = strategy.lower()
-    if strategy_lower in ("momentum", "vcp_breakout", "pead"):
+    if strategy_lower in ("momentum", "vcp_breakout", "pead", "sector_rotation"):
         return momentum_weights
     if strategy_lower in ("swing", "mean_reversion"):
         return swing_weights

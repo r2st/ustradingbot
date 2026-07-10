@@ -70,6 +70,34 @@ async def earnings(_user: str = Depends(require_auth)):
     }
 
 
+@router.get("/sectors")
+async def sectors(_user: str = Depends(require_auth)):
+    """Sector-rotation ranking + market-breadth participation (feature 3)."""
+    from analytics.breadth import sector_breadth
+    from signals.sector_rotation import rank_sectors
+
+    settings = get_settings()
+
+    def _compute():
+        ranks = rank_sectors(settings)
+        breadth = sector_breadth(settings)
+        return ranks, breadth
+
+    try:
+        ranks, breadth = await run_in_threadpool(_compute)
+    except Exception:  # noqa: BLE001
+        ranks, breadth = [], None
+    top_n = int(getattr(settings, "SECTOR_ROTATION_TOP_N", 3))
+    leaders = [r.etf for r in ranks if r.rel_strength > 0 and r.above_ma50][:top_n]
+    return {
+        "as_of": datetime.now(tz=EASTERN).isoformat(timespec="seconds"),
+        "enabled": bool(getattr(settings, "SECTOR_ROTATION_ENABLED", False)),
+        "leaders": leaders,
+        "ranking": [r.to_dict() for r in ranks],
+        "breadth": breadth.to_dict() if breadth is not None else None,
+    }
+
+
 @router.get("/premarket")
 async def premarket(_user: str = Depends(require_auth)):
     """Pre-market gap / unusual-volume scan of the watchlist (feature 14)."""

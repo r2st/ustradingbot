@@ -345,9 +345,19 @@ class RiskManager:
         # Size modifier from AI (future hook; currently always 1.0)
         ai_size_modifier = 1.0
 
+        # Asset-type branch: ETFs are diversified baskets (lower idiosyncratic
+        # risk), so they get a larger risk budget than a single name at the same
+        # capital.  Checked first so an ETF sector-rotation signal is sized as an
+        # ETF regardless of its strategy id.
+        from config.etf_universe import is_etf
+
+        symbol_is_etf = is_etf(signal.symbol)
+
         # Strategy modifier
         strategy_lower = signal.strategy.lower()
-        if strategy_lower == "mean_reversion":
+        if symbol_is_etf:
+            strategy_modifier = float(getattr(self._settings, "ETF_RISK_MODIFIER", 1.3))
+        elif strategy_lower == "mean_reversion":
             strategy_modifier = 0.5
         elif strategy_lower.startswith("short_"):
             # Short-side risk modifier (spec 7.5): scales the risk budget to
@@ -375,9 +385,15 @@ class RiskManager:
 
         shares = int(max_risk_dollars / risk_per_share)
 
-        # Notional cap: no single position exceeds 10 % of capital pool
+        # Notional cap: no single position exceeds its asset-type cap of the
+        # capital pool (ETFs get a larger cap than single names).
         if signal.entry_price > 0:
-            notional_cap = int(capital_pool * 0.10 / signal.entry_price)
+            cap_pct = float(
+                getattr(self._settings, "ETF_NOTIONAL_CAP_PCT", 0.15)
+                if symbol_is_etf
+                else getattr(self._settings, "STOCK_NOTIONAL_CAP_PCT", 0.10)
+            )
+            notional_cap = int(capital_pool * cap_pct / signal.entry_price)
             shares = min(shares, notional_cap)
 
         # Grade modifier

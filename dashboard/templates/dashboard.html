@@ -721,6 +721,12 @@
   .api-key-raw { font-family: ui-monospace, Menlo, monospace; font-size: 12px; word-break: break-all;
                  background: var(--bg); border: 1px solid var(--green); border-radius: 6px; padding: 8px; }
   .muted-note { color: var(--text-muted); font-size: 12px; margin-top: 6px; }
+  .callout {
+    background: var(--surface, rgba(127,127,127,0.08));
+    border: 1px solid var(--border, rgba(127,127,127,0.3));
+    border-left: 3px solid var(--accent, #3b82f6);
+    border-radius: 6px; padding: 8px 12px; margin-top: 8px; font-size: 13px;
+  }
   /* Manual trade: multi-level exit ladders (feature 2) */
   .mt-ladders { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 10px 0; }
   .mt-ladder { background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
@@ -846,6 +852,7 @@
     <a href="#nav-trade" onclick="closeNav()">Trade</a>
     <a href="#nav-scanner" onclick="closeNav()">Scanner</a>
     <a href="#nav-earnings" onclick="closeNav()">Earnings</a>
+    <a href="#nav-sectors" onclick="closeNav()">Sectors</a>
     <a href="#nav-backtest" onclick="closeNav()">Backtest</a>
     <a href="#nav-selection" onclick="closeNav()">Selection</a>
     <a href="#nav-history" onclick="closeNav()">History</a>
@@ -2338,12 +2345,52 @@
     <h2>Earnings Calendar</h2>
   </div>
   <div class="section-body">
+    <h4>Upcoming</h4>
     <p class="muted-note">Upcoming earnings for every watchlist symbol (via yfinance).</p>
     <button type="button" class="btn-secondary" onclick="loadEarnings()">Load earnings</button>
     <div class="scroll-x" style="margin-top:12px;">
       <table class="data-table">
         <thead><tr><th>Symbol</th><th>Earnings date</th><th>Days away</th></tr></thead>
         <tbody id="earningsRows"><tr><td colspan="3" class="empty-note">Click “Load earnings”.</td></tr></tbody>
+      </table>
+    </div>
+
+    <h4 style="margin-top:22px;">Reporting today <span class="bt-hint">(feature 2)</span></h4>
+    <p class="muted-note">Who reports today, beat/miss with EPS surprise, and the
+      pre/post-market move (needs extended hours enabled for a live move).</p>
+    <button type="button" class="btn-secondary" onclick="loadTodaysEarnings()">Load today</button>
+    <div id="contagionBox" style="margin-top:10px;"></div>
+    <div class="scroll-x" style="margin-top:12px;">
+      <table class="data-table">
+        <thead><tr>
+          <th>Symbol</th><th>Session</th><th>Est EPS</th><th>Actual</th>
+          <th>Surprise %</th><th>Pre/Post move</th><th>Sector</th>
+        </tr></thead>
+        <tbody id="todaysEarningsRows"><tr><td colspan="7" class="empty-note">Click “Load today”.</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ SECTOR ROTATION + BREADTH (feature 3) ═══════════════════ -->
+<div class="section" id="nav-sectors">
+  <div class="section-header">
+    <div class="section-icon icon-scoring">S</div>
+    <h2>Sector Rotation &amp; Breadth</h2>
+  </div>
+  <div class="section-body">
+    <p class="muted-note">The 11 SPDR sector ETFs ranked by relative strength vs SPY.
+      Leaders (outperforming and above their 50-day average) are the rotation
+      candidates the <code>sector_rotation</code> strategy goes long.</p>
+    <button type="button" class="btn-secondary" onclick="loadSectors()">Load sectors</button>
+    <div id="breadthBox" style="margin-top:12px;"></div>
+    <div class="scroll-x" style="margin-top:12px;">
+      <table class="data-table">
+        <thead><tr>
+          <th>Sector</th><th>ETF</th><th>Return</th><th>vs SPY</th>
+          <th>Above 50-DMA</th><th>Score</th><th>Leader</th>
+        </tr></thead>
+        <tbody id="sectorsRows"><tr><td colspan="7" class="empty-note">Click “Load sectors”.</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -3771,6 +3818,68 @@
           '</td><td' + (e.is_upcoming ? ' class="pos"' : "") + ">" + days + "</td></tr>";
       }).join("") : '<tr><td colspan="3" class="empty-note">No earnings data.</td></tr>';
     } catch (e) { tb.innerHTML = '<tr><td colspan="3" class="empty-note">Failed to load.</td></tr>'; }
+  }
+
+  // ── Daily earnings tracker: reporting today + contagion (feature 2) ──
+  function fmtPct(v) { return v == null ? "—" : (v >= 0 ? "+" : "") + v.toFixed(2) + "%"; }
+  function fmtMove(v) { return v == null ? "—" : (v >= 0 ? "+" : "") + (v * 100).toFixed(2) + "%"; }
+  async function loadTodaysEarnings() {
+    var tb = document.getElementById("todaysEarningsRows");
+    tb.innerHTML = '<tr><td colspan="7" class="empty-note">Loading…</td></tr>';
+    try {
+      var d = await jget("/api/earnings/today");
+      tb.innerHTML = d.reporters.length ? d.reporters.map(function (e) {
+        var verdictCls = e.verdict === "beat" ? "pos" : (e.verdict === "miss" ? "neg" : "");
+        var sess = (e.session && e.session !== "unknown") ? e.session.toUpperCase() : "—";
+        var moveCls = e.move_pct == null ? "" : (e.move_pct >= 0 ? "pos" : "neg");
+        return "<tr><td>" + esc(e.symbol) + "</td><td>" + sess + "</td><td>" +
+          (e.eps_estimate == null ? "—" : e.eps_estimate) + "</td><td>" +
+          (e.eps_actual == null ? "—" : e.eps_actual) + '</td><td class="' + verdictCls + '">' +
+          fmtPct(e.surprise_pct) + '</td><td class="' + moveCls + '">' + fmtMove(e.move_pct) +
+          "</td><td>" + esc(e.sector || "—") + "</td></tr>";
+      }).join("") : '<tr><td colspan="7" class="empty-note">No symbols reporting today.</td></tr>';
+    } catch (e) { tb.innerHTML = '<tr><td colspan="7" class="empty-note">Failed to load.</td></tr>'; }
+    loadContagion();
+  }
+  async function loadContagion() {
+    var box = document.getElementById("contagionBox");
+    try {
+      var d = await jget("/api/earnings/contagion");
+      if (!d.alerts || !d.alerts.length) { box.innerHTML = ""; return; }
+      box.innerHTML = d.alerts.map(function (a) {
+        var vc = a.verdict === "beat" ? "pos" : (a.verdict === "miss" ? "neg" : "");
+        return '<div class="callout"><strong class="' + vc + '">' + esc(a.symbol) + " " +
+          esc(a.verdict || "") + " (" + fmtPct(a.surprise_pct) + ")</strong> — same-sector peers to watch: " +
+          a.peers.map(esc).join(", ") + "</div>";
+      }).join("");
+    } catch (e) { box.innerHTML = ""; }
+  }
+
+  // ── Sector rotation + breadth (feature 3) ──
+  async function loadSectors() {
+    var tb = document.getElementById("sectorsRows");
+    var bb = document.getElementById("breadthBox");
+    tb.innerHTML = '<tr><td colspan="7" class="empty-note">Loading…</td></tr>';
+    try {
+      var d = await jget("/api/sectors");
+      var leaders = d.leaders || [];
+      if (d.breadth) {
+        var b = d.breadth;
+        var lblCls = b.label === "strong" ? "pos" : (b.label === "weak" ? "neg" : "");
+        bb.innerHTML = '<div class="callout">Market breadth: <strong class="' + lblCls + '">' +
+          b.above + " / " + b.total + " sectors above their 50-day average (" +
+          (b.pct * 100).toFixed(0) + "%, " + esc(b.label) + ")</strong>" +
+          (d.enabled ? "" : ' — <em>strategy disabled; enable SECTOR_ROTATION in settings</em>') + "</div>";
+      } else { bb.innerHTML = ""; }
+      tb.innerHTML = (d.ranking && d.ranking.length) ? d.ranking.map(function (r) {
+        var isLeader = leaders.indexOf(r.etf) >= 0;
+        return "<tr><td>" + esc(r.sector) + "</td><td>" + esc(r.etf) + '</td><td class="' +
+          (r.ret_lookback >= 0 ? "pos" : "neg") + '">' + fmtMove(r.ret_lookback) + '</td><td class="' +
+          (r.rel_strength >= 0 ? "pos" : "neg") + '">' + fmtMove(r.rel_strength) + "</td><td>" +
+          (r.above_ma50 ? "✓" : "—") + "</td><td>" + r.score.toFixed(2) + "</td><td>" +
+          (isLeader ? '<span class="pos">★ leader</span>' : "—") + "</td></tr>";
+      }).join("") : '<tr><td colspan="7" class="empty-note">No sector data.</td></tr>';
+    } catch (e) { tb.innerHTML = '<tr><td colspan="7" class="empty-note">Failed to load.</td></tr>'; }
   }
 
   // ── Market intelligence: regime + autotune (features 12, 13) ──
@@ -5232,15 +5341,10 @@
       } else {
         if (resultEl) {
           resultEl.textContent = d.message || "Seed complete.";
-          resultEl.style.color = "var(--green)";
+          resultEl.style.color = d.ok === false ? "var(--red)" : "var(--green)";
         }
         if (progressEl) progressEl.style.display = "none";
         if (btn) btn.disabled = false;
-        // Reload everything
-        loadUniverseStats();
-        loadUniverseSymbols(1);
-        loadUniverseSectors();
-        loadUniverseTiers();
       }
     } catch (e) {
       if (resultEl) {

@@ -59,15 +59,27 @@ def normalize_symbol(symbol: str) -> str:
 
 
 def _default_lists() -> Dict[str, Dict]:
-    """Seed named lists from the built-in universe, grouped by sector."""
+    """Seed named lists from the built-in universe, grouped by sector.
+
+    Adds a dedicated **"ETFs"** list (broad-market + sector SPDR ETFs) so ETF
+    support is available out of the box; the ``_SYMBOL_RE`` pattern already
+    accepts these tickers.
+    """
     by_sector: Dict[str, List[str]] = {}
     for sym in ALL_SYMBOLS:
         sector = SECTOR_BY_SYMBOL.get(sym, get_sector(sym))
         by_sector.setdefault(sector, []).append(sym)
-    return {
+    lists: Dict[str, Dict] = {
         sector: {"symbols": sorted(syms), "enabled": True}
         for sector, syms in sorted(by_sector.items())
     }
+    try:
+        from config.etf_universe import ALL_ETFS
+
+        lists["ETFs"] = {"symbols": sorted(ALL_ETFS), "enabled": True}
+    except Exception:  # noqa: BLE001 — ETF seeding is best-effort
+        pass
+    return lists
 
 
 class WatchlistStore:

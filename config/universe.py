@@ -133,8 +133,19 @@ def get_sector(symbol: str) -> str:
 
     When the universe database is available, looks up the sector there first
     (covers 10,000+ symbols); falls back to the hardcoded map for the original
-    41 symbols.
+    41 symbols.  Sector ETFs resolve to the GICS sector they track so the risk
+    dashboard's concentration math treats an ETF holding like exposure to its
+    sector.
     """
+    # Sector ETFs carry their tracked sector directly (e.g. XLK -> Technology).
+    try:
+        from config.etf_universe import sector_for_etf
+
+        etf_sector = sector_for_etf(symbol)
+        if etf_sector:
+            return etf_sector
+    except Exception:  # noqa: BLE001 — never break sector lookup on import issues
+        pass
     # Try universe DB first (covers the full expanded universe).
     try:
         from data_store.universe import db_exists, get_universe_db
@@ -178,6 +189,21 @@ def get_all_sectors() -> list[dict]:
         [{"sector": s, "count": c} for s, c in counts.items()],
         key=lambda x: x["sector"],
     )
+
+
+def asset_type(symbol: str) -> str:
+    """Return ``"etf"`` for a known ETF, ``"stock"`` otherwise.
+
+    Thin delegate to :func:`config.etf_universe.is_etf` so callers can ask the
+    universe module a single "what is this symbol?" question.  Fails safe to
+    ``"stock"`` if the ETF table can't be imported.
+    """
+    try:
+        from config.etf_universe import asset_type as _at
+
+        return _at(symbol)
+    except Exception:  # noqa: BLE001
+        return "stock"
 
 
 def is_canadian(symbol: str) -> bool:

@@ -72,6 +72,24 @@ def detect(symbol: str, df: pd.DataFrame) -> Optional[Signal]:
         if info.volume_ratio <= 2.0:
             return None
 
+        # 1b) Fundamental beat/miss context (Feature 1c).  When earnings-results
+        #     tracking is enabled, only let gap-and-go fire on a genuine beat —
+        #     a large upward price move on a reported *miss* is often a squeeze
+        #     that fades.  Fail-open: when results are unavailable PEAD falls
+        #     back to the price-based proxy (unchanged behaviour).
+        earnings_result = None
+        if getattr(settings, "EARNINGS_RESULTS_ENABLED", False):
+            from data.earnings import get_earnings_result
+
+            earnings_result = get_earnings_result(symbol, settings)
+            if earnings_result is not None and earnings_result.verdict == "miss":
+                log.info(
+                    "pead.rejected_on_miss",
+                    symbol=symbol,
+                    eps_surprise_pct=earnings_result.eps_surprise_pct,
+                )
+                return None
+
         close = df["Close"].astype(float)
         high = df["High"].astype(float)
         low = df["Low"].astype(float)
@@ -149,6 +167,14 @@ def detect(symbol: str, df: pd.DataFrame) -> Optional[Signal]:
                 "earnings_move_pct": info.price_move_pct,
                 "earnings_vol_ratio": info.volume_ratio,
                 "gap_direction": info.gap_direction,
+                **(
+                    {
+                        "earnings_verdict": earnings_result.verdict,
+                        "eps_surprise_pct": earnings_result.eps_surprise_pct,
+                    }
+                    if earnings_result is not None
+                    else {}
+                ),
             },
         )
         log.info(

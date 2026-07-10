@@ -136,6 +136,34 @@ def test_earnings_and_premarket_offline(client):
     assert client.get("/api/premarket").json()["hits"] == []
 
 
+def test_sectors_endpoint_offline(client, monkeypatch):
+    # No network: force the OHLCV fetch to return None so ranking/breadth
+    # degrade to empty rather than hitting yfinance.
+    import data.fetcher as fetcher
+
+    monkeypatch.setattr(fetcher, "fetch_ohlcv", lambda *a, **k: None)
+    r = client.get("/api/sectors")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ranking"] == [] and body["leaders"] == []
+    assert body["breadth"]["label"] == "unknown"
+
+
+def test_earnings_tracker_endpoints_offline(client):
+    # Empty the watchlist so the tracker returns immediately without network.
+    import config.watchlist as wl
+
+    store = wl.get_watchlist_store(client._data_dir)
+    for name in store.list_names():
+        store.delete_list(name)
+    today = client.get("/api/earnings/today")
+    assert today.status_code == 200 and today.json()["reporters"] == []
+    contagion = client.get("/api/earnings/contagion")
+    assert contagion.status_code == 200 and contagion.json()["alerts"] == []
+    hist = client.get("/api/earnings/history/NVDA")
+    assert hist.status_code == 200 and hist.json()["history"] == []
+
+
 # -------------------------------------------------------------------- export
 
 

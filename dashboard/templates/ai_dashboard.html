@@ -133,6 +133,26 @@
     border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px;
     background: var(--surface); white-space: nowrap;
   }
+  .card-head .etf-badge {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+    color: var(--accent, #3b82f6); border: 1px solid var(--accent, #3b82f6);
+    border-radius: 4px; padding: 1px 5px; margin-left: 6px;
+    text-transform: uppercase; white-space: nowrap;
+  }
+  .ratings-line {
+    margin-top: 8px; font-size: 12px; color: var(--text-muted);
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  }
+  .ratings-line .rt-chip {
+    font-weight: 700; font-size: 11px; padding: 1px 8px; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--surface);
+  }
+  .ratings-line .rt-grades { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+  .ratings-line .rt-grade {
+    font-size: 10.5px; padding: 0 5px; border-radius: 4px;
+    border: 1px solid var(--border);
+  }
+  .ratings-line .rt-change { font-style: italic; }
   .up { color: var(--green); } .down { color: var(--red); } .flat { color: var(--text-muted); }
 
   /* 2. Summary */
@@ -586,6 +606,23 @@ function renderDetail(d) {
     </div></details>`;
 }
 
+function renderRatings(r) {
+  if (!r || !r.quant_rating) return "";
+  const rank = r.quant_rating_rank;
+  const cls = rank == null ? "flat" : (rank >= 3 ? "up" : (rank <= 1 ? "down" : "flat"));
+  const grades = r.factor_grades && Object.keys(r.factor_grades).length
+    ? `<span class="rt-grades">${Object.entries(r.factor_grades)
+        .map(([k, v]) => `<span class="rt-grade">${esc(k)}: ${esc(String(v))}</span>`).join("")}</span>`
+    : "";
+  const target = r.price_target != null
+    ? ` · target ${money(r.price_target)}${r.upside_pct != null
+        ? ` <span class="${r.upside_pct >= 0 ? "up" : "down"}">(${signPct(r.upside_pct / 100)})</span>` : ""}`
+    : "";
+  const change = r.recent_change ? ` · <span class="rt-change">${esc(r.recent_change)}</span>` : "";
+  return `<div class="ratings-line" data-tour="ratings">
+    <span class="rt-chip ${cls}">${esc(r.quant_rating)}</span>${grades}${target}${change}</div>`;
+}
+
 /* ── Whole card ───────────────────────────────────────────────────────── */
 
 function renderCard(card) {
@@ -597,6 +634,7 @@ function renderCard(card) {
   return `<div class="card${degraded ? " degraded" : ""}" id="${id}">
     <div class="card-head" data-tour="identity">
       <span class="sym">${esc(idn.symbol)}</span>
+      ${idn.asset_type === "etf" ? '<span class="etf-badge" title="Exchange-traded fund">ETF</span>' : ""}
       <span class="px">${idn.price != null ? money(idn.price) : "—"}
         <span class="${pctCls(idn.change_pct)}">${signPct(idn.change_pct)}</span>
         <span style="color:var(--text-muted);font-size:11px;">${esc(idn.change_label || "")}</span></span>
@@ -605,6 +643,7 @@ function renderCard(card) {
     ${degraded ? `<div class="degraded-note" style="margin-top:8px;">⚠ ${esc(card.data_state_message)}</div>` : ""}
     <div class="summary-line" data-tour="summary">${esc(card.summary || "")}</div>
     ${card.status_plain ? `<div class="status-plain">${esc(card.status_plain)}</div>` : ""}
+    ${renderRatings(card.ratings)}
     ${unavailable ? `<div class="unavailable-note">${esc(card.data_state_message)}</div>` : `
       <div data-tour="conditions">${renderConditions(card.conditions)}</div>
       <div data-tour="reasoning">${renderReasoning(card.reasoning)}</div>

@@ -34,6 +34,11 @@ class PremarketHit:
     avg_volume: float
     last_volume: float
     signals: List[str] = field(default_factory=list)
+    # Feature 4: session tag and whether the price came from a *true*
+    # extended-hours quote (vs the daily-bar proxy).
+    session: str = "regular"
+    extended: bool = False
+    unusual: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -45,6 +50,9 @@ class PremarketHit:
             "avg_volume": round(self.avg_volume, 0),
             "last_volume": round(self.last_volume, 0),
             "signals": list(self.signals),
+            "session": self.session,
+            "extended": self.extended,
+            "unusual": self.unusual,
         }
 
 
@@ -100,6 +108,18 @@ def scan(
             from data.fetcher import fetch_ohlcv as fetcher  # type: ignore
         except Exception:  # noqa: BLE001
             return []
+    # Feature 4: prefer true extended-hours quotes when enabled.  Any lookup
+    # failure silently falls back to the daily-bar proxy below (fail-open).
+    ext_quotes: dict = {}
+    if getattr(settings, "EXTENDED_HOURS_ENABLED", False):
+        try:
+            from data.extended_hours import scan_extended_hours
+
+            ext_quotes = {q.symbol: q for q in scan_extended_hours(symbols, settings)}
+        except Exception as exc:  # noqa: BLE001
+            log.warning("premarket.ext_hours_error", error=str(exc))
+            ext_quotes = {}
+
     hits: List[PremarketHit] = []
     for symbol in symbols:
         try:
@@ -109,6 +129,27 @@ def scan(
             log.warning("premarket.scan_error", symbol=symbol, error=str(exc))
             continue
         if hit is not None:
+            _apply_ext_quote(hit, ext_quotes.get(str(symbol).upper()), settings)
             hits.append(hit)
     hits.sort(key=lambda h: (abs(h.gap_pct), h.volume_ratio), reverse=True)
     return hits
+
+
+def _apply_ext_quote(hit: "PremarketHit", quote, settings) -> None:
+    """Overlay a true extended-hours quote onto a daily-bar proxy hit."""
+    if quote is None:
+        return
+    hit.extended = True
+    hit.session = getattr(quote, "session", hit.session) or hit.session
+    hit.unusual = bool(getattr(quote, "unusual", False))
+    gap_pct = getattr(quote, "gap_pct", None)
+    if gap_pct is not None:
+        hit.last_price = float(getattr(quote, "last", hit.last_price))
+        hit.gap_pct = float(gap_pct)
+        gap_thresh = float(getattr(settings, "PREMARKET_GAP_PCT", 0.02))
+        signals = [s for s in hit.signals if s not in ("gap_up", "gap_down")]
+        if hit.gap_pct >= gap_thresh:
+            signals.append("gap_up")
+        elif hit.gap_pct <= -gap_thresh:
+            signals.append("gap_down")
+        hit.signals = signals
