@@ -490,6 +490,7 @@
   }
   .pill-us { border-color: var(--accent-dim); }
   .pill-ca { border-color: var(--green-dim); }
+  .pill-etf { border-color: var(--warning, #e0a040); }
 
   /* ── Responsive header + in-page navigation ─────────────────────────── */
   .header { position: sticky; top: 0; z-index: 50; }
@@ -1887,7 +1888,7 @@
       <div class="kv-item"><span class="kv-label">CAD Allocation</span><span class="kv-value">{{ status.cad_capital }}</span></div>
       <div class="kv-item"><span class="kv-label">Scan Interval</span><span class="kv-value">{{ status.scan_interval }}</span></div>
       <div class="kv-item"><span class="kv-label">Market Hours</span><span class="kv-value">{{ status.market_hours }}</span></div>
-      <div class="kv-item"><span class="kv-label">Universe Size</span><span class="kv-value">{{ status.total_symbols }} symbols ({{ status.us_symbols }} US / {{ status.ca_symbols }} CA)</span></div>
+      <div class="kv-item"><span class="kv-label">Universe Size</span><span class="kv-value">{{ status.total_symbols }} symbols ({{ status.us_symbols }} US / {{ status.ca_symbols }} CA / {{ status.etf_symbols }} ETFs)</span></div>
       <div class="kv-item"><span class="kv-label">Log Level</span><span class="kv-value">{{ status.log_level }}</span></div>
     </div>
 
@@ -1904,6 +1905,14 @@
       <div class="pill-list">
         {% for sym in watchlist_ca %}
           <span class="pill pill-ca">{{ sym }}</span>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="watchlist-section">
+      <div class="watchlist-label">ETFs</div>
+      <div class="pill-list">
+        {% for sym in watchlist_etf %}
+          <span class="pill pill-etf">{{ sym }}</span>
         {% endfor %}
       </div>
     </div>

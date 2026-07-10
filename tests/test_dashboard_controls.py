@@ -131,7 +131,7 @@ def test_options_has_defaults_and_pead_off():
           "start": "2024-01-01", "end": "2024-06-01"}, "at least one strategy"),
         ({"symbols": ["AAPL"], "strategies": ["momentum"],
           "start": "2024-06-01", "end": "2024-01-01"}, "before the end"),
-        ({"symbols": [f"S{i}" for i in range(41)], "strategies": ["momentum"],
+        ({"symbols": [f"S{i}" for i in range(bc._MAX_SYMBOLS + 1)], "strategies": ["momentum"],
           "start": "2024-01-01", "end": "2024-06-01"}, "too many symbols"),
         ({"symbols": ["AAPL"], "strategies": ["momentum"],
           "start": "", "end": "2024-06-01"}, "required"),

@@ -26,6 +26,7 @@ import structlog
 
 from config.settings import EASTERN, get_settings
 from config.universe import ALL_SYMBOLS
+from config.etf_universe import ALL_ETFS
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -33,7 +34,8 @@ log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 _MAX_JOBS = 20
 
 #: Guard rail: cap symbols per run so a huge universe cannot wedge the worker.
-_MAX_SYMBOLS = 40
+#: Raised from 40 → 100 to accommodate the full watchlist + ETF universe.
+_MAX_SYMBOLS = 100
 
 #: Cap the trade rows returned to the UI so the JSON payload stays reasonable.
 _MAX_TRADES_RETURNED = 1000
@@ -82,12 +84,35 @@ _lock = threading.Lock()
 # ---------------------------------------------------------------------------
 
 
+def _full_symbol_set() -> List[str]:
+    """Return the complete, deduplicated symbol universe for the backtest form.
+
+    Merges three sources so the UI exposes every tradeable symbol:
+
+    1. Hardcoded ``ALL_SYMBOLS`` (US + CA equities) — always available.
+    2. ``ALL_ETFS`` (broad-market + sector ETFs) — always available.
+    3. User-managed watchlist store — picks up symbols the operator added
+       from the dashboard (e.g. MU, QCOM, SOXL).
+
+    The result is sorted and deduplicated.
+    """
+    combined: set[str] = set(ALL_SYMBOLS) | set(ALL_ETFS)
+    try:
+        from config.watchlist import get_watchlist_store
+
+        store = get_watchlist_store(get_settings().DATA_DIR)
+        combined |= set(store.all_symbols())
+    except Exception:  # noqa: BLE001 — watchlist store is best-effort
+        pass
+    return sorted(combined)
+
+
 def options() -> Dict[str, Any]:
     """Return the choices the backtest form needs (symbols, strategies, dates)."""
     end = datetime.now(tz=EASTERN).date()
     start = end - timedelta(days=365)
     return {
-        "symbols": list(ALL_SYMBOLS),
+        "symbols": _full_symbol_set(),
         "strategies": [
             {"value": v, "label": label, "default": default_on}
             for v, label, default_on in STRATEGIES

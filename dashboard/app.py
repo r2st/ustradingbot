@@ -39,6 +39,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 from analytics.performance import analyze_journal
 from config.settings import EASTERN, Settings, get_settings, momentum_weights, swing_weights
+from config.etf_universe import ALL_ETFS
 from config.universe import ALL_SYMBOLS, CA_WATCHLIST, US_WATCHLIST
 from fastapi.templating import Jinja2Templates
 from signals.signal_types import Grade
@@ -95,7 +96,8 @@ def _build_system_status() -> Dict[str, Any]:
         ),
         "us_symbols": len(US_WATCHLIST),
         "ca_symbols": len(CA_WATCHLIST),
-        "total_symbols": len(ALL_SYMBOLS),
+        "etf_symbols": len(ALL_ETFS),
+        "total_symbols": len(set(ALL_SYMBOLS) | set(ALL_ETFS)),
         "timestamp": datetime.now(tz=EASTERN).strftime("%Y-%m-%d %H:%M:%S %Z"),
     }
 
@@ -635,6 +637,7 @@ async def dashboard(request: Request, _user: str = Depends(require_auth)):
             "risk": _build_risk_rules(),
             "watchlist_us": US_WATCHLIST,
             "watchlist_ca": CA_WATCHLIST,
+            "watchlist_etf": ALL_ETFS,
         },
     )
 
