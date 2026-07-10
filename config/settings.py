@@ -534,17 +534,27 @@ class Settings(BaseSettings):
     # efficiently.  Tier 1 (active watchlist) runs every cycle; Tier 2 rotates
     # through sectors; Tier 3 sweeps the full universe daily.
     TIERED_SCANNING_ENABLED: bool = True
-    # Tier 1: user's active watchlist — scanned every cycle.
+    # Tier 1 (Active Trading): user watchlist ∪ ETFs ∪ auto-promoted symbols —
+    # full strategy evaluation every scan cycle.
     TIER1_WORKERS: int = 4
-    # Tier 2: sector rotation — 1-2 sectors per cycle, rotated through all.
+    # Tier 2 (Scan Pool): the top-N S&P 500 names by volume × market cap,
+    # scanned once per day.  A signal here auto-promotes the symbol into Tier 1
+    # (see PROMOTION_TTL_HOURS) so it gets full every-cycle evaluation.
     TIER2_ENABLED: bool = True
     TIER2_WORKERS: int = 8
-    TIER2_INTERVAL_MINUTES: int = 30
-    # Tier 3: full universe sweep — once daily (lightweight pre-screen).
+    TIER2_SCAN_POOL_SIZE: int = 250          # top-N S&P 500 by liquidity
+    TIER2_INTERVAL_MINUTES: int = 30         # legacy sector-rotation throttle (unused by index tiers)
+    # Tier 3 (Universe): the full S&P 500 ∪ NASDAQ-100, swept once per week for
+    # discovery.  A lightweight pre-screen finds unusual movers, which are then
+    # full-scanned; any signal auto-promotes into Tier 1.
     TIER3_ENABLED: bool = True
     TIER3_WORKERS: int = 16
     TIER3_PRESCREEN_PRICE_CHANGE_PCT: float = 0.03  # 3% daily move
     TIER3_PRESCREEN_VOLUME_RATIO: float = 2.0       # 2x avg volume
+    # Auto-promotion: how long (hours) a symbol stays in Tier 1 after a Tier 2/3
+    # signal promotes it.  It reverts to its scan-pool cadence when this lapses
+    # unless another signal re-promotes it.  Non-positive means never expire.
+    PROMOTION_TTL_HOURS: float = 72.0
     # Batch data fetching for large symbol sets.
     BATCH_DOWNLOAD_SIZE: int = 50
 

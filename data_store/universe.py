@@ -108,6 +108,22 @@ class UniverseDB:
                     filter_value REAL,
                     enabled      BOOLEAN DEFAULT 1
                 );
+
+                CREATE TABLE IF NOT EXISTS index_membership (
+                    ticker     TEXT NOT NULL,
+                    index_name TEXT NOT NULL,
+                    PRIMARY KEY (ticker, index_name)
+                );
+                CREATE INDEX IF NOT EXISTS idx_index_membership_name
+                    ON index_membership(index_name);
+
+                CREATE TABLE IF NOT EXISTS promotions (
+                    ticker      TEXT PRIMARY KEY,
+                    source_tier TEXT,
+                    reason      TEXT,
+                    promoted_at TIMESTAMP,
+                    expires_at  TIMESTAMP
+                );
                 """
             )
             # Seed default scan filters if the table is empty.
@@ -166,6 +182,44 @@ class UniverseDB:
                 col_names = ", ".join(columns)
                 cur.execute(
                     f"INSERT OR REPLACE INTO symbols ({col_names}) VALUES ({placeholders})",
+                    vals,
+                )
+                count += cur.rowcount
+            self._conn.commit()
+        return count
+
+    def ensure_symbols(self, symbols: list[dict]) -> int:
+        """Insert symbols only if their ticker is not already present.
+
+        Unlike :meth:`add_symbols` (which upserts via ``INSERT OR REPLACE`` and
+        would wipe already-enriched columns), this uses ``INSERT OR IGNORE`` so
+        existing rows — and any sector/price/market-cap enrichment they carry —
+        are left untouched.  Used when recording index membership for tickers
+        that may or may not already exist.
+
+        Returns:
+            Number of rows actually inserted.
+        """
+        if not symbols:
+            return 0
+        columns = [
+            "ticker", "name", "exchange", "asset_type", "sector", "industry",
+            "market_cap", "avg_volume", "last_price", "currency", "country",
+            "is_active", "last_updated",
+        ]
+        now = self._now()
+        count = 0
+        with self._lock:
+            cur = self._conn.cursor()
+            for sym in symbols:
+                vals = [sym.get(c) for c in columns]
+                if vals[columns.index("is_active")] is None:
+                    vals[columns.index("is_active")] = 1
+                vals[columns.index("last_updated")] = now
+                placeholders = ", ".join("?" for _ in columns)
+                col_names = ", ".join(columns)
+                cur.execute(
+                    f"INSERT OR IGNORE INTO symbols ({col_names}) VALUES ({placeholders})",
                     vals,
                 )
                 count += cur.rowcount
@@ -629,6 +683,189 @@ class UniverseDB:
             Sorted ticker list produced by :meth:`get_filtered_universe`.
         """
         return self.get_filtered_universe()
+
+    # ---------------------------------------------------- index membership
+
+    def set_index_membership(self, index_name: str, tickers: list[str]) -> int:
+        """Replace the membership of *index_name* with *tickers*.
+
+        Existing membership rows for the index are deleted first so the table
+        always reflects the latest constituent list (index reconstitution
+        removes names as well as adding them).  Membership is intentionally not
+        foreign-keyed to ``symbols`` — a constituent may be recorded before its
+        symbol row is enriched.
+
+        Args:
+            index_name: e.g. ``"SP500"`` or ``"NASDAQ100"``.
+            tickers: Constituent ticker strings.
+
+        Returns:
+            Number of membership rows written.
+        """
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                "DELETE FROM index_membership WHERE index_name = ?", (index_name,)
+            )
+            cur.executemany(
+                "INSERT OR IGNORE INTO index_membership (ticker, index_name) "
+                "VALUES (?, ?)",
+                [(t.upper(), index_name) for t in tickers],
+            )
+            self._conn.commit()
+            return cur.rowcount if cur.rowcount and cur.rowcount > 0 else len(tickers)
+
+    def get_index_symbols(self, index_name: str) -> list[str]:
+        """Return the sorted tickers recorded for *index_name*."""
+        rows = self._conn.execute(
+            "SELECT ticker FROM index_membership WHERE index_name = ? "
+            "ORDER BY ticker",
+            (index_name,),
+        ).fetchall()
+        return [r["ticker"] for r in rows]
+
+    def get_index_universe(self) -> list[str]:
+        """Return the sorted union of every recorded index's members (Tier 3)."""
+        rows = self._conn.execute(
+            "SELECT DISTINCT ticker FROM index_membership ORDER BY ticker"
+        ).fetchall()
+        return [r["ticker"] for r in rows]
+
+    def is_in_index(self, ticker: str, index_name: str) -> bool:
+        """Return whether *ticker* is recorded in *index_name*."""
+        row = self._conn.execute(
+            "SELECT 1 FROM index_membership WHERE ticker = ? AND index_name = ? "
+            "LIMIT 1",
+            (ticker.upper(), index_name),
+        ).fetchone()
+        return row is not None
+
+    def get_scan_pool(self, index_name: str = "SP500", limit: int | None = None) -> list[str]:
+        """Return the Tier-2 Scan Pool: top members of *index_name* by liquidity.
+
+        Members are ranked by ``avg_volume * market_cap`` (a dollar-volume-ish
+        proxy) descending, so the most liquid, largest names come first.  Rows
+        missing either metric sort last (they still appear, so a freshly-seeded
+        DB with no enrichment yet returns the full membership in ticker order).
+        Only active symbols are considered.
+
+        Args:
+            index_name: Index to draw the pool from (default ``"SP500"``).
+            limit: Maximum symbols to return (``None`` = all members).
+
+        Returns:
+            Ranked ticker list, longest at *limit*.
+        """
+        sql = (
+            "SELECT m.ticker AS ticker, "
+            "       COALESCE(s.avg_volume, 0) * COALESCE(s.market_cap, 0) AS liq, "
+            "       COALESCE(s.is_active, 1) AS active "
+            "FROM index_membership m "
+            "LEFT JOIN symbols s ON s.ticker = m.ticker "
+            "WHERE m.index_name = ? AND COALESCE(s.is_active, 1) = 1 "
+            "ORDER BY liq DESC, m.ticker ASC"
+        )
+        params: list[Any] = [index_name]
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+        rows = self._conn.execute(sql, params).fetchall()
+        return [r["ticker"] for r in rows]
+
+    # ------------------------------------------------------------ promotions
+
+    def promote_symbol(
+        self,
+        ticker: str,
+        source_tier: str = "tier2",
+        reason: str = "",
+        ttl_hours: float = 72.0,
+    ) -> None:
+        """Promote *ticker* into Tier 1 for *ttl_hours* hours.
+
+        A promoted symbol joins the Active-Trading scan set (full strategy
+        evaluation every cycle) until it expires.  Re-promoting an existing
+        symbol refreshes its expiry.
+
+        Args:
+            ticker: Symbol to promote.
+            source_tier: Which tier surfaced the signal (``"tier2"``/``"tier3"``).
+            reason: Human-readable reason (e.g. the strategy/grade that fired).
+            ttl_hours: Lifetime of the promotion; non-positive means no expiry.
+        """
+        from datetime import timedelta
+
+        now = datetime.now(tz=EASTERN)
+        expires = (
+            (now + timedelta(hours=ttl_hours)).isoformat(timespec="seconds")
+            if ttl_hours and ttl_hours > 0
+            else None
+        )
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO promotions "
+                "(ticker, source_tier, reason, promoted_at, expires_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (
+                    ticker.upper(),
+                    source_tier,
+                    reason,
+                    now.isoformat(timespec="seconds"),
+                    expires,
+                ),
+            )
+            self._conn.commit()
+
+    def get_promoted_symbols(self) -> list[str]:
+        """Return the tickers currently promoted to Tier 1 (non-expired).
+
+        A row with a ``NULL`` ``expires_at`` never expires.  Expiry comparison
+        is lexicographic over same-timezone ISO strings, which is order-correct.
+        """
+        now = self._now()
+        rows = self._conn.execute(
+            "SELECT ticker FROM promotions "
+            "WHERE expires_at IS NULL OR expires_at > ? "
+            "ORDER BY ticker",
+            (now,),
+        ).fetchall()
+        return [r["ticker"] for r in rows]
+
+    def get_promotions(self) -> list[dict]:
+        """Return every non-expired promotion row (for the dashboard)."""
+        now = self._now()
+        rows = self._conn.execute(
+            "SELECT * FROM promotions "
+            "WHERE expires_at IS NULL OR expires_at > ? "
+            "ORDER BY promoted_at DESC",
+            (now,),
+        ).fetchall()
+        return self._rows_to_dicts(rows)
+
+    def expire_promotions(self) -> int:
+        """Delete promotions whose ``expires_at`` has passed.
+
+        Returns:
+            Number of expired rows removed.
+        """
+        now = self._now()
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                "DELETE FROM promotions "
+                "WHERE expires_at IS NOT NULL AND expires_at <= ?",
+                (now,),
+            )
+            self._conn.commit()
+            return cur.rowcount
+
+    def demote_symbol(self, ticker: str) -> None:
+        """Remove *ticker* from the promotion table (manual demotion)."""
+        with self._lock:
+            self._conn.execute(
+                "DELETE FROM promotions WHERE ticker = ?", (ticker.upper(),)
+            )
+            self._conn.commit()
 
 
 # ---------------------------------------------------------------------------

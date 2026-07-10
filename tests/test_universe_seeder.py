@@ -211,3 +211,57 @@ class TestSeederSeedAll:
         assert stats["filters_set"] is True
         assert stats["watchlist_migrated"] is True
         assert stats["total_symbols"] > 0
+
+
+# ---------------------------------------------------------------------------
+# Index membership seeding (S&P 500 + NASDAQ-100)
+# ---------------------------------------------------------------------------
+
+
+class TestSeedIndexMembership:
+    def test_static_seeding_records_both_indices(self, seeder: UniverseSeeder) -> None:
+        from config import index_membership as im
+
+        written = seeder.seed_index_membership(refresh_from_network=False)
+        assert written > 0
+        assert set(seeder.db.get_index_symbols("SP500")) == set(im.sp500_symbols())
+        assert set(seeder.db.get_index_symbols("NASDAQ100")) == set(im.nasdaq100_symbols())
+
+    def test_constituents_added_to_symbols_table(self, seeder: UniverseSeeder) -> None:
+        seeder.seed_index_membership(refresh_from_network=False)
+        # A constituent should now exist in the symbols table so the Scan Pool
+        # can rank it.
+        assert seeder.db.get_symbols(search="AAPL")
+
+    def test_seeding_preserves_existing_enrichment(self, seeder: UniverseSeeder) -> None:
+        # An already-enriched AAPL row must survive membership seeding.
+        seeder.db.add_symbols([
+            {"ticker": "AAPL", "exchange": "NASDAQ", "asset_type": "stock",
+             "sector": "Technology", "market_cap": 3e12},
+        ])
+        seeder.seed_index_membership(refresh_from_network=False)
+        row = seeder.db.get_symbols(search="AAPL")[0]
+        assert row["sector"] == "Technology"
+        assert row["market_cap"] == 3e12
+
+    def test_network_refresh_falls_back_to_static(self, seeder: UniverseSeeder) -> None:
+        from config import index_membership as im
+
+        # A failing read_html must not empty the tiers — static fallback wins.
+        with patch("pandas.read_html", side_effect=RuntimeError("no network")):
+            seeder.seed_index_membership(refresh_from_network=True)
+        assert set(seeder.db.get_index_symbols("SP500")) == set(im.sp500_symbols())
+
+    def test_seed_all_reports_index_members(self, seeder: UniverseSeeder) -> None:
+        import httpx as _httpx
+
+        fake_response = MagicMock()
+        fake_response.status_code = 200
+        fake_response.json.return_value = {}
+        fake_response.raise_for_status = MagicMock()
+
+        with patch.object(_httpx, "get", return_value=fake_response):
+            stats = seeder.seed_all(skip_enrichment=True)
+
+        assert stats["index_members"] > 0
+        assert seeder.db.get_index_universe()

@@ -44,7 +44,7 @@ from execution.exit_manager import ExitManager
 from journal.btst_logger import RejectedSignalLogger
 from journal.trade_logger import TradeLogger
 from risk.manager import RiskManager
-from signals.screener import run_full_scan, run_sector_scan, run_prescreen
+from signals.screener import run_full_scan, run_prescreen
 from signals.signal_types import Signal, TradeOrder
 
 log = structlog.get_logger(__name__)
@@ -192,8 +192,15 @@ class TradingEngine:
         self._stop_event: asyncio.Event | None = None
 
         # ── Tiered scanning state ────────────────────────────────────────
-        # Sector rotation index for Tier 2 scanning; cycles through all
-        # GICS sectors across successive scan cycles.
+        # Tier 2 (Scan Pool) runs once per calendar day; Tier 3 (Universe)
+        # once per ISO week.  Both are keyed off a date/week string so a
+        # restart mid-day/week doesn't re-run them.  ``_tier1_symbol_set`` is
+        # the current Active-Trading scan set, used to skip symbols already
+        # covered every cycle when scanning the wider tiers.
+        self._last_tier2_date: str | None = None
+        self._last_tier3_week: str | None = None
+        self._tier1_symbol_set: set[str] = set()
+        # (legacy sector-rotation state — retained for back-compat helpers)
         self._sector_rotation_idx: int = 0
         self._last_tier2_time: datetime | None = None
         self._last_tier3_date: str | None = None
@@ -509,7 +516,26 @@ class TradingEngine:
         # signal — whatever scan produced it — is re-checked against the
         # operator's selection before an order can be built.
         self._selection = selection
-        scan_symbols = selection.filter_symbols(scan_symbols_for(self.settings))
+        # Tier 1 (Active Trading) = watchlist ∪ ETFs ∪ auto-promoted symbols.
+        # Expire stale promotions first, then fold the survivors into the scan
+        # set so a symbol promoted by a Tier 2/3 signal gets full every-cycle
+        # evaluation until its promotion lapses.  Best-effort — a DB hiccup
+        # never costs the base watchlist scan.
+        base_symbols = scan_symbols_for(self.settings)
+        try:
+            from config.universe import expire_promotions, get_promoted_tier1_symbols
+
+            expire_promotions()
+            promoted = get_promoted_tier1_symbols()
+            if promoted:
+                base_symbols = sorted(set(base_symbols) | set(promoted))
+                log.info("engine.tier1_promotions_active", count=len(promoted))
+        except Exception:  # noqa: BLE001
+            log.debug("engine.promotion_merge_failed", exc_info=True)
+        scan_symbols = selection.filter_symbols(base_symbols)
+        # Remember the active-trading set so the wider tiers can skip symbols
+        # already scanned every cycle.
+        self._tier1_symbol_set = set(scan_symbols)
         if selection.enabled:
             log.info(
                 "engine.trade_selection_active",
@@ -524,8 +550,10 @@ class TradingEngine:
             max_workers=self.settings.TIER1_WORKERS,
         )
 
-        # Step 6a: Tiered scanning (Tier 2 sector rotation + Tier 3 full
-        # universe sweep) when the universe database is available.
+        # Step 6a: Tiered scanning — Tier 2 (daily S&P 500 Scan Pool) + Tier 3
+        # (weekly S&P 500 ∪ NASDAQ-100 Universe sweep).  A signal from either
+        # tier auto-promotes its symbol into Tier 1 for full every-cycle
+        # evaluation.  Runs only when the universe database is available.
         tiered_signals = self._run_tiered_scans(selection)
         if tiered_signals:
             signals.extend(tiered_signals)
@@ -681,10 +709,11 @@ class TradingEngine:
     # ------------------------------------------------------------------
 
     def _run_tiered_scans(self, selection) -> List[Signal]:
-        """Run Tier 2 (sector rotation) and Tier 3 (full universe sweep).
+        """Run Tier 2 (daily Scan Pool) and Tier 3 (weekly Universe sweep).
 
         Only runs when the universe database is available and tiered scanning
         is enabled in settings.  Best-effort: failures never break the scan.
+        Signals from either tier auto-promote their symbol into Tier 1.
         """
         if not self.settings.TIERED_SCANNING_ENABLED:
             return []
@@ -698,14 +727,14 @@ class TradingEngine:
 
         signals: List[Signal] = []
 
-        # ── Tier 2: Sector rotation ──────────────────────────────────────
+        # ── Tier 2: S&P 500 Scan Pool (once per day) ─────────────────────
         if self.settings.TIER2_ENABLED:
             try:
                 signals.extend(self._run_tier2_scan(selection))
             except Exception:
                 log.exception("engine.tier2_scan_error")
 
-        # ── Tier 3: Full universe sweep (once daily) ─────────────────────
+        # ── Tier 3: S&P 500 ∪ NASDAQ-100 Universe sweep (once per week) ──
         if self.settings.TIER3_ENABLED:
             try:
                 signals.extend(self._run_tier3_scan(selection))
@@ -715,82 +744,116 @@ class TradingEngine:
         return signals
 
     def _run_tier2_scan(self, selection) -> List[Signal]:
-        """Tier 2: scan 1-2 sectors per cycle, rotating through all sectors."""
-        now = datetime.now(tz=ET)
+        """Tier 2: scan the top-N S&P 500 names by liquidity, once per day.
 
-        # Throttle: only run every TIER2_INTERVAL_MINUTES.
-        if self._last_tier2_time is not None:
-            elapsed = (now - self._last_tier2_time).total_seconds() / 60.0
-            if elapsed < self.settings.TIER2_INTERVAL_MINUTES:
-                return []
-
-        from config.universe import get_all_sectors
-
-        all_sectors = get_all_sectors()
-        if not all_sectors:
+        The Scan Pool is the most liquid slice of the S&P 500 (ranked by
+        volume × market cap).  Symbols already in the every-cycle Tier 1 set are
+        skipped to avoid duplicate work.  Any signal promotes its symbol into
+        Tier 1 so subsequent cycles evaluate it in full.
+        """
+        today = datetime.now(tz=ET).strftime("%Y-%m-%d")
+        if self._last_tier2_date == today:
             return []
 
-        sector_names = [s["sector"] for s in all_sectors if s.get("sector")]
-        if not sector_names:
+        from config.universe import get_scan_pool_symbols
+
+        pool = get_scan_pool_symbols(limit=self.settings.TIER2_SCAN_POOL_SIZE)
+        pool = [s for s in pool if s not in self._tier1_symbol_set]
+        if not pool:
+            return []
+        # Respect the operator's trade selection just like the base scan.
+        pool = selection.filter_symbols(pool)
+        if not pool:
+            self._last_tier2_date = today
             return []
 
-        # Pick 1-2 sectors to scan this cycle.
-        idx = self._sector_rotation_idx % len(sector_names)
-        sectors_to_scan = sector_names[idx: idx + 2]
-        self._sector_rotation_idx = (idx + 2) % len(sector_names)
-        self._last_tier2_time = now
-
-        signals: List[Signal] = []
-        for sector in sectors_to_scan:
-            log.info("engine.tier2_scan", sector=sector)
-            sector_signals = run_sector_scan(
-                sector,
-                min_grade=selection.effective_min_grade("B"),
-                allowed_strategies=selection.allowed_strategies(),
-                max_workers=self.settings.TIER2_WORKERS,
-            )
-            signals.extend(sector_signals)
-
+        self._last_tier2_date = today
+        log.info("engine.tier2_scan_pool", size=len(pool))
+        signals = run_full_scan(
+            pool,
+            min_grade=selection.effective_min_grade("B"),
+            allowed_strategies=selection.allowed_strategies(),
+            max_workers=self.settings.TIER2_WORKERS,
+        )
+        self._promote_signals(signals, "tier2")
         if signals:
-            log.info(
-                "engine.tier2_complete",
-                sectors=sectors_to_scan,
-                signals=len(signals),
-            )
+            log.info("engine.tier2_complete", scanned=len(pool), signals=len(signals))
         return signals
 
     def _run_tier3_scan(self, selection) -> List[Signal]:
-        """Tier 3: full universe pre-screen sweep, once per day."""
-        today = datetime.now(tz=ET).strftime("%Y-%m-%d")
-        if self._last_tier3_date == today:
+        """Tier 3: pre-screen the full S&P 500 ∪ NASDAQ-100, once per week.
+
+        A lightweight pre-screen finds unusual movers across the whole index
+        universe; only those are full-scanned, keeping the weekly sweep cheap.
+        Any signal promotes its symbol into Tier 1.
+        """
+        week = datetime.now(tz=ET).strftime("%G-W%V")  # ISO year-week
+        if self._last_tier3_week == week:
             return []
 
-        from config.universe import get_tier3_symbols
+        from config.universe import get_index_universe_symbols
 
-        all_symbols = get_tier3_symbols()
-        if not all_symbols or len(all_symbols) <= len(self.settings.CAPITAL_BY_CURRENCY):
+        universe = get_index_universe_symbols()
+        if not universe or len(universe) <= len(self.settings.CAPITAL_BY_CURRENCY):
             return []
+        # Don't re-screen names already covered every cycle.
+        universe = [s for s in universe if s not in self._tier1_symbol_set]
 
-        log.info("engine.tier3_prescreen_start", total=len(all_symbols))
+        log.info("engine.tier3_prescreen_start", total=len(universe))
         qualifying = run_prescreen(
-            all_symbols,
+            universe,
             price_change_pct=self.settings.TIER3_PRESCREEN_PRICE_CHANGE_PCT,
             volume_ratio=self.settings.TIER3_PRESCREEN_VOLUME_RATIO,
             max_workers=self.settings.TIER3_WORKERS,
         )
-        self._last_tier3_date = today
+        self._last_tier3_week = week
 
         if not qualifying:
             log.info("engine.tier3_prescreen_none")
             return []
+        qualifying = selection.filter_symbols(qualifying)
+        if not qualifying:
+            return []
 
         log.info("engine.tier3_full_scan", qualifying=len(qualifying))
-        return run_full_scan(
+        signals = run_full_scan(
             qualifying,
             min_grade=selection.effective_min_grade("B"),
             allowed_strategies=selection.allowed_strategies(),
             max_workers=self.settings.TIER2_WORKERS,
         )
+        self._promote_signals(signals, "tier3")
+        return signals
+
+    def _promote_signals(self, signals: List[Signal], source_tier: str) -> None:
+        """Promote every signalling symbol into Tier 1 (best-effort).
+
+        Called after a Tier 2/3 scan.  Each promoted symbol joins the
+        Active-Trading set for ``PROMOTION_TTL_HOURS`` so future cycles evaluate
+        it in full.  Failures are swallowed — promotion must never break a scan.
+        """
+        if not signals:
+            return
+        from config.universe import promote_to_tier1
+
+        promoted: set[str] = set()
+        for sig in signals:
+            symbol = getattr(sig, "symbol", "")
+            if not symbol or symbol in promoted:
+                continue
+            promoted.add(symbol)
+            reason = f"{getattr(sig, 'strategy', '')} {getattr(getattr(sig, 'grade', None), 'value', '')}".strip()
+            try:
+                promote_to_tier1(symbol, source_tier=source_tier, reason=reason)
+            except Exception:  # noqa: BLE001
+                log.debug("engine.promote_failed", symbol=symbol, exc_info=True)
+        if promoted:
+            log.info(
+                "engine.tier_promotions",
+                source_tier=source_tier,
+                count=len(promoted),
+                symbols=sorted(promoted),
+            )
 
     # ------------------------------------------------------------------
     # Entry pipeline

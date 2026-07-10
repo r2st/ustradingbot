@@ -286,3 +286,150 @@ def get_tier3_symbols() -> list[str]:
     except Exception:  # noqa: BLE001
         log.debug("universe.tier3_fallback", exc_info=True)
     return list(ALL_SYMBOLS)
+
+
+# ── Index-based tiers (S&P 500 / NASDAQ-100 approved design) ───────────────
+# The functions above preserve the original sector-rotation tier semantics for
+# back-compat.  The three below implement the operator-approved design:
+#   Tier 1 (Active Trading) = watchlist ∪ ETFs ∪ promoted symbols
+#   Tier 2 (Scan Pool)      = top-N S&P 500 by volume × market cap
+#   Tier 3 (Universe)       = S&P 500 ∪ NASDAQ-100
+# Each prefers the universe DB (which carries the ranking metadata and the
+# refreshed constituent lists) and falls back to the curated static lists in
+# :mod:`config.index_membership` so every tier is populated even with no DB.
+
+
+def get_scan_pool_symbols(limit: int | None = None) -> list[str]:
+    """Return the Tier-2 Scan Pool: top S&P 500 names by liquidity.
+
+    Ranked by ``avg_volume * market_cap`` when the universe DB has that
+    metadata; otherwise falls back to the curated liquidity-priority order in
+    :mod:`config.index_membership` truncated to *limit*.
+    """
+    from config.index_membership import SP500_INDEX, SP500_LIQUIDITY_PRIORITY, SP500
+
+    try:
+        from data_store.universe import db_exists, get_universe_db
+        from config.settings import get_settings
+
+        settings = get_settings()
+        if db_exists(settings.DATA_DIR):
+            pool = get_universe_db(settings.DATA_DIR).get_scan_pool(
+                index_name=SP500_INDEX, limit=limit
+            )
+            if pool:
+                return pool
+    except Exception:  # noqa: BLE001
+        log.debug("universe.scan_pool_fallback", exc_info=True)
+
+    # Static fallback: liquidity-priority names first, then the rest of the
+    # curated S&P 500, de-duplicated and truncated to *limit*.
+    ordered: list[str] = list(SP500_LIQUIDITY_PRIORITY)
+    seen = set(ordered)
+    for sym in SP500:
+        if sym not in seen:
+            ordered.append(sym)
+            seen.add(sym)
+    return ordered[:limit] if limit is not None else ordered
+
+
+def get_index_universe_symbols() -> list[str]:
+    """Return the Tier-3 universe: S&P 500 ∪ NASDAQ-100.
+
+    Prefers the universe DB's recorded membership (kept current by the seeder's
+    refresh); falls back to the curated static union.
+    """
+    try:
+        from data_store.universe import db_exists, get_universe_db
+        from config.settings import get_settings
+
+        settings = get_settings()
+        if db_exists(settings.DATA_DIR):
+            universe = get_universe_db(settings.DATA_DIR).get_index_universe()
+            if universe:
+                return universe
+    except Exception:  # noqa: BLE001
+        log.debug("universe.index_universe_fallback", exc_info=True)
+
+    from config.index_membership import index_universe
+
+    return index_universe()
+
+
+# ── Auto-promotion (Tier 2/3 → Tier 1) ─────────────────────────────────────
+
+
+def promote_to_tier1(
+    symbol: str,
+    source_tier: str = "tier2",
+    reason: str = "",
+    ttl_hours: float | None = None,
+) -> bool:
+    """Promote *symbol* into the Active-Trading (Tier 1) scan set.
+
+    Persists to the universe DB when available so the promotion survives
+    restarts and is visible to the dashboard.  Returns ``True`` when the
+    promotion was recorded, ``False`` when no DB is available (the caller
+    should treat promotion as best-effort).
+
+    Args:
+        symbol: Ticker to promote.
+        source_tier: Which tier the promoting signal came from.
+        reason: Human-readable reason (strategy/grade that fired).
+        ttl_hours: Promotion lifetime; ``None`` uses the settings default.
+    """
+    try:
+        from data_store.universe import db_exists, get_universe_db
+        from config.settings import get_settings
+
+        settings = get_settings()
+        if ttl_hours is None:
+            ttl_hours = float(getattr(settings, "PROMOTION_TTL_HOURS", 72.0))
+        if db_exists(settings.DATA_DIR):
+            get_universe_db(settings.DATA_DIR).promote_symbol(
+                symbol, source_tier=source_tier, reason=reason, ttl_hours=ttl_hours
+            )
+            log.info(
+                "universe.promoted",
+                symbol=symbol.upper(),
+                source_tier=source_tier,
+                reason=reason,
+            )
+            return True
+    except Exception:  # noqa: BLE001 — promotion must never break a scan
+        log.debug("universe.promote_failed", symbol=symbol, exc_info=True)
+    return False
+
+
+def get_promoted_tier1_symbols() -> list[str]:
+    """Return the symbols currently promoted into Tier 1 (non-expired).
+
+    Empty when no universe DB is available.
+    """
+    try:
+        from data_store.universe import db_exists, get_universe_db
+        from config.settings import get_settings
+
+        settings = get_settings()
+        if db_exists(settings.DATA_DIR):
+            return get_universe_db(settings.DATA_DIR).get_promoted_symbols()
+    except Exception:  # noqa: BLE001
+        log.debug("universe.promoted_fallback", exc_info=True)
+    return []
+
+
+def expire_promotions() -> int:
+    """Expire stale Tier-1 promotions in the universe DB.
+
+    Returns the number expired (``0`` when no DB is available).
+    """
+    try:
+        from data_store.universe import db_exists, get_universe_db
+        from config.settings import get_settings
+
+        settings = get_settings()
+        if db_exists(settings.DATA_DIR):
+            return get_universe_db(settings.DATA_DIR).expire_promotions()
+    except Exception:  # noqa: BLE001
+        log.debug("universe.expire_failed", exc_info=True)
+    return 0

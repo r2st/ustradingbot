@@ -260,6 +260,12 @@ class UniverseSeeder:
         # 3. ETFs
         stats["etf_added"] = self.seed_etfs()
 
+        # 3b. Index membership (S&P 500 + NASDAQ-100) — the basis for the
+        #     Scan Pool (Tier 2) and Universe (Tier 3) tiers.
+        stats["index_members"] = self.seed_index_membership(
+            refresh_from_network=not skip_enrichment
+        )
+
         # 4. Optional yfinance enrichment
         if not skip_enrichment:
             try:
@@ -395,6 +401,63 @@ class UniverseSeeder:
         added = self.db.add_symbols(symbols)
         log.info("etfs_loaded", total=len(symbols), added=added)
         return added
+
+    # ------------------------------------------------------------------
+    # Index membership (S&P 500 + NASDAQ-100)
+    # ------------------------------------------------------------------
+
+    def seed_index_membership(self, refresh_from_network: bool = False) -> int:
+        """Record S&P 500 and NASDAQ-100 membership in the universe DB.
+
+        Constituents come from :mod:`config.index_membership`: the curated
+        static lists by default, or a best-effort Wikipedia refresh when
+        *refresh_from_network* is set (falls back to static on any failure).
+        Each constituent is ensured to exist in the ``symbols`` table (without
+        clobbering existing enrichment) so the Scan Pool can rank it.
+
+        Returns:
+            Total membership rows written across both indices.
+        """
+        from config.index_membership import (
+            NASDAQ100_INDEX,
+            SP500_INDEX,
+            fetch_index_constituents,
+            static_symbols,
+        )
+
+        total = 0
+        for index_name in (SP500_INDEX, NASDAQ100_INDEX):
+            if refresh_from_network:
+                tickers = fetch_index_constituents(index_name)
+            else:
+                tickers = static_symbols(index_name)
+            if not tickers:
+                continue
+            # Ensure a symbols row exists for each constituent (US common
+            # stock; enrichment fills sector/price/market-cap later).
+            self.db.ensure_symbols(
+                [
+                    {
+                        "ticker": t,
+                        "name": "",
+                        "exchange": "",
+                        "country": "US",
+                        "currency": "USD",
+                        "sector": "",
+                        "asset_type": "stock",
+                    }
+                    for t in tickers
+                ]
+            )
+            written = self.db.set_index_membership(index_name, tickers)
+            total += written
+            log.info(
+                "index_membership_seeded",
+                index=index_name,
+                count=len(tickers),
+                written=written,
+            )
+        return total
 
     # ------------------------------------------------------------------
     # yfinance enrichment
