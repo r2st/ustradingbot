@@ -239,6 +239,11 @@ class TradeLogger:
             quantity = int(float(df.at[idx, "quantity"]))
             entry_time_str = df.at[idx, "entry_time"]
             entry_time = datetime.fromisoformat(entry_time_str)
+            # Older rows persisted entry_time tz-naive; assume Eastern so the
+            # ``exit_time - entry_time`` subtraction below (exit_time is
+            # tz-aware) doesn't raise on offset-naive/aware mixing.
+            if entry_time.tzinfo is None:
+                entry_time = entry_time.replace(tzinfo=EASTERN)
             entry_commission = float(df.at[idx, "entry_commission"] or 0)
             stop_price = float(df.at[idx, "stop_price"])
             target_price = float(df.at[idx, "target_price"])

@@ -390,4 +390,9 @@ class ExitManager:
             entry_time = datetime.fromisoformat(str(ts))
         except (ValueError, TypeError):
             return None
+        # Persisted entry_time may be tz-naive (older records / paper broker
+        # fills); assume Eastern so subtracting from the tz-aware ``now`` never
+        # raises "can't subtract offset-naive and offset-aware datetimes".
+        if entry_time.tzinfo is None:
+            entry_time = entry_time.replace(tzinfo=EASTERN)
         return (datetime.now(tz=EASTERN) - entry_time).total_seconds() / 86_400.0

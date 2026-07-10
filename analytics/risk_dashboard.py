@@ -359,6 +359,16 @@ def pnl_breakdown(
         return empty
 
     exits = pd.to_datetime(trades["exit_time"], errors="coerce")
+    # Persisted exit_time values are tz-naive Eastern wall-clock; make the
+    # series tz-aware so comparisons against the tz-aware ``now`` boundaries
+    # below don't raise "Invalid comparison between dtype=datetime64 and
+    # Timestamp".
+    if getattr(exits.dt, "tz", None) is None:
+        exits = exits.dt.tz_localize(
+            EASTERN, ambiguous="NaT", nonexistent="shift_forward"
+        )
+    else:
+        exits = exits.dt.tz_convert(EASTERN)
     pnl = pd.to_numeric(trades["pnl_net"], errors="coerce").fillna(0.0)
     valid = exits.notna()
     if not valid.any():
@@ -366,6 +376,10 @@ def pnl_breakdown(
     df = pd.DataFrame({"exit": exits[valid], "pnl": pnl[valid]}).set_index("exit")
 
     ts = pd.Timestamp(now)
+    if ts.tzinfo is None:
+        ts = ts.tz_localize(EASTERN)
+    else:
+        ts = ts.tz_convert(EASTERN)
     today = ts.normalize()
     week_start = today - pd.Timedelta(days=today.weekday())
     month_start = today.replace(day=1)

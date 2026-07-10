@@ -193,6 +193,13 @@ def days_between(entry_time: Any, now: datetime) -> Optional[float]:
             entry_dt = datetime.fromisoformat(str(entry_time))
         except (ValueError, TypeError):
             return None
+    # Persisted entry_time may be tz-naive while ``now`` is tz-aware (or vice
+    # versa); align the two so the subtraction never raises "can't subtract
+    # offset-naive and offset-aware datetimes".
+    if entry_dt.tzinfo is None and now.tzinfo is not None:
+        entry_dt = entry_dt.replace(tzinfo=now.tzinfo)
+    elif entry_dt.tzinfo is not None and now.tzinfo is None:
+        entry_dt = entry_dt.replace(tzinfo=None)
     return (now - entry_dt).total_seconds() / 86_400.0
 
 

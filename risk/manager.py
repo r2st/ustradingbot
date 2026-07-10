@@ -1005,6 +1005,11 @@ class RiskManager:
                 exit_ts = datetime.fromisoformat(record["exit_ts"])
             except (KeyError, ValueError, TypeError):
                 continue
+            # Older exit-history records persisted exit_ts tz-naive; assume
+            # Eastern so ``now - exit_ts`` (now is tz-aware) never raises on
+            # offset-naive/aware mixing.
+            if exit_ts.tzinfo is None:
+                exit_ts = exit_ts.replace(tzinfo=_ET)
 
             # Determine cooldown duration based on exit reason
             if exit_reason in _LONG_COOLDOWN_REASONS:
