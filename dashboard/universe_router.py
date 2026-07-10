@@ -10,6 +10,9 @@ dependency.
 from __future__ import annotations
 
 import threading
+import uuid
+from collections import OrderedDict
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -21,6 +24,16 @@ from data_store.universe import db_exists, get_universe_db
 router = APIRouter(prefix="/api/universe", tags=["universe"])
 
 _DB_FILENAME = "universe.db"
+
+# ---------------------------------------------------------------------------
+# Seed job registry — tracks background seeding jobs so the UI can poll
+# ---------------------------------------------------------------------------
+
+#: Retain at most this many seed jobs (oldest evicted first).
+_MAX_SEED_JOBS = 5
+
+_seed_jobs: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+_seed_lock = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -310,39 +323,163 @@ async def get_tiers(_user: str = Depends(require_auth)):
 
 
 # ---------------------------------------------------------------------------
-# Seeding
+# Seeding — background job with progress tracking
 # ---------------------------------------------------------------------------
+
+
+def _seed_job_update(job_id: str, **fields: Any) -> None:
+    """Update fields on a seed job record (thread-safe)."""
+    with _seed_lock:
+        job = _seed_jobs.get(job_id)
+        if job is not None:
+            job.update(fields)
+
+
+def _is_seed_running() -> bool:
+    """Return True if any seed job is currently running."""
+    with _seed_lock:
+        return any(j["state"] == "running" for j in _seed_jobs.values())
 
 
 @router.post("/seed")
 async def seed_universe(request: Request, _user: str = Depends(require_auth)):
     """Trigger re-seeding of the universe database (runs in background thread).
 
+    Returns a ``job_id`` that the UI polls via
+    ``GET /api/universe/seed/status/{job_id}`` for progress updates.
+
     Body (optional): ``{"skip_enrichment": true}``
     """
     from pathlib import Path
 
-    from data_store.universe_seeder import UniverseSeeder
+    # Prevent multiple concurrent seed jobs
+    if _is_seed_running():
+        return {
+            "ok": False,
+            "message": "A seed job is already running. Please wait for it to finish.",
+        }
 
     body = await _body(request)
     skip_enrichment = bool(body.get("skip_enrichment", False))
     settings = _settings()
     db_path = Path(settings.DATA_DIR) / _DB_FILENAME
 
-    def _run_seed():
-        try:
-            seeder = UniverseSeeder(str(db_path))
-            seeder.seed_all(skip_enrichment=skip_enrichment)
-        except Exception:
-            import structlog
-            log = structlog.get_logger(__name__)
-            log.exception("universe_seed_failed")
-
-    thread = threading.Thread(target=_run_seed, daemon=True, name="universe-seeder")
-    thread.start()
-
-    return {
-        "ok": True,
-        "message": "Seeding started in background. Refresh stats to check progress.",
+    job_id = uuid.uuid4().hex[:12]
+    job: Dict[str, Any] = {
+        "id": job_id,
+        "state": "running",
+        "progress": 0,
+        "message": "Starting universe rebuild...",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "finished_at": None,
         "skip_enrichment": skip_enrichment,
     }
+    with _seed_lock:
+        _seed_jobs[job_id] = job
+        while len(_seed_jobs) > _MAX_SEED_JOBS:
+            _seed_jobs.popitem(last=False)
+
+    def _run_seed():
+        import structlog
+
+        log = structlog.get_logger(__name__)
+        try:
+            from data_store.universe_seeder import UniverseSeeder
+
+            seeder = UniverseSeeder(str(db_path))
+
+            # Phase 1: Fetch SEC tickers (10%)
+            _seed_job_update(job_id, progress=2, message="Fetching SEC EDGAR tickers...")
+            sec_symbols = seeder.fetch_sec_tickers()
+
+            if sec_symbols:
+                _seed_job_update(job_id, progress=10, message=f"Adding {len(sec_symbols)} US symbols...")
+                seeder.db.add_symbols(sec_symbols)
+            else:
+                _seed_job_update(job_id, progress=10, message="SEC fetch returned no symbols, continuing...")
+
+            # Phase 2: Canadian stocks (15%)
+            _seed_job_update(job_id, progress=15, message="Adding Canadian stocks...")
+            seeder.seed_canadian()
+
+            # Phase 3: ETFs (20%)
+            _seed_job_update(job_id, progress=20, message="Adding ETFs...")
+            seeder.seed_etfs()
+
+            # Phase 4: Enrichment (20-90%) — the slow part
+            if not skip_enrichment:
+                _seed_job_update(job_id, progress=22, message="Starting yfinance enrichment...")
+                all_symbols = seeder.db.get_symbols(is_active=False)
+                if all_symbols:
+                    all_tickers = [s["ticker"] for s in all_symbols]
+                    total = len(all_tickers)
+                    batch_size = 50
+                    enriched = 0
+
+                    for i in range(0, total, batch_size):
+                        batch = all_tickers[i : i + batch_size]
+                        pct = 22 + int((i / total) * 68)  # 22% to 90%
+                        _seed_job_update(
+                            job_id,
+                            progress=min(pct, 90),
+                            message=f"Enriching symbols {i + 1}-{min(i + batch_size, total)} of {total}...",
+                        )
+                        try:
+                            enriched += seeder.enrich_batch(batch, batch_size=batch_size)
+                        except Exception:
+                            log.debug("enrich_batch_error", batch_start=i)
+                else:
+                    _seed_job_update(job_id, progress=90, message="No symbols to enrich.")
+            else:
+                _seed_job_update(job_id, progress=90, message="Enrichment skipped.")
+
+            # Phase 5: Default filters (92%)
+            _seed_job_update(job_id, progress=92, message="Setting default scan filters...")
+            seeder.seed_default_filters()
+
+            # Phase 6: Migrate watchlist (95%)
+            _seed_job_update(job_id, progress=95, message="Migrating existing watchlist...")
+            try:
+                seeder.migrate_existing_watchlist()
+            except Exception:
+                log.exception("watchlist_migration_failed")
+
+            # Done
+            stats = seeder.db.get_stats()
+            total_symbols = stats.get("total_symbols", "?")
+            _seed_job_update(
+                job_id,
+                state="done",
+                progress=100,
+                message=f"Universe rebuilt successfully. {total_symbols} symbols loaded.",
+                finished_at=datetime.now(timezone.utc).isoformat(),
+            )
+            log.info("universe_seed_complete", job_id=job_id, **stats)
+
+        except Exception as exc:
+            log.exception("universe_seed_failed", job_id=job_id)
+            _seed_job_update(
+                job_id,
+                state="error",
+                message=f"Seed failed: {exc}",
+                finished_at=datetime.now(timezone.utc).isoformat(),
+            )
+
+    thread = threading.Thread(target=_run_seed, daemon=True, name=f"universe-seeder-{job_id}")
+    thread.start()
+
+    return {"ok": True, "job_id": job_id}
+
+
+@router.get("/seed/status/{job_id}")
+async def seed_status(job_id: str, _user: str = Depends(require_auth)):
+    """Poll the progress of a seed job.
+
+    Returns the job state (``running``, ``done``, or ``error``), a progress
+    percentage (0-100), and a human-readable message.
+    """
+    with _seed_lock:
+        job = _seed_jobs.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Unknown or expired seed job.")
+        return dict(job)

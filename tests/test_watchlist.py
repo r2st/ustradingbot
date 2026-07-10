@@ -127,3 +127,51 @@ def test_scan_symbols_for_empty_falls_back(tmp_data_dir: Path):
         store.set_enabled(name, False)
     # Empty scan set -> fall back to the universe so the engine never idles.
     assert scan_symbols_for(settings) == list(ALL_SYMBOLS)
+
+
+def _seed_universe_db_tier1(data_dir: Path, ticker: str) -> None:
+    """Create a universe DB whose Tier 1 (active watchlist) is ``[ticker]``."""
+    from data_store.universe import get_universe_db
+
+    db = get_universe_db(data_dir)
+    db.add_symbols([
+        {"ticker": ticker, "name": f"{ticker} Inc.", "exchange": "NASDAQ",
+         "asset_type": "STOCK", "is_active": 1},
+    ])
+    db.add_to_watchlist("DB List", [ticker])
+    assert db.get_tier1_symbols() == [ticker]
+
+
+def test_scan_symbols_for_prefers_json_over_universe_db(tmp_data_dir: Path):
+    """Regression (issue #3): the user-managed JSON watchlist must win over the
+    universe DB Tier 1 list.  Previously the DB short-circuited first, hiding
+    dashboard-added symbols like MU / QCOM / SOXL / SPCX from the scan."""
+    from data_store.universe import db_exists
+
+    # A universe DB whose Tier 1 is a *different* symbol than the JSON list.
+    _seed_universe_db_tier1(tmp_data_dir, "ZZZZ")
+    assert db_exists(tmp_data_dir)
+
+    # The JSON watchlist holds only the user's dashboard-added symbol.
+    store = get_watchlist_store(tmp_data_dir)
+    for name in store.list_names():
+        store.delete_list(name)
+    store.create_list("Mine")
+    store.add_symbol("Mine", "MU")
+
+    settings = Settings(DATA_DIR=tmp_data_dir, USE_WATCHLIST_FILE=True)
+    # JSON wins — MU is scanned; the DB's ZZZZ is not.
+    assert scan_symbols_for(settings) == ["MU"]
+
+
+def test_scan_symbols_for_falls_back_to_universe_db(tmp_data_dir: Path):
+    """When the JSON watchlist is empty, fall back to the universe DB Tier 1
+    (not straight to ALL_SYMBOLS) if the DB exists."""
+    _seed_universe_db_tier1(tmp_data_dir, "ZZZZ")
+
+    store = get_watchlist_store(tmp_data_dir)
+    for name in store.list_names():
+        store.set_enabled(name, False)  # empty JSON scan set
+
+    settings = Settings(DATA_DIR=tmp_data_dir, USE_WATCHLIST_FILE=True)
+    assert scan_symbols_for(settings) == ["ZZZZ"]

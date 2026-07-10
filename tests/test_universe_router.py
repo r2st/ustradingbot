@@ -262,10 +262,73 @@ class TestTierEndpoint:
 
 
 class TestSeedEndpoint:
-    def test_seed_returns_ok(self, client: TestClient) -> None:
-        """Seed endpoint starts background thread and returns immediately."""
+    @staticmethod
+    def _wait_for_terminal(client: TestClient, job_id: str, timeout: float = 5.0) -> dict:
+        """Poll the status endpoint until the job leaves the ``running`` state."""
+        import time
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            resp = client.get(f"/api/universe/seed/status/{job_id}")
+            assert resp.status_code == 200
+            data = resp.json()
+            if data["state"] != "running":
+                return data
+            time.sleep(0.02)
+        raise AssertionError(f"seed job {job_id} never reached a terminal state")
+
+    def test_seed_returns_job_id(self, client: TestClient) -> None:
+        """Seed starts a background job and returns a pollable job_id."""
         with patch("data_store.universe_seeder.UniverseSeeder") as mock_cls:
-            mock_cls.return_value.seed_all.return_value = {}
+            seeder = mock_cls.return_value
+            seeder.fetch_sec_tickers.return_value = []
+            seeder.db.get_stats.return_value = {"total_symbols": 4}
             resp = client.post("/api/universe/seed", json={"skip_enrichment": True})
-        assert resp.status_code == 200
-        assert resp.json()["ok"] is True
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body["ok"] is True
+            job_id = body["job_id"]
+            final = self._wait_for_terminal(client, job_id)
+
+        assert final["state"] == "done"
+        assert final["progress"] == 100
+        assert "4 symbols" in final["message"]
+
+    def test_seed_status_unknown_job_404(self, client: TestClient) -> None:
+        resp = client.get("/api/universe/seed/status/deadbeef")
+        assert resp.status_code == 404
+
+    def test_seed_reports_error_state(self, client: TestClient) -> None:
+        """A crashing seeder surfaces as an ``error`` job, not a 500."""
+        with patch("data_store.universe_seeder.UniverseSeeder") as mock_cls:
+            mock_cls.side_effect = RuntimeError("boom")
+            resp = client.post("/api/universe/seed", json={"skip_enrichment": True})
+            assert resp.status_code == 200
+            job_id = resp.json()["job_id"]
+            final = self._wait_for_terminal(client, job_id)
+
+        assert final["state"] == "error"
+        assert "boom" in final["message"]
+
+    def test_seed_rejects_concurrent_job(self, client: TestClient) -> None:
+        """A second seed request while one is running is refused (no job_id)."""
+        import threading
+
+        release = threading.Event()
+
+        def _blocking_ctor(*_args, **_kwargs):
+            release.wait(timeout=5.0)
+            raise RuntimeError("done blocking")
+
+        with patch("data_store.universe_seeder.UniverseSeeder") as mock_cls:
+            mock_cls.side_effect = _blocking_ctor
+            first = client.post("/api/universe/seed", json={"skip_enrichment": True})
+            assert first.json().get("job_id")
+
+            # Second request lands while the first job is still running.
+            second = client.post("/api/universe/seed", json={"skip_enrichment": True})
+            assert second.json()["ok"] is False
+            assert "job_id" not in second.json()
+
+            release.set()
+            self._wait_for_terminal(client, first.json()["job_id"])

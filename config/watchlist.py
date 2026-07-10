@@ -249,11 +249,22 @@ def get_watchlist_store(data_dir: str | Path) -> WatchlistStore:
 def scan_symbols_for(settings) -> List[str]:
     """Return the symbols the engine should scan for *settings*.
 
-    When the universe database exists and tiered scanning is enabled, returns
-    the Tier 1 watchlist from the database.  Otherwise falls back to the
-    JSON watchlist file, then to the hard-coded universe.
+    The user-managed JSON watchlist (``watchlists.json``) takes precedence:
+    it is where symbols added from the dashboard (e.g. MU, QCOM, SOXL, SPCX)
+    live, so it must be consulted first.  Only when it is empty or unavailable
+    do we fall back to the universe database's Tier 1 list (Full Stock Universe
+    feature), and finally to the hard-coded :data:`ALL_SYMBOLS`.
     """
-    # Try universe DB first (Full Stock Universe feature).
+    # 1. User-managed JSON watchlist wins — dashboard-added symbols live here.
+    if getattr(settings, "USE_WATCHLIST_FILE", True):
+        try:
+            symbols = get_watchlist_store(settings.DATA_DIR).scan_symbols()
+        except Exception:  # noqa: BLE001 -- never break the scan on a bad file
+            symbols = []
+        if symbols:
+            return symbols
+
+    # 2. Fall back to the universe DB Tier 1 list only if the JSON was empty.
     try:
         from data_store.universe import db_exists, get_universe_db
 
@@ -265,10 +276,5 @@ def scan_symbols_for(settings) -> List[str]:
     except Exception:  # noqa: BLE001 -- never break the scan on DB issues
         pass
 
-    if not getattr(settings, "USE_WATCHLIST_FILE", True):
-        return list(ALL_SYMBOLS)
-    try:
-        symbols = get_watchlist_store(settings.DATA_DIR).scan_symbols()
-    except Exception:  # noqa: BLE001 -- never break the scan on a bad file
-        return list(ALL_SYMBOLS)
-    return symbols or list(ALL_SYMBOLS)
+    # 3. Last resort: the hard-coded universe.
+    return list(ALL_SYMBOLS)

@@ -3159,32 +3159,11 @@
   }
 
   // ── Live auto-refresh ─────────────────────────────────────────────────────
-  // The dashboard renders server-side snapshots of engine state (positions,
-  // P&L, journal), so reload periodically to surface fresh data. Pause while
-  // the user is mid-interaction — typing in a field, a modal open, a running
-  // backtest, or live log tailing — so a reload never wipes their work.
-  (function () {
-    var REFRESH_MS = 60000;
-    function busy() {
-      if (window.__pauseAutoRefresh) return true;
-      var el = document.activeElement;
-      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" ||
-                 el.tagName === "SELECT")) {
-        return true;
-      }
-      if (_engTailTimer || _btPollTimer) return true;
-      // A visible modal *overlay* (not the always-present .modal-result lines).
-      var modals = document.querySelectorAll(".modal-overlay");
-      for (var i = 0; i < modals.length; i++) {
-        if (window.getComputedStyle(modals[i]).display !== "none") return true;
-      }
-      return false;
-    }
-    setInterval(function () {
-      if (document.hidden || busy()) return;
-      window.location.reload();
-    }, REFRESH_MS);
-  })();
+  // Data is kept fresh in place by the per-section AJAX polls (engine status,
+  // positions, journal, backtest, etc.), so there is no full-page reload here.
+  // A periodic window.location.reload() used to live here but was removed: it
+  // caused a white flash, reset scroll position, and wiped in-progress UI state
+  // (open modals, partially typed input) for no benefit over the AJAX polls.
 
   // Poll engine status live (in place; no full-page reload needed).
   (function () {
