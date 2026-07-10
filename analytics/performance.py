@@ -95,6 +95,13 @@ def load_completed_trades(csv_path: str | Path) -> pd.DataFrame:
         df = pd.read_csv(path, dtype=str)
     except (FileNotFoundError, pd.errors.EmptyDataError):
         return pd.DataFrame()
+    except pd.errors.ParserError:
+        # A row whose field count doesn't match the header (e.g. schema drift
+        # between deploys leaving a stale header on disk) would otherwise take
+        # down every dashboard page.  Skip the offending rows so the rest of
+        # the journal still renders; TradeLogger self-heals the header on its
+        # next start.
+        df = pd.read_csv(path, dtype=str, on_bad_lines="skip")
 
     if df.empty or "exit_time" not in df.columns:
         return pd.DataFrame()

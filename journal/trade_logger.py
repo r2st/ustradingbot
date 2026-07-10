@@ -117,6 +117,8 @@ class TradeLogger:
         if not self.csv_path.exists():
             self._write_header()
             self._log.info("trade_logger.created_csv", path=str(self.csv_path))
+        else:
+            self._migrate_header_if_needed()
 
         self._trade_counter: int = self._get_next_trade_id()
 
@@ -519,6 +521,56 @@ class TradeLogger:
             self._log.error(
                 "write_header.failed", path=str(self.csv_path), error=str(exc)
             )
+
+    def _migrate_header_if_needed(self) -> None:
+        """Normalise an existing CSV whose header predates the current schema.
+
+        ``csv.DictWriter`` appends rows by field *name*, so if the schema gains
+        or loses a column between deploys while an old ``trades.csv`` lingers on
+        disk, freshly appended rows silently stop matching the on-disk header —
+        pandas then raises ``ParserError`` on the mismatched field count and the
+        dashboard 500s.  This rewrites the file so header and rows both match
+        :data:`SCHEMA_COLUMNS` exactly: columns are re-mapped by name, added
+        columns are backfilled (``trading_mode`` with the logger's current mode,
+        others blank) and removed columns are dropped.  A no-op when the header
+        already matches.
+        """
+        try:
+            with open(self.csv_path, newline="", encoding="utf-8") as f:
+                reader = csv.reader(f)
+                header = next(reader, None)
+        except OSError as exc:
+            self._log.error("migrate_header.read_failed", error=str(exc))
+            return
+
+        if header is None or header == SCHEMA_COLUMNS:
+            return
+
+        try:
+            with open(self.csv_path, newline="", encoding="utf-8") as f:
+                old_rows = list(csv.DictReader(f))
+        except OSError as exc:
+            self._log.error("migrate_header.read_failed", error=str(exc))
+            return
+
+        had_mode = "trading_mode" in header
+        migrated: List[dict] = []
+        for old in old_rows:
+            row = {col: (old.get(col) or "") for col in SCHEMA_COLUMNS}
+            # Legacy rows carry no trading_mode; assume the current mode.
+            if not had_mode:
+                row["trading_mode"] = self._trading_mode
+            migrated.append(row)
+
+        df = pd.DataFrame(migrated, columns=SCHEMA_COLUMNS)
+        self._write_dataframe(df)
+        self._log.info(
+            "trade_logger.header_migrated",
+            path=str(self.csv_path),
+            old_columns=len(header),
+            new_columns=len(SCHEMA_COLUMNS),
+            rows=len(migrated),
+        )
 
     def _append_row(self, row: dict) -> None:
         """Append a single row dict to the CSV file.
