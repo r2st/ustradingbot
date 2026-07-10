@@ -3590,7 +3590,13 @@
     short_vwap_rejection: "Short: VWAP Rejection",
     short_ma_crossunder: "Short: MA Crossunder",
     short_relative_weakness: "Short: Relative Weakness",
-    short_laggard_fade: "Short: Laggard Fade"
+    short_laggard_fade: "Short: Laggard Fade",
+    hs_rsi2_reversal: "RSI-2 Reversal",
+    hs_triple_timeframe: "Triple-Timeframe Breakout",
+    hs_bb_climax: "BB Climax Reversal",
+    hs_pead_drift: "Post-Earnings Drift",
+    hs_gap_fill: "Gap-Fill Fade",
+    hs_turnaround_tuesday: "Turnaround Tuesday"
   };
   function _selEnabledText() {
     var on = document.getElementById("selEnabled").checked;
@@ -3608,11 +3614,22 @@
       document.getElementById("selMinGrade").value = sel.min_grade || "B";
       _selSymbols = sel.symbols || [];
       var box = document.getElementById("selStrategies");
-      box.innerHTML = (d.strategies || []).map(function (s) {
-        var checked = (sel.strategies || []).indexOf(s) !== -1 ? " checked" : "";
-        return '<label><input type="checkbox" class="sel-strat" value="' + esc(s) + '"' +
-          checked + "> " + esc(_SEL_STRATEGY_LABELS[s] || s) + "</label>";
-      }).join("");
+      var strats = d.strategies || [];
+      var longStrats = strats.filter(function(s){ return s.indexOf("short_")!==0 && s.indexOf("hs_")!==0; });
+      var shortStrats = strats.filter(function(s){ return s.indexOf("short_")===0; });
+      var hsStrats = strats.filter(function(s){ return s.indexOf("hs_")===0; });
+      function _renderStratGroup(list) {
+        return list.map(function (s) {
+          var checked = (sel.strategies || []).indexOf(s) !== -1 ? " checked" : "";
+          return '<label><input type="checkbox" class="sel-strat" value="' + esc(s) + '"' +
+            checked + "> " + esc(_SEL_STRATEGY_LABELS[s] || s) + "</label>";
+        }).join("");
+      }
+      var html = "";
+      if (longStrats.length) html += '<h5 style="margin:0 0 6px;color:var(--accent);">Long</h5>' + _renderStratGroup(longStrats);
+      if (shortStrats.length) html += '<h5 style="margin:12px 0 6px;color:var(--red,#e74c3c);">Short</h5>' + _renderStratGroup(shortStrats);
+      if (hsStrats.length) html += '<h5 style="margin:12px 0 6px;color:var(--gold,#f39c12);">Highly Selective</h5>' + _renderStratGroup(hsStrats);
+      box.innerHTML = html;
       renderSelSymbols();
       loadSelectionStats();
     } catch (e) { /* section stays with defaults */ }

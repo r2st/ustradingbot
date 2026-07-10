@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dashboard-preview",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "DASHBOARD_AUTH_ENABLED=false exec .venv/bin/uvicorn dashboard.app:app --host 127.0.0.1 --port 8766"
+      ],
+      "port": 8766
+    }
+  ]
+}
