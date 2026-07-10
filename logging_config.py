@@ -10,8 +10,22 @@ from __future__ import annotations
 
 import logging
 import sys
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import structlog
+
+# All user-facing timestamps in this app are Eastern (market) time — see
+# ``config.settings.EASTERN``.  structlog's built-in ``TimeStamper`` emits UTC,
+# which made the engine-log viewer show times offset from market hours.  We
+# stamp Eastern instead so the logs line up with everything else.
+_EASTERN = ZoneInfo("America/New_York")
+
+
+def _eastern_timestamper(_: object, __: str, event_dict: dict) -> dict:
+    """structlog processor: add an Eastern-time ISO ``timestamp`` to each event."""
+    event_dict["timestamp"] = datetime.now(_EASTERN).isoformat(timespec="milliseconds")
+    return event_dict
 
 
 def setup_logging(log_level: str = "INFO") -> None:
@@ -33,7 +47,7 @@ def setup_logging(log_level: str = "INFO") -> None:
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_log_level,
         structlog.stdlib.add_logger_name,
-        structlog.processors.TimeStamper(fmt="iso"),
+        _eastern_timestamper,
         structlog.processors.StackInfoRenderer(),
         structlog.processors.UnicodeDecoder(),
     ]

@@ -17,11 +17,13 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import structlog
+
+from config.settings import EASTERN
 
 log = structlog.get_logger(__name__)
 
@@ -151,7 +153,7 @@ def append_history(
         except OSError:
             pass
         record = {
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(EASTERN).isoformat(),
             "type": str(event_type),
             "message": str(message)[:500],
             "channels": {str(k): bool(v) for k, v in (channels or {}).items()},

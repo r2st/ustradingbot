@@ -21,11 +21,13 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import structlog
+
+from config.settings import EASTERN
 
 log = structlog.get_logger(__name__)
 
@@ -56,7 +58,7 @@ class ActivityLogger:
         """Append one event line. Never raises."""
         try:
             record: Dict[str, Any] = {
-                "ts": datetime.now(timezone.utc).isoformat(),
+                "ts": datetime.now(EASTERN).isoformat(),
                 "event": str(event),
             }
             record.update(data)
@@ -218,7 +220,7 @@ def write_last_scan(
             })
         payload = {
             "cycle_id": cycle_id,
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(EASTERN).isoformat(),
             "signals": rows,
         }
         path = Path(data_dir) / LAST_SCAN_FILE

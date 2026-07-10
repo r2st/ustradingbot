@@ -2667,8 +2667,31 @@
     if (!iso) return "—";
     var d = new Date(iso);
     if (isNaN(d.getTime())) return String(iso);
-    return d.toLocaleString([], {month: "short", day: "numeric",
-      hour: "2-digit", minute: "2-digit"});
+    return d.toLocaleString("en-US", {month: "short", day: "numeric",
+      hour: "2-digit", minute: "2-digit", timeZone: "America/New_York"}) + " ET";
+  }
+
+  // ── Eastern-time formatters ───────────────────────────────────────────────
+  // Every timestamp in this app is Eastern (market) time.  These convert any
+  // timezone-aware ISO string (older records are stored UTC, newer ones ET) to
+  // a consistent Eastern display, so the whole UI reads the same regardless of
+  // the viewer's browser timezone or when the record was written.
+  function etTime(iso) {
+    if (!iso) return "—";
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return String(iso).slice(11, 19);
+    return d.toLocaleTimeString("en-GB", {hour12: false,
+      timeZone: "America/New_York"});
+  }
+  function etStamp(iso) {
+    if (!iso) return "—";
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return String(iso).slice(0, 19).replace("T", " ");
+    var parts = d.toLocaleString("en-CA", {hour12: false,
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
+      timeZone: "America/New_York"});
+    return parts.replace(",", "") + " ET";
   }
 
   function applyEngineStatus(s) {
@@ -3380,7 +3403,7 @@
     }
     var status = document.getElementById("livePnlStatus");
     if (status) {
-      var asOf = d.as_of ? String(d.as_of).slice(11, 19) : "—";
+      var asOf = d.as_of ? etTime(d.as_of) : "—";
       var stale = (d.quote_age_seconds != null && d.quote_age_seconds > 60);
       var missing = (t.positions_total || 0) - (t.positions_priced || 0);
       status.innerHTML = "Live P&amp;L as of <strong>" + esc(asOf) + " ET</strong>" +
@@ -4232,7 +4255,7 @@
     return "#4f8ff7";
   }
   function _actLine(e) {
-    var ts = String(e.ts || "").slice(11, 19);
+    var ts = etTime(e.ts);
     var main = "";
     if (e.event === "cycle_start") main = "cycle " + esc(e.cycle_id || "") + " started";
     else if (e.event === "scan_complete") main = "scan complete — " +
@@ -4357,7 +4380,7 @@
         var chs = Object.keys(a.channels || {}).map(function (c) {
           return c + (a.channels[c] ? "✓" : "✗"); }).join(" ");
         return '<div style="padding:3px 6px;border-left:3px solid #4f8ff7;margin:2px 0;">' +
-          '<span class="bt-hint">' + esc(String(a.ts || "").slice(0, 19).replace("T", " ")) +
+          '<span class="bt-hint">' + esc(etStamp(a.ts)) +
           "</span> <strong>" + esc(a.type) + "</strong> " + esc(a.message) +
           ' <span class="bt-hint">' + esc(chs) + "</span></div>";
       }).join("") : '<div class="empty-note">No alerts dispatched yet.</div>';
@@ -4377,7 +4400,7 @@
       var d = await jget("/api/watchlist/monitor");
       var ts = document.getElementById("wlMonScanTs");
       if (ts) ts.textContent = d.last_scan_at
-        ? "last scan " + String(d.last_scan_at).slice(0, 19).replace("T", " ") + " UTC"
+        ? "last scan " + etStamp(d.last_scan_at)
         : "no scan recorded yet";
       var tb = document.getElementById("wlMonRows");
       var chipStyle = {
