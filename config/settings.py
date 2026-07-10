@@ -147,6 +147,34 @@ class Settings(BaseSettings):
     # Reject signals whose earnings fall within this many days (Tier-1 filter).
     AI_EARNINGS_BLACKOUT_DAYS: int = 14
 
+    # ── Memory & learning layer (F1 + F2) ───────────────────────────────────
+    # The bot keeps a rich trade ledger (``trades.csv``).  These two features
+    # close the loop so it actually *learns* from that ledger rather than
+    # evaluating every signal in isolation.
+    #
+    # F1 — AI Trade Reflection (Learnings Engine): after each trade closes an
+    # OpenRouter call writes a plain-English lesson to ``learnings.jsonl``;
+    # before new entries the learnings guard consults matching lessons.  Every
+    # part is fail-OPEN — a broken/missing learnings file never blocks a trade.
+    LEARNINGS_ENABLED: bool = True
+    LEARNINGS_MODEL: str = "openai/gpt-oss-20b:free"
+    LEARNINGS_MAX_AGE_DAYS: int = 90            # lessons expire after 90 days
+    LEARNINGS_MAX_RELEVANT: int = 5             # max lessons weighed per entry
+    LEARNINGS_MIN_TRADES_FOR_PATTERN: int = 3   # need 3 similar trades to bind
+    LEARNINGS_MIN_CONFIDENCE: float = 0.6       # below this a lesson is advisory
+    LEARNINGS_MAX_TOKENS: int = 400             # reflection completion cap
+
+    # F2 — Similar-Setup Guard: before an entry, query the ledger for setups
+    # like this one (same strategy/grade, RSI & volume within tolerance) and
+    # demote or skip when the historical win rate is poor.  Pure/local — no AI.
+    SIMILAR_SETUP_ENABLED: bool = True
+    SIMILAR_SETUP_LOOKBACK_DAYS: int = 90
+    SIMILAR_SETUP_MIN_MATCHES: int = 5          # need 5 matches before acting
+    SIMILAR_SETUP_RSI_TOLERANCE: float = 10.0   # ±10 RSI points
+    SIMILAR_SETUP_VOL_TOLERANCE: float = 0.5    # ±0.5 volume ratio
+    SIMILAR_SETUP_MIN_WIN_RATE: float = 0.35    # below this → demote to A-only
+    SIMILAR_SETUP_BLOCK_WIN_RATE: float = 0.15  # below this → hard skip
+
     # ── AI commentary dashboard (TA2) ───────────────────────────────────────
     # Display-only "live analyst" commentary over open positions, watchlist
     # setups, and market conditions.  Unlike the AI veto (fail-closed), this

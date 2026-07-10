@@ -105,6 +105,18 @@ class TradingEngine:
         # AI veto layer (OpenRouter).
         self.ai_analyst = AIAnalyst(self.settings)
 
+        # Memory & learning layer (F1 + F2).  The LearningStore backs both the
+        # reflection writer (fills learnings.jsonl after each close) and the
+        # learnings guard (consults it before entries); the similar-setup guard
+        # reads the trade journal directly.  All three are fail-open.
+        from ai.reflection import ReflectionEngine
+        from analytics.learnings_guard import LearningsGuard
+        from journal.learnings import LearningStore
+
+        self.learning_store = LearningStore(data_dir)
+        self.reflection_engine = ReflectionEngine(self.settings, self.learning_store)
+        self.learnings_guard = LearningsGuard(self.settings, self.learning_store)
+
         # Broker (paper by default; ibkr when configured).
         self.broker = make_broker(self.settings)
         if not self.broker.connect():
@@ -458,6 +470,13 @@ class TradingEngine:
                 f"({event.exit_reason.value}), P&L {event.pnl_gross:+.2f}",
             )
         await self._check_risk_alerts()
+
+        # Trade Reflection (F1): after exits are finalised, write one plain-
+        # English lesson per genuinely-closed trade to learnings.jsonl so future
+        # entries can learn from them.  Best-effort and fully fail-open — a
+        # reflection error never disturbs the trading loop.
+        if self.settings.LEARNINGS_ENABLED and exit_summary.events:
+            await self._reflect_on_exits(exit_summary.events)
 
         # Proximity alerts (F3/F6): warn once per symbol per day when price
         # is within POSITION_PROXIMITY_ALERT_PCT of a stop or target.
@@ -866,6 +885,47 @@ class TradingEngine:
             self.rejected_logger.log_rejection(sig, "ai_veto", decision.reasoning)
             return False
 
+        # (d1) Similar-Setup Guard (F2) — the bot checks its own record before
+        #      entering.  Query the ledger for setups like this one (same
+        #      strategy/grade, RSI & volume within tolerance); a poor historical
+        #      win rate demotes the signal to grade-A-only or, if very poor over
+        #      a solid sample, skips it.  Pure/local and fail-open.
+        if self.settings.SIMILAR_SETUP_ENABLED:
+            from analytics.setup_similarity import find_similar_setups
+            from signals.signal_types import Grade
+
+            similar = find_similar_setups(
+                sig, self.trade_logger.csv_path, self.settings
+            )
+            if similar.blocks or (similar.demotes and sig.grade != Grade.A):
+                bound_log.info(
+                    "engine.rejected", gate="similar_setup", reason=similar.reason
+                )
+                self.rejected_logger.log_rejection(
+                    sig, "similar_setup", similar.reason
+                )
+                return False
+
+        # (d1.5) Learnings guard (F1) — apply the plain-English lessons the bot
+        #        wrote after past closes.  ``avoid`` rejects; ``require_confirm``
+        #        restricts to grade A; ``prefer`` only annotates.  Fail-open.
+        if self.settings.LEARNINGS_ENABLED:
+            from signals.signal_types import Grade
+
+            verdict = self.learnings_guard.evaluate(sig)
+            if verdict.rejects or (verdict.demotes and sig.grade != Grade.A):
+                bound_log.info(
+                    "engine.rejected", gate="learnings_guard", reason=verdict.reason
+                )
+                self.rejected_logger.log_rejection(
+                    sig, "learnings_guard", verdict.reason
+                )
+                return False
+            if verdict.prefer_notes:
+                bound_log.info(
+                    "engine.learnings_prefer", count=len(verdict.prefer_notes)
+                )
+
         # (d2) News-sentiment veto (feature 4) — reject on strong negative news.
         news = await asyncio.to_thread(self.news_filter.check, sig.symbol)
         if not news.approved:
@@ -975,6 +1035,55 @@ class TradingEngine:
             f"({sig.strategy}, grade {sig.grade.value})",
         )
         return True
+
+    async def _reflect_on_exits(self, events) -> None:
+        """Write a learnings.jsonl lesson for each closed trade (best-effort).
+
+        Runs after exit management.  Reads the just-updated journal, finds each
+        event's closed row, and asks the reflection engine to record a lesson.
+        Partial-takes are skipped (the runner's final close is reflected on
+        instead).  Every failure is swallowed — reflection must never break the
+        cycle or influence the trade that triggered it.
+        """
+        try:
+            from analytics.performance import load_completed_trades
+
+            trades = load_completed_trades(self.trade_logger.csv_path)
+        except Exception:  # noqa: BLE001
+            log.debug("engine.reflection_load_failed", exc_info=True)
+            return
+        if trades is None or trades.empty:
+            return
+
+        from signals.signal_types import ExitReason
+
+        seen: set[str] = set()
+        for event in events:
+            symbol = getattr(event, "symbol", "")
+            try:
+                if event.exit_reason == ExitReason.PARTIAL_TAKE:
+                    continue
+                if symbol in seen:
+                    continue
+                seen.add(symbol)
+                row = self._latest_closed_row(trades, symbol)
+                if row is None:
+                    continue
+                await self.reflection_engine.reflect(row, all_trades=trades)
+            except Exception:  # noqa: BLE001 -- never break the loop
+                log.debug("engine.reflection_failed", symbol=symbol, exc_info=True)
+
+    @staticmethod
+    def _latest_closed_row(trades, symbol: str):
+        """Return the most-recently-closed journal row for *symbol* as a dict."""
+        sub = trades[trades["symbol"] == symbol]
+        if sub.empty:
+            return None
+        try:
+            idx = sub["exit_time"].astype(str).sort_values().index[-1]
+        except Exception:  # noqa: BLE001
+            idx = sub.index[-1]
+        return sub.loc[idx].to_dict()
 
     def _on_rejection_activity(self, sig, reason: str, detail: str) -> None:
         """Mirror every gate rejection into the activity feed (F4)."""
