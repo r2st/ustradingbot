@@ -1105,6 +1105,7 @@ from dashboard.ai_router import router as _ai_router  # noqa: E402
 from dashboard.ta_router import router as _ta_router  # noqa: E402
 from dashboard.positions_router import router as _positions_router  # noqa: E402
 from dashboard.earnings_router import router as _earnings_router  # noqa: E402
+from dashboard.memory_router import router as _memory_router  # noqa: E402
 
 for _r in (
     _universe_router,
@@ -1126,5 +1127,6 @@ for _r in (
     _ta_router,
     _positions_router,
     _earnings_router,
+    _memory_router,
 ):
     app.include_router(_r)

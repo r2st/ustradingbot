@@ -800,6 +800,72 @@
   .uni-tier { background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
     padding: 8px 12px; font-size: 12px; }
   .uni-tier strong { color: var(--accent); }
+  /* ── Tiered scanning panel (index-based model) ── */
+  .uni-tier-panel { margin-top: 20px; border-top: 1px solid var(--border); padding-top: 16px; }
+  .uni-tier-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+    margin-bottom: 14px; }
+  .uni-tier-card { background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px; position: relative; overflow: hidden; }
+  .uni-tier-card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0;
+    width: 4px; background: var(--accent); }
+  .uni-tier-card.t1::before { background: #2ecc71; }
+  .uni-tier-card.t2::before { background: #f39c12; }
+  .uni-tier-card.t3::before { background: #5b8def; }
+  .uni-tier-card .tc-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--text-muted); }
+  .uni-tier-card .tc-name { font-size: 14px; font-weight: 700; margin: 2px 0 6px; }
+  .uni-tier-card .tc-count { font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums;
+    line-height: 1; }
+  .uni-tier-card .tc-count span { font-size: 13px; font-weight: 600; color: var(--text-muted); }
+  .uni-tier-card .tc-cadence { font-size: 11px; color: var(--text-muted); margin-top: 6px; }
+  .uni-tier-card .tc-break { margin-top: 8px; font-size: 11px; display: flex; flex-wrap: wrap;
+    gap: 5px; }
+  .uni-tier-card .tc-break span { background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 20px; padding: 2px 8px; font-variant-numeric: tabular-nums; }
+  .uni-settings-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  .uni-setting-chip { background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 10px; font-size: 12px; }
+  .uni-setting-chip b { color: var(--accent); font-variant-numeric: tabular-nums; }
+  /* sub-tabs */
+  .uni-subtabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px;
+    border-bottom: 1px solid var(--border); }
+  .uni-subtab { padding: 8px 14px; font-size: 13px; cursor: pointer; color: var(--text-muted);
+    border: none; background: none; border-bottom: 2px solid transparent; }
+  .uni-subtab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  .uni-subview { display: none; }
+  .uni-subview.active { display: block; }
+  /* index membership chip grid */
+  .uni-idx-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    margin-bottom: 10px; }
+  .uni-idx-controls input[type="text"] { flex: 1 1 200px; padding: 7px 10px; background: var(--bg);
+    color: var(--text); border: 1px solid var(--border); border-radius: 6px; font-size: 13px; }
+  .uni-idx-filterbtns { display: flex; gap: 4px; }
+  .uni-idx-fbtn { padding: 6px 10px; font-size: 12px; cursor: pointer; background: var(--surface-2);
+    border: 1px solid var(--border); border-radius: 6px; color: var(--text-muted); }
+  .uni-idx-fbtn.active { background: var(--accent-dim); border-color: var(--accent);
+    color: var(--accent); font-weight: 600; }
+  .uni-idx-grid { display: flex; flex-wrap: wrap; gap: 6px; max-height: 340px; overflow-y: auto;
+    padding: 4px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; }
+  .uni-idx-chip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+    font-size: 12px; font-variant-numeric: tabular-nums; }
+  .uni-idx-chip .tk { font-weight: 600; }
+  .idx-badge { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 4px;
+    letter-spacing: 0.3px; }
+  .idx-badge.sp { background: rgba(91,141,239,0.18); color: #5b8def; border: 1px solid #5b8def; }
+  .idx-badge.nq { background: rgba(243,156,18,0.18); color: #f39c12; border: 1px solid #f39c12; }
+  .uni-idx-legend { display: flex; gap: 12px; font-size: 11px; color: var(--text-muted);
+    margin-top: 8px; align-items: center; flex-wrap: wrap; }
+  /* promotions */
+  .uni-promo-empty { padding: 20px; text-align: center; color: var(--text-muted);
+    background: var(--bg); border: 1px dashed var(--border); border-radius: 8px; font-size: 13px; }
+  .ttl-pill { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 20px;
+    font-variant-numeric: tabular-nums; }
+  .ttl-pill.ok { background: var(--green-dim); color: var(--green); }
+  .ttl-pill.soon { background: rgba(243,156,18,0.18); color: #f39c12; }
+  .ttl-pill.perm { background: var(--surface-2); color: var(--text-muted); }
+  .src-pill { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px;
+    background: var(--surface-2); border: 1px solid var(--border); text-transform: uppercase; }
   .uni-templates { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
   .uni-seed-progress { margin-top: 8px; font-size: 13px; }
   .uni-seed-progress .bar-track { height: 8px; background: var(--surface-2); border-radius: 4px;
@@ -814,6 +880,7 @@
     .uni-stat .value { font-size: 15px; }
     .uni-filters .form-field { flex: 1 1 100%; }
     .uni-bulk-bar { flex-direction: column; align-items: stretch; }
+    .uni-tier-cards { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -861,6 +928,7 @@
     <a href="#nav-activity" onclick="closeNav()">Activity</a>
     <a href="#nav-alerts" onclick="closeNav()">Alerts</a>
     <a href="#nav-strategy" onclick="closeNav()">Strategies</a>
+    <a href="#nav-memory" onclick="closeNav()">Memory</a>
     <a href="#nav-risk" onclick="closeNav()">Risk</a>
     <a href="#nav-montecarlo" onclick="closeNav()">Monte&nbsp;Carlo</a>
     <a href="#nav-notes" onclick="closeNav()">Journal</a>
@@ -1589,6 +1657,203 @@
   </div>
 </div>
 
+<!-- ═══════════════════ AI MEMORY (Memory & Learning layer, F1 + F2) ═══════════════════ -->
+<style>
+  .mem-badge { display:inline-block; padding:2px 8px; border-radius:12px; font-size:11px;
+    font-weight:600; text-transform:uppercase; letter-spacing:0.4px; font-family:ui-monospace,Menlo,monospace; }
+  .mem-avoid   { background:#7a2020; color:#ff9b9b; }
+  .mem-require_confirm { background:#7a4a12; color:#ffc38a; }
+  .mem-prefer  { background:var(--green-dim); color:var(--green); }
+  .mem-observe { background:var(--surface-2); color:var(--text-muted); }
+  .mem-block, .mem-reject { background:#7a2020; color:#ff9b9b; }
+  .mem-demote  { background:#7a4a12; color:#ffc38a; }
+  .mem-expired { opacity:0.55; }
+  .mem-conf-track { display:inline-block; width:54px; height:6px; border-radius:3px;
+    background:var(--surface-2); vertical-align:middle; overflow:hidden; margin-right:6px; }
+  .mem-conf-fill { display:block; height:100%; background:var(--accent); }
+  .mem-reflection { border:1px solid var(--border); border-radius:8px; background:var(--bg);
+    padding:12px 14px; margin-bottom:10px; }
+  .mem-reflection .mr-head { display:flex; flex-wrap:wrap; gap:8px; align-items:center;
+    justify-content:space-between; margin-bottom:6px; }
+  .mem-reflection .mr-sym { font-weight:700; font-size:14px; }
+  .mem-reflection .mr-meta { color:var(--text-muted); font-size:12px; }
+  .mem-reflection .mr-lesson { font-size:13px; margin:6px 0; }
+  .mem-reflection .mr-tags .chip { font-size:11px; padding:2px 8px; margin:2px 3px 0 0; }
+</style>
+<div class="section" id="nav-memory">
+  <div class="section-header">
+    <div class="section-icon icon-scoring">M</div>
+    <h2>AI Memory &amp; Learning</h2>
+  </div>
+  <div class="section-body">
+    <p class="muted-note">The bot's self-written memory. After every trade closes the reflection
+      engine records one plain-English lesson; before new entries the similar-setup and learnings
+      guards consult that memory to block or demote setups with a poor track record. Read-only.</p>
+
+    <!-- ── Stats summary ── -->
+    <div class="stat-cards" id="memStatCards">
+      <div class="stat-card"><div class="label">Total Lessons</div><div class="value" id="memStatTotal">—</div></div>
+      <div class="stat-card"><div class="label">Active Bindings</div><div class="value" id="memStatBindings">—</div></div>
+      <div class="stat-card"><div class="label">Guard Decisions</div><div class="value" id="memStatGuard">—</div></div>
+      <div class="stat-card"><div class="label">Guard Hit Rate</div><div class="value" id="memStatHitRate">—</div></div>
+    </div>
+    <div id="memBindingChips" style="margin-bottom:6px;"></div>
+
+    <!-- ── Learnings list ── -->
+    <h4 style="margin-top:18px;">Learnings</h4>
+    <p class="muted-note">Every lesson in <code>learnings.jsonl</code>. Binding level is the guard
+      action: <strong>avoid</strong> rejects, <strong>require_confirm</strong> restricts to grade A,
+      <strong>prefer</strong> annotates, <strong>observe</strong> is a non-binding note. A lesson only
+      binds once enough similar trades support it and confidence clears the threshold.</p>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr>
+          <th>Date</th><th>Symbol</th><th>Strategy</th><th>Lesson</th>
+          <th>Binding</th><th class="num">Confidence</th><th class="num">Support</th>
+        </tr></thead>
+        <tbody id="memLearningRows">
+          <tr><td colspan="7" class="empty-note">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ── Trade reflections timeline ── -->
+    <h4 style="margin-top:20px;">Trade Reflections Timeline</h4>
+    <p class="muted-note">Chronological view of the AI's post-trade reflections — the closing trade
+      and the lesson it extracted, newest first.</p>
+    <div id="memReflections" style="max-height:460px;overflow-y:auto;">
+      <div class="empty-note">Loading…</div>
+    </div>
+
+    <!-- ── Guard decisions log ── -->
+    <h4 style="margin-top:20px;">Guard Decisions</h4>
+    <p class="muted-note">Recent entry signals the memory guards acted on — a
+      <span class="mem-badge mem-block">block</span> skipped the trade, a
+      <span class="mem-badge mem-demote">demote</span> would have required grade A. Shows the signal
+      evaluated (grade, RSI, volume) and why it was rejected. (Only rejections are logged; accepted
+      signals pass through silently.)</p>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr>
+          <th>Time</th><th>Guard</th><th>Decision</th><th>Symbol</th><th>Strategy</th>
+          <th>Grade</th><th class="num">RSI</th><th class="num">Vol×</th><th>Reason</th>
+        </tr></thead>
+        <tbody id="memGuardRows">
+          <tr><td colspan="9" class="empty-note">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── AI Memory & Learning (F1 + F2) ──
+  function _memActionBadge(action) {
+    var label = String(action || "observe").replace(/_/g, " ");
+    return '<span class="mem-badge mem-' + esc(action || "observe") + '">' + esc(label) + "</span>";
+  }
+  function _memConf(conf) {
+    var pct = Math.round((Number(conf) || 0) * 100);
+    return '<span class="mem-conf-track"><span class="mem-conf-fill" style="width:' + pct +
+      '%"></span></span>' + pct + "%";
+  }
+  function _memDate(iso) {
+    if (!iso) return "—";
+    return esc(String(iso).slice(0, 16).replace("T", " "));
+  }
+  function _memNum(v, digits) {
+    return (v === null || v === undefined || v === "") ? "—" : Number(v).toFixed(digits);
+  }
+
+  async function loadMemory() {
+    var d;
+    try { d = await jget("/api/memory/overview"); }
+    catch (e) {
+      var lr = document.getElementById("memLearningRows");
+      if (lr) lr.innerHTML = '<tr><td colspan="7" class="empty-note">Failed to load memory.</td></tr>';
+      return;
+    }
+
+    // Stats summary
+    var st = d.stats || {};
+    _setText("memStatTotal", (st.active_learnings != null ? st.active_learnings : 0) +
+      (st.expired_learnings ? " (+" + st.expired_learnings + " expired)" : ""));
+    _setText("memStatBindings", st.binding_active != null ? st.binding_active : 0);
+    _setText("memStatGuard", st.guard_rejections != null ? st.guard_rejections : 0);
+    _setText("memStatHitRate", ((st.guard_hit_rate || 0) * 100).toFixed(1) + "%");
+    var bt = st.bindings_by_type || {};
+    var chipOrder = ["avoid", "require_confirm", "prefer", "observe"];
+    document.getElementById("memBindingChips").innerHTML = chipOrder.map(function (a) {
+      return _memActionBadge(a) + ' <span style="margin-right:12px;font-size:12px;">' +
+        (bt[a] || 0) + "</span>";
+    }).join("");
+
+    // Learnings list
+    var lrows = d.learnings || [];
+    var lb = document.getElementById("memLearningRows");
+    lb.innerHTML = lrows.length ? lrows.map(function (l) {
+      return '<tr class="' + (l.expired ? "mem-expired" : "") + '">' +
+        "<td>" + _memDate(l.created_at) + "</td>" +
+        "<td><strong>" + esc(l.symbol || "—") + "</strong></td>" +
+        "<td>" + esc(l.strategy || "—") + "</td>" +
+        '<td style="white-space:normal;min-width:240px;">' + esc(l.lesson_text || "") + "</td>" +
+        "<td>" + _memActionBadge(l.action) + "</td>" +
+        '<td class="num">' + _memConf(l.confidence) + "</td>" +
+        '<td class="num">' + (l.support_count != null ? l.support_count : 0) + "</td></tr>";
+    }).join("") : '<tr><td colspan="7" class="empty-note">No lessons yet — the bot writes one ' +
+      "after each trade closes.</td></tr>";
+
+    // Trade reflections timeline
+    var refs = d.reflections || [];
+    var rc = document.getElementById("memReflections");
+    rc.innerHTML = refs.length ? refs.map(function (r) {
+      var o = r.outcome || {};
+      var resultCls = o.result === "won" ? "pos" : o.result === "lost" ? "neg" : "";
+      var pnl = (o.pnl_net === null || o.pnl_net === undefined) ? null : Number(o.pnl_net);
+      var rr = (o.r_multiple === null || o.r_multiple === undefined) ? null : Number(o.r_multiple);
+      var tags = (r.pattern_tags || []).map(function (t) {
+        return '<span class="chip">' + esc(t) + "</span>"; }).join("");
+      return '<div class="mem-reflection ' + (r.expired ? "mem-expired" : "") + '">' +
+        '<div class="mr-head">' +
+          '<span><span class="mr-sym">' + esc(r.symbol || "—") + "</span> " +
+            '<span class="mr-meta">' + esc(r.strategy || "") +
+            (r.grade ? " · grade " + esc(r.grade) : "") + "</span></span>" +
+          '<span class="mr-meta">' + _memDate(r.created_at) + " · " + _memActionBadge(r.action) +
+          "</span>" +
+        "</div>" +
+        '<div class="mr-meta">Outcome: ' +
+          (pnl != null ? '<span class="' + resultCls + '">' + (pnl >= 0 ? "+" : "") +
+            "$" + pnl.toFixed(2) + "</span>" : "—") +
+          (rr != null ? ' · <span class="' + resultCls + '">' + (rr >= 0 ? "+" : "") +
+            rr.toFixed(2) + "R</span>" : "") +
+          (o.exit_reason ? " · " + esc(o.exit_reason) : "") + "</div>" +
+        '<div class="mr-lesson">“' + esc(r.lesson_text || "") + '”</div>' +
+        (tags ? '<div class="mr-tags">' + tags + "</div>" : "") +
+        '<div class="mr-meta">Confidence ' + Math.round((r.confidence || 0) * 100) +
+          "% · " + (r.support_count || 0) + " similar trade(s) support this</div>" +
+      "</div>";
+    }).join("") : '<div class="empty-note">No reflections yet.</div>';
+
+    // Guard decisions log
+    var gds = d.guard_decisions || [];
+    var gb = document.getElementById("memGuardRows");
+    gb.innerHTML = gds.length ? gds.map(function (g) {
+      return "<tr>" +
+        "<td>" + _memDate(g.timestamp) + "</td>" +
+        "<td>" + esc(g.guard || "") + "</td>" +
+        '<td><span class="mem-badge mem-' + esc(g.decision) + '">' + esc(g.decision) + "</span></td>" +
+        "<td><strong>" + esc(g.symbol || "—") + "</strong></td>" +
+        "<td>" + esc(g.strategy || "—") + "</td>" +
+        "<td>" + esc(g.grade || "—") + "</td>" +
+        '<td class="num">' + _memNum(g.rsi_value, 1) + "</td>" +
+        '<td class="num">' + _memNum(g.volume_ratio, 2) + "</td>" +
+        '<td style="white-space:normal;min-width:220px;" class="muted-note">' +
+          esc(g.reason || "—") + "</td></tr>";
+    }).join("") : '<tr><td colspan="9" class="empty-note">No guard decisions logged yet — the ' +
+      "guards act once the engine evaluates live signals against past trades.</td></tr>";
+  }
+</script>
+
 <div class="section" id="nav-risk">
   <div class="section-header">
     <div class="section-icon icon-risk">R</div>
@@ -2215,11 +2480,128 @@
         <button type="button" class="btn-secondary" onclick="uniPageNav(1)">Next</button>
       </div>
 
-      <!-- Scan tier indicator -->
-      <div class="uni-tier-bar" id="uniTierBar">
-        <div class="uni-tier"><strong>Tier 1</strong> (Watchlist): <span id="uniTier1">--</span> symbols</div>
-        <div class="uni-tier"><strong>Tier 2</strong> (Sector rotation): <span id="uniTier2">--</span> sectors</div>
-        <div class="uni-tier"><strong>Tier 3</strong> (Full universe): <span id="uniTier3">--</span> symbols</div>
+      <!-- ── Tiered scanning panel (index-based model) ── -->
+      <div class="uni-tier-panel" id="uniTierPanel">
+        <h4 style="margin-bottom:10px;">Tiered Scanning
+          <span class="muted-note" style="font-weight:400;font-size:12px;">— index-based universe (S&amp;P 500 / NASDAQ-100)</span>
+        </h4>
+
+        <!-- Tier breakdown cards -->
+        <div class="uni-tier-cards" id="uniTierCards">
+          <div class="uni-tier-card t1">
+            <div class="tc-label">Tier 1</div>
+            <div class="tc-name">Active Trading</div>
+            <div class="tc-count"><span id="uniTier1">--</span></div>
+            <div class="tc-cadence">Scanned every cycle</div>
+            <div class="tc-break" id="uniTier1Break"></div>
+          </div>
+          <div class="uni-tier-card t2">
+            <div class="tc-label">Tier 2</div>
+            <div class="tc-name">Scan Pool</div>
+            <div class="tc-count"><span id="uniTier2">--</span> <span id="uniTier2Cap"></span></div>
+            <div class="tc-cadence">Top S&amp;P 500 by volume × mkt cap · scanned daily</div>
+            <div class="tc-break" id="uniTier2Break"></div>
+          </div>
+          <div class="uni-tier-card t3">
+            <div class="tc-label">Tier 3</div>
+            <div class="tc-name">Universe</div>
+            <div class="tc-count"><span id="uniTier3">--</span></div>
+            <div class="tc-cadence">Full S&amp;P 500 ∪ NASDAQ-100 · swept weekly</div>
+            <div class="tc-break" id="uniTier3Break"></div>
+          </div>
+        </div>
+
+        <!-- Settings display -->
+        <div class="uni-settings-chips" id="uniSettingsChips">
+          <div class="uni-setting-chip">Scan pool size: <b id="uniSetPoolSize">--</b></div>
+          <div class="uni-setting-chip">Promotion TTL: <b id="uniSetTtl">--</b> h</div>
+        </div>
+
+        <!-- Sub-tabs: Indices / Scan Pool / Promotions -->
+        <div class="uni-subtabs" id="uniSubtabs">
+          <button type="button" class="uni-subtab active" data-view="indices"
+                  onclick="uniShowSubview('indices')">Index Membership</button>
+          <button type="button" class="uni-subtab" data-view="scanpool"
+                  onclick="uniShowSubview('scanpool')">Scan Pool</button>
+          <button type="button" class="uni-subtab" data-view="promotions"
+                  onclick="uniShowSubview('promotions')">Auto-Promotions <span id="uniPromoBadge"></span></button>
+        </div>
+
+        <!-- Index membership view -->
+        <div class="uni-subview active" id="uniView-indices">
+          <div class="uni-idx-controls">
+            <input type="text" id="uniIdxSearch" placeholder="Filter tickers..."
+                   autocomplete="off" oninput="uniRenderIndices()">
+            <div class="uni-idx-filterbtns">
+              <button type="button" class="uni-idx-fbtn active" data-f="all"
+                      onclick="uniIdxFilter('all')">All</button>
+              <button type="button" class="uni-idx-fbtn" data-f="sp500"
+                      onclick="uniIdxFilter('sp500')">S&amp;P 500</button>
+              <button type="button" class="uni-idx-fbtn" data-f="nasdaq100"
+                      onclick="uniIdxFilter('nasdaq100')">NASDAQ-100</button>
+              <button type="button" class="uni-idx-fbtn" data-f="both"
+                      onclick="uniIdxFilter('both')">Both</button>
+            </div>
+          </div>
+          <div class="uni-idx-grid" id="uniIdxGrid"><div class="empty-note">Loading...</div></div>
+          <div class="uni-idx-legend">
+            <span><span class="idx-badge sp">SP</span> S&amp;P 500 (<span id="uniIdxSpCount">--</span>)</span>
+            <span><span class="idx-badge nq">NQ</span> NASDAQ-100 (<span id="uniIdxNqCount">--</span>)</span>
+            <span>Overlap: <b id="uniIdxBothCount">--</b></span>
+            <span>Union: <b id="uniIdxUnionCount">--</b></span>
+          </div>
+        </div>
+
+        <!-- Scan pool view -->
+        <div class="uni-subview" id="uniView-scanpool">
+          <p class="muted-note" style="margin:0 0 8px;">Tier 2 scan pool — the top
+            <b id="uniScanPoolSize">--</b> S&amp;P 500 names ranked by
+            <b>volume × market cap</b>. A signal here auto-promotes the symbol into Tier 1.</p>
+          <div class="table-wrap">
+            <table class="data-table" id="uniScanPoolTable">
+              <thead>
+                <tr>
+                  <th style="width:44px;">Rank</th>
+                  <th>Ticker</th>
+                  <th>Name</th>
+                  <th>Sector</th>
+                  <th class="num">Market Cap</th>
+                  <th class="num">Avg Volume</th>
+                  <th class="num" title="volume × market cap, relative to rank 1 = 100">Liquidity Score</th>
+                </tr>
+              </thead>
+              <tbody id="uniScanPoolBody">
+                <tr><td colspan="7" class="empty-note">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Auto-promotions view -->
+        <div class="uni-subview" id="uniView-promotions">
+          <p class="muted-note" style="margin:0 0 8px;">Symbols promoted from Tier 2/3 into
+            Tier 1 after firing a signal. They get full every-cycle evaluation until their
+            TTL lapses.</p>
+          <div id="uniPromoWrap">
+            <div class="table-wrap">
+              <table class="data-table" id="uniPromoTable">
+                <thead>
+                  <tr>
+                    <th>Ticker</th>
+                    <th>Source</th>
+                    <th>Reason</th>
+                    <th>Promoted</th>
+                    <th>TTL Remaining</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="uniPromoBody">
+                  <tr><td colspan="6" class="empty-note">Loading...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Watchlist management panel -->
@@ -4540,8 +4922,10 @@
     loadHistoryMeta(); loadHistory(); loadWinRateTrend();
     loadPerformanceCharts();
     loadActivity(); loadAlerts(); loadWlMonitor();
+    loadMemory();
     setInterval(function () { if (!document.hidden) loadActivity(); }, 20000);
     setInterval(function () { if (!document.hidden) loadWlMonitor(); }, 30000);
+    setInterval(function () { if (!document.hidden) loadMemory(); }, 60000);
     setInterval(function () { if (!document.hidden) loadPerformanceCharts(); }, 300000);
   })();
 </script>
@@ -5296,14 +5680,186 @@
     }
   }
 
-  // ── Load scan tiers ──
+  // ── Tiered scanning (index-based model) ──
+  var _uniIndices = [];       // [{ticker, sp500, nasdaq100}]
+  var _uniIdxFilter = "all";  // all | sp500 | nasdaq100 | both
+
   async function loadUniverseTiers() {
     try {
       var d = await jget("/api/universe/tiers");
-      _setText("uniTier1", d.tier1 != null ? d.tier1 : "--");
-      _setText("uniTier2", d.tier2 != null ? d.tier2 : "--");
-      _setText("uniTier3", d.tier3 != null ? d.tier3 : "--");
+      if (d.available === false) return;
+      var t1 = d.tier1 || {}, t2 = d.tier2 || {}, t3 = d.tier3 || {}, st = d.settings || {};
+      _setText("uniTier1", t1.count != null ? t1.count : "--");
+      _setText("uniTier2", t2.count != null ? t2.count : "--");
+      _setText("uniTier3", t3.count != null ? t3.count : "--");
+      _setText("uniTier2Cap", t2.pool_size != null ? "/ " + t2.pool_size : "");
+      // Tier 1 breakdown chips
+      var b1 = document.getElementById("uniTier1Break");
+      if (b1) b1.innerHTML =
+        '<span>' + (t1.watchlist_count || 0) + ' watchlist</span>' +
+        '<span>' + (t1.etf_count || 0) + ' ETFs</span>' +
+        '<span>' + (t1.promoted_count || 0) + ' promoted</span>';
+      // Tier 2 breakdown
+      var b2 = document.getElementById("uniTier2Break");
+      if (b2) b2.innerHTML = '<span>index: ' + esc(t2.index || "SP500") + '</span>' +
+        '<span>rank: ' + esc(t2.ranking || "V×Cap") + '</span>';
+      // Tier 3 breakdown
+      var b3 = document.getElementById("uniTier3Break");
+      if (b3) b3.innerHTML =
+        '<span>' + (t3.sp500_count || 0) + ' S&amp;P 500</span>' +
+        '<span>' + (t3.nasdaq100_count || 0) + ' NASDAQ-100</span>';
+      // Settings chips
+      _setText("uniSetPoolSize", st.TIER2_SCAN_POOL_SIZE != null ? st.TIER2_SCAN_POOL_SIZE : "--");
+      _setText("uniSetTtl", st.PROMOTION_TTL_HOURS != null ? st.PROMOTION_TTL_HOURS : "--");
     } catch (e) { /* tiers unavailable */ }
+  }
+
+  // ── Sub-view switching ──
+  function uniShowSubview(view) {
+    document.querySelectorAll(".uni-subtab").forEach(function (b) {
+      b.classList.toggle("active", b.getAttribute("data-view") === view);
+    });
+    document.querySelectorAll(".uni-subview").forEach(function (v) {
+      v.classList.toggle("active", v.id === "uniView-" + view);
+    });
+    if (view === "scanpool") loadUniverseScanPool();
+    else if (view === "promotions") loadUniversePromotions();
+  }
+
+  // ── Index membership ──
+  async function loadUniverseIndices() {
+    try {
+      var d = await jget("/api/universe/indices");
+      if (d.available === false) return;
+      _uniIndices = d.symbols || [];
+      _setText("uniIdxSpCount", d.sp500_count != null ? d.sp500_count : "--");
+      _setText("uniIdxNqCount", d.nasdaq100_count != null ? d.nasdaq100_count : "--");
+      _setText("uniIdxBothCount", d.both_count != null ? d.both_count : "--");
+      _setText("uniIdxUnionCount", d.union_count != null ? d.union_count : "--");
+      uniRenderIndices();
+    } catch (e) {
+      document.getElementById("uniIdxGrid").innerHTML =
+        '<div class="empty-note">Failed to load index membership.</div>';
+    }
+  }
+
+  function uniIdxFilter(f) {
+    _uniIdxFilter = f;
+    document.querySelectorAll(".uni-idx-fbtn").forEach(function (b) {
+      b.classList.toggle("active", b.getAttribute("data-f") === f);
+    });
+    uniRenderIndices();
+  }
+
+  function uniRenderIndices() {
+    var grid = document.getElementById("uniIdxGrid");
+    if (!grid) return;
+    var q = (document.getElementById("uniIdxSearch").value || "").trim().toUpperCase();
+    var items = _uniIndices.filter(function (s) {
+      if (_uniIdxFilter === "sp500" && !s.sp500) return false;
+      if (_uniIdxFilter === "nasdaq100" && !s.nasdaq100) return false;
+      if (_uniIdxFilter === "both" && !(s.sp500 && s.nasdaq100)) return false;
+      if (q && s.ticker.indexOf(q) === -1) return false;
+      return true;
+    });
+    if (!items.length) {
+      grid.innerHTML = '<div class="empty-note">No symbols match.</div>';
+      return;
+    }
+    grid.innerHTML = items.map(function (s) {
+      var badges = "";
+      if (s.sp500) badges += '<span class="idx-badge sp">SP</span>';
+      if (s.nasdaq100) badges += '<span class="idx-badge nq">NQ</span>';
+      return '<span class="uni-idx-chip"><span class="tk">' + esc(s.ticker) + '</span>' +
+        badges + '</span>';
+    }).join("");
+  }
+
+  // ── Scan pool (Tier 2) ──
+  async function loadUniverseScanPool() {
+    var tb = document.getElementById("uniScanPoolBody");
+    try {
+      var d = await jget("/api/universe/scan-pool");
+      if (d.available === false) return;
+      _setText("uniScanPoolSize", d.pool_size != null ? d.pool_size : "--");
+      var rows = d.symbols || [];
+      if (!rows.length) {
+        tb.innerHTML = '<tr><td colspan="7" class="empty-note">Scan pool is empty ' +
+          '(seed the universe to populate it).</td></tr>';
+        return;
+      }
+      // The V×Cap product is astronomically large; show it as a 0-100 score
+      // anchored to the top-ranked name so the ranking is legible.
+      var maxLiq = 0;
+      rows.forEach(function (s) { if (Number(s.liq) > maxLiq) maxLiq = Number(s.liq); });
+      tb.innerHTML = rows.map(function (s) {
+        var scoreTxt = (Number(s.liq) > 0 && maxLiq > 0)
+          ? (Number(s.liq) / maxLiq * 100).toFixed(1) : "--";
+        return '<tr>' +
+          '<td>' + (s.rank != null ? s.rank : "--") + '</td>' +
+          '<td><strong>' + esc(s.ticker) + '</strong></td>' +
+          '<td>' + esc(s.name || "") + '</td>' +
+          '<td>' + esc(s.sector || "--") + '</td>' +
+          '<td class="num">' + formatMarketCap(s.market_cap) + '</td>' +
+          '<td class="num">' + formatVolume(s.avg_volume) + '</td>' +
+          '<td class="num" title="volume × market cap, relative to rank 1">' + scoreTxt + '</td>' +
+          '</tr>';
+      }).join("");
+    } catch (e) {
+      if (tb) tb.innerHTML = '<tr><td colspan="7" class="empty-note">Failed to load scan pool.</td></tr>';
+    }
+  }
+
+  // ── Auto-promotions (Tier 2/3 → Tier 1) ──
+  function _ttlPill(hours) {
+    if (hours == null) return '<span class="ttl-pill perm">no expiry</span>';
+    var cls = hours <= 6 ? "soon" : "ok";
+    var label = hours >= 1 ? hours.toFixed(1) + " h" : Math.round(hours * 60) + " m";
+    return '<span class="ttl-pill ' + cls + '">' + label + '</span>';
+  }
+
+  async function loadUniversePromotions() {
+    var wrap = document.getElementById("uniPromoWrap");
+    var badge = document.getElementById("uniPromoBadge");
+    try {
+      var d = await jget("/api/universe/promotions");
+      if (d.available === false) return;
+      var rows = d.promotions || [];
+      if (badge) badge.textContent = rows.length ? "(" + rows.length + ")" : "";
+      if (!rows.length) {
+        wrap.innerHTML = '<div class="uni-promo-empty">No active promotions. ' +
+          'Symbols appear here when a Tier 2/3 scan fires a signal.</div>';
+        return;
+      }
+      wrap.innerHTML =
+        '<div class="table-wrap"><table class="data-table"><thead><tr>' +
+        '<th>Ticker</th><th>Source</th><th>Reason</th><th>Promoted</th>' +
+        '<th>TTL Remaining</th><th></th></tr></thead><tbody>' +
+        rows.map(function (p) {
+          var promoted = p.promoted_at
+            ? String(p.promoted_at).slice(0, 16).replace("T", " ") : "--";
+          return '<tr>' +
+            '<td><strong>' + esc(p.ticker) + '</strong></td>' +
+            '<td><span class="src-pill">' + esc(p.source_tier || "--") + '</span></td>' +
+            '<td>' + esc(p.reason || "--") + '</td>' +
+            '<td>' + esc(promoted) + '</td>' +
+            '<td>' + _ttlPill(p.ttl_remaining_hours) + '</td>' +
+            '<td><button type="button" class="btn-secondary btn-sm" ' +
+              'onclick="uniDemotePromotion(\'' + esc(p.ticker) + '\')">Demote</button></td>' +
+            '</tr>';
+        }).join("") + '</tbody></table></div>';
+    } catch (e) {
+      if (wrap) wrap.innerHTML = '<div class="uni-promo-empty">Failed to load promotions.</div>';
+    }
+  }
+
+  async function uniDemotePromotion(ticker) {
+    if (!confirm("Demote " + ticker + " out of Tier 1?")) return;
+    try {
+      await jsend("POST", "/api/universe/promotions/" + encodeURIComponent(ticker) + "/demote", {});
+      loadUniversePromotions();
+      loadUniverseTiers();
+    } catch (e) { /* best-effort */ }
   }
 
   // ── Seed universe ──
@@ -5368,6 +5924,8 @@
           loadUniverseSymbols(1);
           loadUniverseSectors();
           loadUniverseTiers();
+          loadUniverseIndices();
+          loadUniversePromotions();
         } else {
           if (resultEl) {
             resultEl.textContent = d.message || "Seed failed.";
@@ -5394,6 +5952,8 @@
     loadUniverseSectors();
     loadUniverseSymbols(1);
     loadUniverseTiers();
+    loadUniverseIndices();
+    loadUniversePromotions();
     loadWatchlists();
   })();
 </script>

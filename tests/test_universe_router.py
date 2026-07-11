@@ -251,9 +251,81 @@ class TestTierEndpoint:
         tmp_db.add_to_watchlist("Active", ["AAPL", "MSFT"])
         resp = client.get("/api/universe/tiers")
         data = resp.json()
-        assert data["tier1_count"] == 2
-        assert "tier2_sectors" in data
-        assert data["tier3_count"] >= 0
+        assert data["available"] is True
+        # Tier 1 = watchlist ∪ ETFs ∪ promoted — the 2 watchlist names are a subset.
+        assert data["tier1"]["watchlist_count"] == 2
+        assert data["tier1"]["count"] >= 2
+        assert data["tier1"]["etf_count"] > 0
+        assert data["tier1"]["promoted_count"] == 0
+        # Tier 2 = scan pool with the configured pool size and ranking metric.
+        assert data["tier2"]["pool_size"] > 0
+        assert data["tier2"]["ranking"] == "volume × market cap"
+        # Tier 3 = index universe.
+        assert data["tier3"]["count"] >= 0
+        assert "sp500_count" in data["tier3"]
+        assert "nasdaq100_count" in data["tier3"]
+        # Settings echoed for the UI.
+        assert data["settings"]["TIER2_SCAN_POOL_SIZE"] > 0
+        assert data["settings"]["PROMOTION_TTL_HOURS"] >= 0
+
+    def test_get_tiers_reflects_promotion(self, client: TestClient, tmp_db: UniverseDB) -> None:
+        tmp_db.promote_symbol("JPM", source_tier="tier2", reason="grade A", ttl_hours=24)
+        data = client.get("/api/universe/tiers").json()
+        assert data["tier1"]["promoted_count"] == 1
+        assert "JPM" in data["tier1"]["symbols"]
+
+
+class TestIndicesEndpoint:
+    def test_get_indices(self, client: TestClient, tmp_db: UniverseDB) -> None:
+        tmp_db.set_index_membership("SP500", ["AAPL", "MSFT", "JPM"])
+        tmp_db.set_index_membership("NASDAQ100", ["AAPL", "MSFT"])
+        data = client.get("/api/universe/indices").json()
+        assert data["available"] is True
+        assert data["sp500_count"] == 3
+        assert data["nasdaq100_count"] == 2
+        assert data["both_count"] == 2
+        assert data["union_count"] == 3
+        by_ticker = {s["ticker"]: s for s in data["symbols"]}
+        assert by_ticker["AAPL"]["sp500"] and by_ticker["AAPL"]["nasdaq100"]
+        assert by_ticker["JPM"]["sp500"] and not by_ticker["JPM"]["nasdaq100"]
+
+    def test_get_indices_static_fallback(self, client: TestClient) -> None:
+        # No recorded membership → falls back to the curated static lists.
+        data = client.get("/api/universe/indices").json()
+        assert data["sp500_count"] > 0
+        assert data["nasdaq100_count"] > 0
+
+
+class TestScanPoolEndpoint:
+    def test_get_scan_pool_ranked(self, client: TestClient, tmp_db: UniverseDB) -> None:
+        tmp_db.set_index_membership("SP500", ["AAPL", "MSFT", "JPM"])
+        data = client.get("/api/universe/scan-pool?limit=10").json()
+        assert data["available"] is True
+        assert data["ranking"] == "volume × market cap"
+        rows = data["symbols"]
+        assert [r["ticker"] for r in rows] == ["AAPL", "MSFT", "JPM"]  # by V×Cap desc
+        assert rows[0]["rank"] == 1
+        assert rows[0]["liq"] > rows[1]["liq"]
+
+
+class TestPromotionsEndpoint:
+    def test_get_promotions_with_ttl(self, client: TestClient, tmp_db: UniverseDB) -> None:
+        tmp_db.promote_symbol("JPM", source_tier="tier3", reason="breakout", ttl_hours=24)
+        data = client.get("/api/universe/promotions").json()
+        assert data["available"] is True
+        assert data["count"] == 1
+        promo = data["promotions"][0]
+        assert promo["ticker"] == "JPM"
+        assert promo["source_tier"] == "tier3"
+        assert promo["ttl_remaining_hours"] is not None
+        assert 0 < promo["ttl_remaining_hours"] <= 24
+
+    def test_demote_promotion(self, client: TestClient, tmp_db: UniverseDB) -> None:
+        tmp_db.promote_symbol("JPM", ttl_hours=24)
+        assert client.get("/api/universe/promotions").json()["count"] == 1
+        resp = client.post("/api/universe/promotions/JPM/demote")
+        assert resp.json()["ok"] is True
+        assert client.get("/api/universe/promotions").json()["count"] == 0
 
 
 # ---------------------------------------------------------------------------

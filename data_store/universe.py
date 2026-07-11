@@ -772,6 +772,43 @@ class UniverseDB:
         rows = self._conn.execute(sql, params).fetchall()
         return [r["ticker"] for r in rows]
 
+    def get_scan_pool_ranked(
+        self, index_name: str = "SP500", limit: int | None = None
+    ) -> list[dict]:
+        """Return the Tier-2 Scan Pool with the ranking metadata visible.
+
+        Same ranking as :meth:`get_scan_pool` (``avg_volume * market_cap``
+        descending) but each row carries the raw metrics and its 1-based rank
+        so the dashboard can show *why* a symbol is in the pool.
+
+        Args:
+            index_name: Index to draw the pool from (default ``"SP500"``).
+            limit: Maximum symbols to return (``None`` = all members).
+
+        Returns:
+            List of ``{"rank", "ticker", "name", "sector", "market_cap",
+            "avg_volume", "last_price", "liq"}`` dicts, most-liquid first.
+        """
+        sql = (
+            "SELECT m.ticker AS ticker, s.name AS name, s.sector AS sector, "
+            "       s.market_cap AS market_cap, s.avg_volume AS avg_volume, "
+            "       s.last_price AS last_price, "
+            "       COALESCE(s.avg_volume, 0) * COALESCE(s.market_cap, 0) AS liq "
+            "FROM index_membership m "
+            "LEFT JOIN symbols s ON s.ticker = m.ticker "
+            "WHERE m.index_name = ? AND COALESCE(s.is_active, 1) = 1 "
+            "ORDER BY liq DESC, m.ticker ASC"
+        )
+        params: list[Any] = [index_name]
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+        rows = self._conn.execute(sql, params).fetchall()
+        out = self._rows_to_dicts(rows)
+        for i, row in enumerate(out, start=1):
+            row["rank"] = i
+        return out
+
     # ------------------------------------------------------------ promotions
 
     def promote_symbol(

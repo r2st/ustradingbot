@@ -17,7 +17,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from config.settings import get_settings
+from config.settings import EASTERN, get_settings
 from dashboard.auth import require_auth
 from data_store.universe import db_exists, get_universe_db
 
@@ -302,24 +302,189 @@ async def set_filter(request: Request, _user: str = Depends(require_auth)):
 
 @router.get("/tiers")
 async def get_tiers(_user: str = Depends(require_auth)):
-    """Current tier info: tier 1 count, tier 2 sector list, tier 3 count."""
+    """Index-based tier breakdown for the Universe Browser.
+
+    Reflects the operator-approved tier model (see :mod:`config.universe`):
+
+    * **Tier 1 (Active Trading)** — watchlist ∪ ETFs ∪ auto-promoted symbols,
+      scanned every cycle.
+    * **Tier 2 (Scan Pool)** — top-N S&P 500 by volume × market cap, daily.
+    * **Tier 3 (Universe)** — full S&P 500 ∪ NASDAQ-100, weekly.
+
+    Also echoes the two settings that drive the tiers so the UI can display
+    them: ``TIER2_SCAN_POOL_SIZE`` and ``PROMOTION_TTL_HOURS``.
+    """
     db = _require_db()
     if db is None:
         return _not_available()
-    tier1 = db.get_tier1_symbols()
-    sectors = db.get_sectors()
-    tier2_sectors = {}
-    for s in sectors:
-        sector_name = s.get("sector") or s.get("name", "")
-        if sector_name:
-            tier2_sectors[sector_name] = len(db.get_tier2_symbols(sector_name))
-    tier3 = db.get_tier3_symbols()
+
+    from config.etf_universe import ALL_ETFS
+    from config.index_membership import (
+        NASDAQ100_INDEX,
+        SP500_INDEX,
+        nasdaq100_symbols,
+        sp500_symbols,
+    )
+
+    settings = _settings()
+    pool_size = int(getattr(settings, "TIER2_SCAN_POOL_SIZE", 250))
+    ttl_hours = float(getattr(settings, "PROMOTION_TTL_HOURS", 72.0))
+
+    # ── Tier 1: watchlist ∪ ETFs ∪ promoted ──
+    watchlist = [t.upper() for t in db.get_tier1_symbols()]
+    etfs = [t.upper() for t in ALL_ETFS]
+    promoted = [t.upper() for t in db.get_promoted_symbols()]
+    tier1_set = set(watchlist) | set(etfs) | set(promoted)
+
+    # ── Tier 2: scan pool (top-N S&P 500 by liquidity) ──
+    scan_pool = db.get_scan_pool(index_name=SP500_INDEX, limit=pool_size)
+
+    # ── Tier 3: index universe (S&P 500 ∪ NASDAQ-100) ──
+    tier3 = db.get_index_universe()
+    sp500_members = db.get_index_symbols(SP500_INDEX) or sp500_symbols()
+    nasdaq_members = db.get_index_symbols(NASDAQ100_INDEX) or nasdaq100_symbols()
+    if not tier3:  # DB has no recorded membership yet — fall back to static union
+        tier3 = sorted(set(sp500_members) | set(nasdaq_members))
+
     return {
-        "tier1_count": len(tier1),
-        "tier1_symbols": tier1,
-        "tier2_sectors": tier2_sectors,
-        "tier3_count": len(tier3),
+        "available": True,
+        "tier1": {
+            "count": len(tier1_set),
+            "watchlist_count": len(set(watchlist)),
+            "etf_count": len(set(etfs)),
+            "promoted_count": len(set(promoted)),
+            "symbols": sorted(tier1_set),
+        },
+        "tier2": {
+            "count": len(scan_pool),
+            "pool_size": pool_size,
+            "index": SP500_INDEX,
+            "ranking": "volume × market cap",
+        },
+        "tier3": {
+            "count": len(tier3),
+            "sp500_count": len(sp500_members),
+            "nasdaq100_count": len(nasdaq_members),
+        },
+        "settings": {
+            "TIER2_SCAN_POOL_SIZE": pool_size,
+            "PROMOTION_TTL_HOURS": ttl_hours,
+        },
     }
+
+
+@router.get("/indices")
+async def get_indices(_user: str = Depends(require_auth)):
+    """S&P 500 and NASDAQ-100 membership with a per-symbol index indicator.
+
+    Prefers the DB-recorded membership (kept current by the seeder's refresh)
+    and falls back to the curated static lists in
+    :mod:`config.index_membership` so the view is populated even with no DB.
+
+    Returns a merged, sorted symbol list where each entry flags which indices
+    it belongs to, plus per-index counts and the size of the union/overlap.
+    """
+    db = _require_db()
+    if db is None:
+        return _not_available()
+
+    from config.index_membership import (
+        NASDAQ100_INDEX,
+        SP500_INDEX,
+        nasdaq100_symbols,
+        sp500_symbols,
+    )
+
+    sp500 = set(t.upper() for t in (db.get_index_symbols(SP500_INDEX) or sp500_symbols()))
+    nasdaq = set(
+        t.upper() for t in (db.get_index_symbols(NASDAQ100_INDEX) or nasdaq100_symbols())
+    )
+    both = sp500 & nasdaq
+
+    symbols = [
+        {
+            "ticker": t,
+            "sp500": t in sp500,
+            "nasdaq100": t in nasdaq,
+        }
+        for t in sorted(sp500 | nasdaq)
+    ]
+    return {
+        "available": True,
+        "symbols": symbols,
+        "sp500_count": len(sp500),
+        "nasdaq100_count": len(nasdaq),
+        "both_count": len(both),
+        "union_count": len(sp500 | nasdaq),
+    }
+
+
+@router.get("/scan-pool")
+async def get_scan_pool(limit: Optional[int] = None, _user: str = Depends(require_auth)):
+    """The Tier-2 Scan Pool ranked by liquidity, with the ranking metric shown.
+
+    Ranked by ``avg_volume × market_cap`` descending.  Defaults to the
+    configured ``TIER2_SCAN_POOL_SIZE`` when *limit* is omitted.
+    """
+    db = _require_db()
+    if db is None:
+        return _not_available()
+    from config.index_membership import SP500_INDEX
+
+    settings = _settings()
+    pool_size = limit if limit is not None else int(
+        getattr(settings, "TIER2_SCAN_POOL_SIZE", 250)
+    )
+    rows = db.get_scan_pool_ranked(index_name=SP500_INDEX, limit=pool_size)
+    return {
+        "available": True,
+        "index": SP500_INDEX,
+        "pool_size": pool_size,
+        "ranking": "volume × market cap",
+        "count": len(rows),
+        "symbols": rows,
+    }
+
+
+@router.get("/promotions")
+async def get_promotions(_user: str = Depends(require_auth)):
+    """Currently promoted symbols (Tier 2/3 → Tier 1) with TTL remaining.
+
+    Each promotion carries the source tier, the reason the signal fired, when
+    it was promoted, and how much longer it stays in Tier 1 before reverting to
+    its scan-pool cadence (``ttl_remaining_hours``; ``None`` = never expires).
+    """
+    db = _require_db()
+    if db is None:
+        return _not_available()
+
+    # Clear any stragglers so the view never shows an expired promotion.
+    db.expire_promotions()
+    rows = db.get_promotions()
+    now = datetime.now(tz=EASTERN)
+    for row in rows:
+        expires = row.get("expires_at")
+        remaining = None
+        if expires:
+            try:
+                exp_dt = datetime.fromisoformat(expires)
+                remaining = round((exp_dt - now).total_seconds() / 3600.0, 2)
+                if remaining < 0:
+                    remaining = 0.0
+            except (ValueError, TypeError):
+                remaining = None
+        row["ttl_remaining_hours"] = remaining
+    return {"available": True, "promotions": rows, "count": len(rows)}
+
+
+@router.post("/promotions/{ticker}/demote")
+async def demote_promotion(ticker: str, _user: str = Depends(require_auth)):
+    """Manually demote *ticker* out of Tier 1 (removes its promotion)."""
+    db = _require_db()
+    if db is None:
+        return _not_available()
+    db.demote_symbol(ticker)
+    return {"ok": True, "demoted": ticker.upper()}
 
 
 # ---------------------------------------------------------------------------
