@@ -23,6 +23,14 @@
 13. [Deployment Architecture](#13-deployment-architecture)
 14. [Security Considerations](#14-security-considerations)
 15. [Project Structure](#15-project-structure)
+16. [Memory & Learning Layer](#16-memory--learning-layer)
+17. [Tiered Symbol Universe](#17-tiered-symbol-universe)
+
+> **Note:** Sections 16–17 document features added after the v1.0 design.
+> Sections 1–15 describe the original IBKR/Claude architecture; the AI veto now
+> also runs via OpenRouter and paper trading uses the built-in simulator by
+> default. See [`README.md`](README.md) for current operational defaults and the
+> [`docs/`](docs/) feature specs for later additions.
 
 ---
 
@@ -125,22 +133,37 @@ START CYCLE
     │
     ├─► 5. Order cutoff check       ── if < 5 min to close → skip entries
     │
-    ├─► 6. run_full_scan()          ── scan universe: VCP → PEAD → Mom → Swing → MR
-    │       │
+    ├─► 4b. _reflect_on_exits()     ── F1: write one learnings.jsonl lesson per closed trade
+    │
+    ├─► 5. Order cutoff check       ── if < 5 min to close → skip entries
+    │
+    ├─► 6. Tiered scan              ── Tier 1 (every cycle) + Tier 2 (daily) + Tier 3 (weekly)
+    │       │                          Tier 2/3 signals auto-promote symbols into Tier 1
     │       └─► For each signal (sorted by strength desc):
-    │           ├─► pre_check()           (risk manager structural gates)
-    │           ├─► strategy position cap  (per-strategy limits)
-    │           ├─► pending order guard    (no duplicate orders)
-    │           ├─► opportunity comparison (is this better than what we have?)
-    │           ├─► AI evaluation          (Tier 1 earnings + Tier 2 Claude news)
-    │           ├─► build_order()          (risk manager sizing)
-    │           ├─► freshness check        (drift < 1%, age < 15 min)
-    │           ├─► cash check             (sufficient buying power)
-    │           └─► place_bracket_order()  (entry + stop + target to IBKR)
+    │           ├─► trade-selection gate   (operator's pinned symbols/strategies/grade)
+    │           ├─► earnings block/flag     (skip earnings-proximate entries)
+    │           ├─► pre_check()            (risk manager structural gates)
+    │           ├─► strategy position cap   (per-strategy limits)
+    │           ├─► pending order guard     (no duplicate orders)
+    │           ├─► AI evaluation           (Tier 1 earnings + Tier 2 OpenRouter veto)
+    │           ├─► similar-setup guard (F2) (own win rate → proceed/demote/block)
+    │           ├─► learnings guard (F1)     (apply lessons → allow/demote/reject)
+    │           ├─► news-sentiment veto      (reject on strong negative news)
+    │           ├─► ratings veto             (reject below quant-rating floor)
+    │           ├─► regime + auto-tune gate  (raise the bar in adverse regimes)
+    │           ├─► build_order()           (risk manager sizing)
+    │           ├─► freshness check          (drift < 1%, age < 15 min)
+    │           ├─► cash check               (sufficient buying power)
+    │           └─► place_bracket_order()    (entry + stop + target)
     │
     └─► 7. Log trade, update open_positions.json, deduct cash
 END CYCLE (sleep until next interval)
 ```
+
+The similar-setup and learnings guards (steps after the AI veto) and the tiered
+scan are covered in dedicated sections — see
+[16. Memory & Learning Layer](#16-memory--learning-layer) and
+[17. Tiered Symbol Universe](#17-tiered-symbol-universe).
 
 ---
 
@@ -862,3 +885,95 @@ us_trading_bot/
     ├── open_positions.json
     └── rejected.jsonl
 ```
+
+---
+
+## 16. Memory & Learning Layer
+
+> **Full reference:** [`docs/memory-learning-layer.md`](docs/memory-learning-layer.md).
+
+The bot closes the loop on its own `trades.csv` ledger: it writes itself a
+plain-English lesson after each close and consults that memory — plus its
+historical win rate — before the next entry. Two features implement this, both
+**fail-open** (a missing key, a corrupt ledger, or an unparseable lesson never
+blocks a trade).
+
+### 16.1 F1 — AI Trade Reflection (Learnings Engine)
+
+| Component | Module | Role |
+|-----------|--------|------|
+| Reflection writer | `ai/reflection.py` (`ReflectionEngine`) | After a close, asks an OpenRouter model for one lesson. |
+| OpenRouter client | `ai/openrouter.py` | Thin chat client. |
+| Lesson store | `journal/learnings.py` → `data_store/learnings.jsonl` | Append-only, expiring lesson store. |
+| Learnings guard | `analytics/learnings_guard.py` (`LearningsGuard`) | Applies lessons on entry. |
+
+**Writing.** `engine._reflect_on_exits()` runs after exit management each cycle.
+For each genuinely-closed trade (partial-takes skipped) it sends the entry
+context (grade, RSI, volume, MACD, strategy, direction) and outcome to the model
+and stores one structured lesson: `lesson_text`, `pattern_tags`, `conditions`
+(numeric bounds), `action`, and `confidence`.
+
+**Two guardrails.** A lesson only *binds* when it clears both a **support gate**
+(≥ `LEARNINGS_MIN_TRADES_FOR_PATTERN` similar historical trades) and a
+**confidence gate** (≥ `LEARNINGS_MIN_CONFIDENCE`). Otherwise it is stored as a
+non-binding `observe` note.
+
+**Applying (entry gate d1.5).** `LearningsGuard.evaluate(signal)` selects
+lessons matching the signal (same strategy/direction, RSI/volume/grade inside
+`conditions`) and applies the most restrictive action: `avoid` → **reject**,
+`require_confirm` → **demote** (grade-A only), `prefer` → annotate only,
+`observe` → ignored.
+
+### 16.2 F2 — Similar-Setup Guard
+
+**Module:** `analytics/setup_similarity.py` (`find_similar_setups`). Pure, local,
+no API call. At **entry gate d1** (right after the AI veto, before the learnings
+guard) it filters `trades.csv` to setups like the incoming signal (same
+strategy/grade, RSI within `SIMILAR_SETUP_RSI_TOLERANCE`, volume within
+`SIMILAR_SETUP_VOL_TOLERANCE`, inside `SIMILAR_SETUP_LOOKBACK_DAYS`) and computes
+the win rate over the matches:
+
+- fewer than `SIMILAR_SETUP_MIN_MATCHES` matches, or win rate ≥
+  `SIMILAR_SETUP_MIN_WIN_RATE` → **proceed**;
+- win rate < `SIMILAR_SETUP_MIN_WIN_RATE` → **demote** (grade-A only);
+- win rate < `SIMILAR_SETUP_BLOCK_WIN_RATE` over a solid sample → **block**.
+
+### 16.3 Dashboard — AI Memory tab
+
+Read-only, backed by `dashboard/memory_router.py` (`/api/memory/*`): learnings
+list, reflections timeline, guard-decisions log (from `rejected_signals.jsonl`),
+and a stats summary. See the full reference for endpoints and config tables.
+
+---
+
+## 17. Tiered Symbol Universe
+
+> **Full reference:** [`docs/tiered-universe.md`](docs/tiered-universe.md).
+
+Scanning runs over a three-tier universe built on the S&P 500 and NASDAQ-100
+rather than a fixed watchlist. The tier machinery (`config/universe.py`) reads
+`data_store/universe.db` when present and falls back to the curated static lists
+in `config/index_membership.py` so every tier is populated even with no DB.
+
+| Tier | Membership | Cadence | Engine method |
+|------|------------|---------|---------------|
+| **Tier 1 — Active Trading** | watchlist ∪ ETFs ∪ auto-promoted | every cycle | entry phase in `engine.py` |
+| **Tier 2 — Scan Pool** | top-N S&P 500 by volume × market cap (`TIER2_SCAN_POOL_SIZE`) | daily | `_run_tier2_scan` |
+| **Tier 3 — Universe** | full S&P 500 ∪ NASDAQ-100, pre-screened for movers | weekly | `_run_tier3_scan` |
+
+**Auto-promotion.** Any Tier 2/3 signal calls `promote_to_tier1()`
+(`_promote_signals`), moving the symbol into the every-cycle Tier 1 for
+`PROMOTION_TTL_HOURS` (default 72h). The engine calls `expire_promotions()` each
+cycle to revert lapsed promotions; promotions persist to the universe DB so they
+survive restarts and appear on the dashboard.
+
+**Seeding.** `data_store/universe_seeder.py` populates the DB from SEC EDGAR
+(US), curated Canadian stocks, ETFs, and S&P 500 / NASDAQ-100 index membership
+(+ liquidity ranking). Run `python -m data_store.universe_seeder`
+(`--skip-enrichment` for a faster yfinance-free run) or trigger a background
+re-seed from the dashboard.
+
+**Dashboard — Universe Browser.** Backed by `dashboard/universe_router.py`
+(`/api/universe/*`): tier breakdown cards, index membership with S&P/NASDAQ
+badges, the liquidity-ranked scan pool, and live auto-promotions with TTL and a
+manual **Demote** control.
