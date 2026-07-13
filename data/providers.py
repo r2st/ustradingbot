@@ -70,8 +70,14 @@ class MarketDataProvider(Protocol):
 
     name: str
 
-    def get_ohlcv(self, symbol: str, period: str = "6mo") -> Optional[pd.DataFrame]:
-        """Return daily OHLCV bars for *symbol*, or ``None`` if unavailable."""
+    def get_ohlcv(
+        self, symbol: str, period: str = "6mo", interval: str = "1d"
+    ) -> Optional[pd.DataFrame]:
+        """Return OHLCV bars for *symbol*, or ``None`` if unavailable.
+
+        *interval* selects the bar grain (canonical strings — ``"1d"`` default,
+        ``"1h"``/``"15m"``/``"5m"`` intraday, ``"1wk"``/``"1mo"`` coarser).
+        """
         ...
 
     def get_current_price(self, symbol: str) -> Optional[float]:
@@ -98,6 +104,7 @@ def clean_ohlcv(
     symbol: str,
     log: "structlog.stdlib.BoundLogger",
     period: Optional[str] = None,
+    interval: str = "1d",
 ) -> Optional[pd.DataFrame]:
     """Normalise a raw OHLCV frame to the canonical schema.
 
@@ -129,7 +136,14 @@ def clean_ohlcv(
     if not isinstance(df.index, pd.DatetimeIndex):
         df.index = pd.to_datetime(df.index)
 
-    if len(df) < _MIN_ROWS_FOR_EMA200 and _period_can_hold(period, _MIN_ROWS_FOR_EMA200):
+    # The EMA-200 row-count warning only makes sense for daily bars (the grain
+    # the screener's long indicators run on).  Other grains have their own
+    # sizing expectations, so don't cry wolf about them.
+    if (
+        interval == "1d"
+        and len(df) < _MIN_ROWS_FOR_EMA200
+        and _period_can_hold(period, _MIN_ROWS_FOR_EMA200)
+    ):
         log.warning(
             "provider.insufficient_rows",
             symbol=symbol,
@@ -177,6 +191,120 @@ def period_to_start(period: str, *, now: Optional[datetime] = None) -> datetime:
 
 
 # ---------------------------------------------------------------------------
+# Interval / timeframe support
+# ---------------------------------------------------------------------------
+#
+# Every provider historically served *daily* bars only.  The bot is a
+# daily-cadence swing/position system, so ``"1d"`` remains the default and the
+# behaviour of every existing caller is unchanged.  These helpers let a caller
+# request a finer (intraday) or coarser (weekly/monthly) grain — the plumbing
+# the intraday strategies (VWAP-rejection, gap-fill) need to graduate off their
+# daily approximations, and the raw material for a genuine 1D-trend / intraday-
+# entry multi-timeframe setup.
+#
+# ``interval`` is a canonical, provider-agnostic string.  Each provider maps it
+# to its own native representation.
+
+DEFAULT_INTERVAL = "1d"
+
+# canonical interval -> (multiplier, base unit)
+_INTERVAL_SPECS: Dict[str, Tuple[int, str]] = {
+    "1m": (1, "minute"),
+    "2m": (2, "minute"),
+    "5m": (5, "minute"),
+    "15m": (15, "minute"),
+    "30m": (30, "minute"),
+    "1h": (1, "hour"),
+    "1d": (1, "day"),
+    "1wk": (1, "week"),
+    "1mo": (1, "month"),
+}
+
+
+def normalize_interval(interval: Optional[str]) -> str:
+    """Return a canonical interval string, defaulting to daily.
+
+    Accepts a few common aliases (``"1day"``, ``"60m"``, ``"1w"``…) and raises
+    :class:`ValueError` for anything the providers can't serve, so a typo fails
+    loudly at the call site instead of silently returning daily bars.
+    """
+    if not interval:
+        return DEFAULT_INTERVAL
+    key = str(interval).strip().lower()
+    aliases = {
+        "1day": "1d", "day": "1d", "d": "1d", "daily": "1d",
+        "60m": "1h", "60min": "1h", "hour": "1h", "hourly": "1h",
+        "1w": "1wk", "1week": "1wk", "week": "1wk", "weekly": "1wk",
+        "1month": "1mo", "month": "1mo", "monthly": "1mo",
+        "min": "1m", "5min": "5m", "15min": "15m", "30min": "30m",
+    }
+    key = aliases.get(key, key)
+    if key not in _INTERVAL_SPECS:
+        raise ValueError(
+            f"unsupported interval {interval!r}; "
+            f"choose one of {sorted(_INTERVAL_SPECS)}"
+        )
+    return key
+
+
+def interval_spec(interval: str) -> Tuple[int, str]:
+    """Return ``(multiplier, unit)`` for a *canonical* interval string."""
+    return _INTERVAL_SPECS[normalize_interval(interval)]
+
+
+def is_intraday(interval: str) -> bool:
+    """Return whether *interval* is finer than one day."""
+    _, unit = interval_spec(interval)
+    return unit in ("minute", "hour")
+
+
+# yfinance caps how far back intraday history reaches; requesting a longer
+# ``period`` than the grain allows returns an empty frame.  Clamp defensively.
+_YF_INTRADAY_MAX_DAYS: Dict[str, int] = {"minute_1": 7, "minute": 60, "hour": 730}
+
+
+def clamp_period_for_interval(period: str, interval: str) -> str:
+    """Shorten *period* when *interval* exceeds a provider's intraday window.
+
+    Daily and coarser intervals are returned unchanged.  For intraday grains
+    the period is capped to what free data tiers actually serve (yfinance
+    semantics: 1m→7d, other minute grains→60d, hourly→730d).
+    """
+    mult, unit = interval_spec(interval)
+    if unit not in ("minute", "hour"):
+        return period
+    if unit == "minute":
+        cap_days = _YF_INTRADAY_MAX_DAYS["minute_1" if mult == 1 else "minute"]
+    else:
+        cap_days = _YF_INTRADAY_MAX_DAYS["hour"]
+    now = datetime.now(tz=EASTERN)
+    start = period_to_start(period, now=now)
+    requested_days = (now - start).days
+    if requested_days <= cap_days:
+        return period
+    return f"{cap_days}d"
+
+
+def _yf_interval(interval: str) -> str:
+    """Map a canonical interval to a yfinance interval string."""
+    mult, unit = interval_spec(interval)
+    if unit == "minute":
+        return f"{mult}m"
+    if unit == "hour":
+        return f"{mult}h"
+    if unit == "week":
+        return "1wk"
+    if unit == "month":
+        return "1mo"
+    return f"{mult}d"
+
+
+def _polygon_timespan(interval: str) -> Tuple[int, str]:
+    """Map a canonical interval to Polygon ``(multiplier, timespan)``."""
+    return interval_spec(interval)  # Polygon timespans == our unit names
+
+
+# ---------------------------------------------------------------------------
 # yfinance provider (default)
 # ---------------------------------------------------------------------------
 
@@ -190,13 +318,19 @@ class YFinanceProvider:
         self._settings = settings
         self._log = logger.bind(provider="yfinance")
 
-    def get_ohlcv(self, symbol: str, period: str = "6mo") -> Optional[pd.DataFrame]:
+    def get_ohlcv(
+        self, symbol: str, period: str = "6mo", interval: str = "1d"
+    ) -> Optional[pd.DataFrame]:
         import yfinance as yf
 
-        log = self._log.bind(symbol=symbol, period=period)
+        interval = normalize_interval(interval)
+        period = clamp_period_for_interval(period, interval)
+        log = self._log.bind(symbol=symbol, period=period, interval=interval)
         ticker = yf.Ticker(symbol)
-        raw = ticker.history(period=period, auto_adjust=True)
-        return clean_ohlcv(raw, symbol, log, period=period)
+        raw = ticker.history(
+            period=period, interval=_yf_interval(interval), auto_adjust=True
+        )
+        return clean_ohlcv(raw, symbol, log, period=period, interval=interval)
 
     def get_current_price(self, symbol: str) -> Optional[float]:
         import yfinance as yf
@@ -268,21 +402,39 @@ class AlpacaProvider:
 
     # -------------------------------------------------------------- history
 
-    def get_ohlcv(self, symbol: str, period: str = "6mo") -> Optional[pd.DataFrame]:
+    def get_ohlcv(
+        self, symbol: str, period: str = "6mo", interval: str = "1d"
+    ) -> Optional[pd.DataFrame]:
         from alpaca.data.requests import StockBarsRequest
-        from alpaca.data.timeframe import TimeFrame
 
-        log = self._log.bind(symbol=symbol, period=period)
+        interval = normalize_interval(interval)
+        period = clamp_period_for_interval(period, interval)
+        log = self._log.bind(symbol=symbol, period=period, interval=interval)
         start = period_to_start(period)
         request = StockBarsRequest(
             symbol_or_symbols=symbol,
-            timeframe=TimeFrame.Day,
+            timeframe=self._timeframe(interval),
             start=start,
             feed=self._feed_enum(),
         )
         bars = self._client().get_stock_bars(request)
         raw = self._bars_to_frame(bars, symbol)
-        return clean_ohlcv(raw, symbol, log, period=period)
+        return clean_ohlcv(raw, symbol, log, period=period, interval=interval)
+
+    @staticmethod
+    def _timeframe(interval: str):
+        """Map a canonical interval to an Alpaca ``TimeFrame``."""
+        from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+
+        mult, unit = interval_spec(interval)
+        units = {
+            "minute": TimeFrameUnit.Minute,
+            "hour": TimeFrameUnit.Hour,
+            "day": TimeFrameUnit.Day,
+            "week": TimeFrameUnit.Week,
+            "month": TimeFrameUnit.Month,
+        }
+        return TimeFrame(mult, units[unit])
 
     @staticmethod
     def _bars_to_frame(bars: object, symbol: str) -> Optional[pd.DataFrame]:
@@ -428,17 +580,23 @@ class PolygonProvider:
         # appears in URLs echoed back by httpx error messages / logs.
         return {"Authorization": f"Bearer {self._key}"}
 
-    def get_ohlcv(self, symbol: str, period: str = "6mo") -> Optional[pd.DataFrame]:
+    def get_ohlcv(
+        self, symbol: str, period: str = "6mo", interval: str = "1d"
+    ) -> Optional[pd.DataFrame]:
         import httpx
 
-        log = self._log.bind(symbol=symbol, period=period)
+        interval = normalize_interval(interval)
+        period = clamp_period_for_interval(period, interval)
+        log = self._log.bind(symbol=symbol, period=period, interval=interval)
         if not self.supports_symbol(symbol):
             log.debug("provider.symbol_unsupported", symbol=symbol)
             return None
+        multiplier, timespan = _polygon_timespan(interval)
         start = period_to_start(period).strftime("%Y-%m-%d")
         end = datetime.now(tz=EASTERN).strftime("%Y-%m-%d")
         url = (
-            f"{self._BASE}/v2/aggs/ticker/{symbol}/range/1/day/{start}/{end}"
+            f"{self._BASE}/v2/aggs/ticker/{symbol}"
+            f"/range/{multiplier}/{timespan}/{start}/{end}"
         )
         resp = httpx.get(
             url,
@@ -449,7 +607,7 @@ class PolygonProvider:
         resp.raise_for_status()
         results = resp.json().get("results") or []
         raw = self._aggs_to_frame(results)
-        return clean_ohlcv(raw, symbol, log, period=period)
+        return clean_ohlcv(raw, symbol, log, period=period, interval=interval)
 
     @staticmethod
     def _aggs_to_frame(results: list) -> Optional[pd.DataFrame]:
@@ -641,8 +799,10 @@ class FallbackProvider:
             )
         return result
 
-    def get_ohlcv(self, symbol: str, period: str = "6mo") -> Optional[pd.DataFrame]:
-        return self._call("get_ohlcv", symbol, period)  # type: ignore[return-value]
+    def get_ohlcv(
+        self, symbol: str, period: str = "6mo", interval: str = "1d"
+    ) -> Optional[pd.DataFrame]:
+        return self._call("get_ohlcv", symbol, period, interval)  # type: ignore[return-value]
 
     def get_current_price(self, symbol: str) -> Optional[float]:
         return self._call("get_current_price", symbol)  # type: ignore[return-value]

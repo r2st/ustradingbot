@@ -174,29 +174,38 @@ def _with_retry(
 # ---------------------------------------------------------------------------
 
 
-def fetch_ohlcv(symbol: str, period: str = "6mo") -> Optional[pd.DataFrame]:
-    """Fetch daily OHLCV bars for a single symbol (cached + retried).
+def fetch_ohlcv(
+    symbol: str, period: str = "6mo", interval: str = "1d"
+) -> Optional[pd.DataFrame]:
+    """Fetch OHLCV bars for a single symbol (cached + retried).
 
     Args:
         symbol: Ticker symbol (e.g. ``"AAPL"``, ``"SHOP.TO"``).
         period: Look-back window (provider-specific; yfinance semantics).
+        interval: Bar grain — ``"1d"`` (default, daily), intraday
+            (``"1h"``/``"15m"``/``"5m"``/``"1m"``), or coarser
+            (``"1wk"``/``"1mo"``).  Each grain is cached separately.
 
     Returns:
         A :class:`pandas.DataFrame` with a :class:`pandas.DatetimeIndex` and
         columns ``[Open, High, Low, Close, Volume]``, or ``None`` on failure.
     """
     settings = get_settings()
-    key = ("ohlcv", symbol, period)
+    key = ("ohlcv", symbol, period, interval)
 
     if settings.DATA_CACHE_ENABLED:
         cached = _cache.get(key)
         if cached is not _MISS:
-            logger.debug("fetch_ohlcv.cache_hit", symbol=symbol, period=period)
+            logger.debug(
+                "fetch_ohlcv.cache_hit", symbol=symbol, period=period, interval=interval
+            )
             return cached  # type: ignore[return-value]
 
     provider = get_provider()
     result = _with_retry(
-        lambda: provider.get_ohlcv(symbol, period), what="ohlcv", symbol=symbol
+        lambda: provider.get_ohlcv(symbol, period, interval),
+        what="ohlcv",
+        symbol=symbol,
     )
 
     if result is not None and settings.DATA_CACHE_ENABLED:
@@ -235,6 +244,7 @@ def fetch_current_price(symbol: str) -> Optional[float]:
 def fetch_multiple(
     symbols: List[str],
     period: str = "6mo",
+    interval: str = "1d",
 ) -> Dict[str, pd.DataFrame]:
     """Batch-fetch OHLCV data for a list of symbols.
 
@@ -244,6 +254,7 @@ def fetch_multiple(
     Args:
         symbols: List of ticker symbols to fetch.
         period: Look-back window (same semantics as :func:`fetch_ohlcv`).
+        interval: Bar grain (same semantics as :func:`fetch_ohlcv`).
 
     Returns:
         A dict mapping each successfully fetched symbol to its DataFrame.
@@ -251,7 +262,7 @@ def fetch_multiple(
     results: Dict[str, pd.DataFrame] = {}
 
     for symbol in symbols:
-        df = fetch_ohlcv(symbol, period=period)
+        df = fetch_ohlcv(symbol, period=period, interval=interval)
         if df is not None:
             results[symbol] = df
         else:
@@ -276,6 +287,7 @@ def fetch_batch_ohlcv(
     period: str = "2y",
     batch_size: int = 50,
     delay_between_batches: float = 1.0,
+    interval: str = "1d",
 ) -> Dict[str, pd.DataFrame]:
     """Download OHLCV data for many symbols using yfinance batch download.
 
@@ -307,7 +319,7 @@ def fetch_batch_ohlcv(
     # Check cache first and build the uncached list.
     uncached: List[str] = []
     for sym in unique:
-        key = ("ohlcv", sym, period)
+        key = ("ohlcv", sym, period, interval)
         if settings.DATA_CACHE_ENABLED:
             cached = _cache.get(key)
             if cached is not _MISS:
@@ -332,7 +344,7 @@ def fetch_batch_ohlcv(
 
     for i in range(0, len(uncached), batch_size):
         batch = uncached[i: i + batch_size]
-        batch_results = _download_batch(batch, period)
+        batch_results = _download_batch(batch, period, interval)
 
         if not batch_results:
             empty_streak += 1
@@ -351,7 +363,11 @@ def fetch_batch_ohlcv(
         for sym, df in batch_results.items():
             results[sym] = df
             if settings.DATA_CACHE_ENABLED:
-                _cache.set(("ohlcv", sym, period), df, settings.OHLCV_CACHE_TTL_SECONDS)
+                _cache.set(
+                    ("ohlcv", sym, period, interval),
+                    df,
+                    settings.OHLCV_CACHE_TTL_SECONDS,
+                )
 
         # Rate-limit between batches.
         if i + batch_size < len(uncached):
@@ -366,7 +382,9 @@ def fetch_batch_ohlcv(
     return results
 
 
-def _download_batch(symbols: List[str], period: str) -> Dict[str, pd.DataFrame]:
+def _download_batch(
+    symbols: List[str], period: str, interval: str = "1d"
+) -> Dict[str, pd.DataFrame]:
     """Download OHLCV for a batch of symbols using yf.download().
 
     Returns a dict of symbol -> DataFrame.  Empty on any error.
@@ -374,9 +392,13 @@ def _download_batch(symbols: List[str], period: str) -> Dict[str, pd.DataFrame]:
     try:
         import yfinance as yf
 
+        from data.providers import _yf_interval, clamp_period_for_interval, normalize_interval
+
+        interval = normalize_interval(interval)
         data = yf.download(
             tickers=symbols,
-            period=period,
+            period=clamp_period_for_interval(period, interval),
+            interval=_yf_interval(interval),
             group_by="ticker",
             threads=True,
             progress=False,

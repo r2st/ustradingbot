@@ -31,7 +31,7 @@ class FakeProvider:
             return True
         return False
 
-    def get_ohlcv(self, symbol, period="6mo"):
+    def get_ohlcv(self, symbol, period="6mo", interval="1d"):
         self.ohlcv_calls += 1
         if self._maybe_fail(self.ohlcv_calls):
             return None

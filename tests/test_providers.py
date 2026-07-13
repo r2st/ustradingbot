@@ -146,7 +146,7 @@ def test_fallback_provider_uses_fallback_on_primary_error() -> None:
     class _Boom:
         name = "boom"
 
-        def get_ohlcv(self, symbol, period="6mo"):
+        def get_ohlcv(self, symbol, period="6mo", interval="1d"):
             raise RuntimeError("429 Too Many Requests")
 
         def get_current_price(self, symbol):
@@ -158,7 +158,7 @@ def test_fallback_provider_uses_fallback_on_primary_error() -> None:
     class _Good:
         name = "good"
 
-        def get_ohlcv(self, symbol, period="6mo"):
+        def get_ohlcv(self, symbol, period="6mo", interval="1d"):
             return "DATA"
 
         def get_current_price(self, symbol):
@@ -180,7 +180,7 @@ def test_fallback_provider_breaker_trips_after_threshold() -> None:
         name = "counter"
         calls = 0
 
-        def get_ohlcv(self, symbol, period="6mo"):
+        def get_ohlcv(self, symbol, period="6mo", interval="1d"):
             _Counter.calls += 1
             raise RuntimeError("429")
 
@@ -193,7 +193,7 @@ def test_fallback_provider_breaker_trips_after_threshold() -> None:
     class _Good:
         name = "good"
 
-        def get_ohlcv(self, symbol, period="6mo"):
+        def get_ohlcv(self, symbol, period="6mo", interval="1d"):
             return "DATA"
 
         def get_current_price(self, symbol):
@@ -225,7 +225,7 @@ def test_fallback_provider_breaker_trips_immediately_on_429() -> None:
         name = "limited"
         calls = 0
 
-        def get_ohlcv(self, symbol, period="6mo"):
+        def get_ohlcv(self, symbol, period="6mo", interval="1d"):
             _Limited.calls += 1
             raise _RateLimited("429 Too Many Requests")
 
@@ -238,7 +238,7 @@ def test_fallback_provider_breaker_trips_immediately_on_429() -> None:
     class _Good:
         name = "good"
 
-        def get_ohlcv(self, symbol, period="6mo"):
+        def get_ohlcv(self, symbol, period="6mo", interval="1d"):
             return "DATA"
 
         def get_current_price(self, symbol):
@@ -266,7 +266,7 @@ def test_fallback_provider_skips_primary_for_unsupported_symbols() -> None:
         def supports_symbol(self, symbol):
             return not symbol.endswith(".TO")
 
-        def get_ohlcv(self, symbol, period="6mo"):
+        def get_ohlcv(self, symbol, period="6mo", interval="1d"):
             _USOnly.calls += 1
             return "US_DATA"
 
@@ -279,7 +279,7 @@ def test_fallback_provider_skips_primary_for_unsupported_symbols() -> None:
     class _Good:
         name = "good"
 
-        def get_ohlcv(self, symbol, period="6mo"):
+        def get_ohlcv(self, symbol, period="6mo", interval="1d"):
             return "CA_DATA"
 
         def get_current_price(self, symbol):
@@ -389,7 +389,17 @@ def _install_fake_alpaca(monkeypatch, *, bars=None, trade_price=None) -> None:
     historical.StockHistoricalDataClient = _Client
     requests.StockBarsRequest = lambda **kw: kw
     requests.StockLatestTradeRequest = lambda **kw: kw
-    timeframe.TimeFrame = types.SimpleNamespace(Day="1Day")
+
+    class _TimeFrame:
+        Day = "1Day"
+
+        def __init__(self, amount, unit):
+            self.amount, self.unit = amount, unit
+
+    timeframe.TimeFrame = _TimeFrame
+    timeframe.TimeFrameUnit = types.SimpleNamespace(
+        Minute="Min", Hour="Hour", Day="Day", Week="Week", Month="Month"
+    )
     enums.DataFeed = types.SimpleNamespace(IEX="iex", SIP="sip")
 
     for name, mod in {
