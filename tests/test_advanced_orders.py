@@ -77,6 +77,26 @@ def test_expiry_and_is_expired() -> None:
     assert is_expired("garbage", 4.0) is False
 
 
+def test_is_expired_mixed_timezone_awareness() -> None:
+    """A tz-naive ``placed_at`` must compare cleanly against a tz-aware ``now``.
+
+    Regression: resting orders persist ``placed_at`` as a bare
+    ``datetime.now().isoformat()`` (naive), while ``poll_pending_entries`` calls
+    ``is_expired`` with a default ``now`` of ``datetime.now(tz=EASTERN)``.  The
+    naive/aware mix must not raise and must resolve correctly.
+    """
+    from config.settings import EASTERN
+
+    naive_iso = datetime(2026, 7, 10, 10, 0, 0).isoformat()
+    aware_now_after = datetime(2026, 7, 10, 15, 0, 0, tzinfo=EASTERN)
+    aware_now_before = datetime(2026, 7, 10, 13, 0, 0, tzinfo=EASTERN)
+    assert is_expired(naive_iso, 4.0, now=aware_now_after) is True
+    assert is_expired(naive_iso, 4.0, now=aware_now_before) is False
+    # Symmetric: aware placed_at vs a naive now.
+    aware_placed = datetime(2026, 7, 10, 10, 0, 0, tzinfo=EASTERN)
+    assert is_expired(aware_placed, 4.0, now=datetime(2026, 7, 10, 15, 0, 0)) is True
+
+
 # =========================================================================== #
 # PaperBroker — resting limit orders
 # =========================================================================== #

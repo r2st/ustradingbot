@@ -9,6 +9,8 @@ import pytest
 from short_strategies.common.indicators import (
     adx,
     atr,
+    intraday_atr,
+    intraday_vwap,
     pct_return,
     rolling_vwap,
     rsi,
@@ -85,6 +87,85 @@ class TestRollingVwap:
     def test_none_on_zero_volume(self):
         df = make_df([100.0] * 25, volume=[0.0] * 25)
         assert rolling_vwap(df, window=20) is None
+
+
+def _intraday_frame(closes, volume=None):
+    """Build a 5-minute-grained frame with an intraday DatetimeIndex."""
+    n = len(closes)
+    if volume is None:
+        volume = [1_000_000.0] * n
+    idx = pd.date_range("2026-07-13 09:30", periods=n, freq="5min")
+    opens = [closes[0]] + list(closes[:-1])
+    highs = [max(o, c) * 1.002 for o, c in zip(opens, closes)]
+    lows = [min(o, c) * 0.998 for o, c in zip(opens, closes)]
+    return pd.DataFrame(
+        {
+            "Open": [float(x) for x in opens],
+            "High": [float(x) for x in highs],
+            "Low": [float(x) for x in lows],
+            "Close": [float(x) for x in closes],
+            "Volume": [float(x) for x in volume],
+        },
+        index=idx,
+    )
+
+
+class TestIntradayVwap:
+    def test_none_without_fetch(self):
+        # No injected fetcher -> caller falls back to the daily approximation.
+        assert intraday_vwap("AAPL") is None
+
+    def test_computes_from_injected_bars(self):
+        bars = _intraday_frame([110.0] * 5 + [90.0] * 5,
+                               volume=[1.0] * 5 + [1_000_000.0] * 5)
+        vwap = intraday_vwap("AAPL", fetch=lambda *a, **k: bars)
+        # Volume-weighted toward the 90.0 bars.
+        assert vwap is not None and vwap < 92.0
+
+    def test_session_only_uses_latest_day(self):
+        # Two days of bars: yesterday at 200, today at 100.  Session VWAP should
+        # reflect only today.
+        idx = list(pd.date_range("2026-07-12 09:30", periods=3, freq="5min")) + \
+            list(pd.date_range("2026-07-13 09:30", periods=3, freq="5min"))
+        closes = [200.0, 200.0, 200.0, 100.0, 100.0, 100.0]
+        df = pd.DataFrame(
+            {
+                "Open": closes, "High": [c * 1.001 for c in closes],
+                "Low": [c * 0.999 for c in closes], "Close": closes,
+                "Volume": [1_000_000.0] * 6,
+            },
+            index=pd.DatetimeIndex(idx),
+        )
+        vwap = intraday_vwap("AAPL", fetch=lambda *a, **k: df)
+        assert vwap is not None and vwap == pytest.approx(100.0, abs=0.5)
+
+    def test_fetch_failure_returns_none(self):
+        def boom(*a, **k):
+            raise RuntimeError("rate limited")
+        assert intraday_vwap("AAPL", fetch=boom) is None
+
+    def test_zero_volume_returns_none(self):
+        bars = _intraday_frame([100.0] * 5, volume=[0.0] * 5)
+        assert intraday_vwap("AAPL", fetch=lambda *a, **k: bars) is None
+
+
+class TestIntradayAtr:
+    def test_none_without_fetch(self):
+        assert intraday_atr("AAPL") is None
+
+    def test_computes_from_injected_bars(self):
+        bars = _intraday_frame(list(np.linspace(100.0, 110.0, 40)))
+        value = intraday_atr("AAPL", fetch=lambda *a, **k: bars)
+        assert value is not None and value > 0
+
+    def test_none_on_too_few_bars(self):
+        bars = _intraday_frame([100.0] * 5)
+        assert intraday_atr("AAPL", fetch=lambda *a, **k: bars) is None
+
+    def test_fetch_failure_returns_none(self):
+        def boom(*a, **k):
+            raise RuntimeError("free tier")
+        assert intraday_atr("AAPL", fetch=boom) is None
 
 
 class TestVolumeRatio:

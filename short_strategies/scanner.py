@@ -46,6 +46,10 @@ _CONTEXT_STRATEGIES = frozenset(
     {"short_relative_weakness", "short_laggard_fade"}
 )
 
+#: Strategies that accept an injected *fetch* to pull real intraday bars
+#: (graceful daily fallback when the intraday feed is unavailable).
+_INTRADAY_STRATEGIES = frozenset({"short_vwap_rejection"})
+
 
 def _grade_meets_minimum(grade: Grade, min_grade: str) -> bool:
     return _GRADE_RANK.get(grade.value, 99) <= _GRADE_RANK.get(min_grade.upper(), 99)
@@ -63,6 +67,7 @@ def _scan_symbol(
     ctx: MarketContext,
     min_grade: str,
     allowed_strategies: Optional[List[str]],
+    fetch: Optional[Callable[..., Optional[pd.DataFrame]]] = None,
 ) -> Optional[ShortSignal]:
     """Try each short strategy for one symbol; first qualifying wins."""
     strategies = [
@@ -71,11 +76,19 @@ def _scan_symbol(
     ]
     for strategy_id in strategies:
         detector = DETECTORS[strategy_id]
+        # Intraday-capable detectors get the fetcher so they can pull real
+        # intraday bars (and degrade to daily approximations without it).
+        extra = (
+            {"fetch": fetch}
+            if fetch is not None and strategy_id in _INTRADAY_STRATEGIES
+            else {}
+        )
         sig = detector(
             symbol, df,
             config=_config_for(cfg, strategy_id),
             filters=cfg.filters,
             ctx=ctx if strategy_id in _CONTEXT_STRATEGIES else None,
+            **extra,
         )
         if sig is None:
             continue
@@ -173,7 +186,9 @@ def run_short_scan(
     candidates: List[ShortSignal] = []
     for sym, df in frames.items():
         try:
-            sig = _scan_symbol(sym, df, cfg, ctx, min_grade, allowed_strategies)
+            sig = _scan_symbol(
+                sym, df, cfg, ctx, min_grade, allowed_strategies, fetch=fetch
+            )
             if sig is not None:
                 candidates.append(sig)
         except Exception:

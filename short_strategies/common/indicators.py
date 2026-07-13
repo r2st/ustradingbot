@@ -9,7 +9,7 @@ pure and NaN-guarded so detectors can call them without try/except noise.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Callable, Optional
 
 import numpy as np
 import pandas as pd
@@ -118,6 +118,11 @@ def rolling_vwap(df: pd.DataFrame, window: int = 20) -> Optional[float]:
     A daily-bar approximation of intraday VWAP: sum(TP x V) / sum(V) with
     TP = (H + L + C) / 3.  Returns ``None`` on insufficient data or zero
     volume in the window.
+
+    This is the *fallback* grain.  When real intraday bars are available
+    (:func:`intraday_vwap` returns a value) callers should prefer them; this
+    daily approximation exists for when the intraday feed is unavailable
+    (rate limits, free-tier restrictions, no injected fetcher).
     """
     if df is None or len(df) < window:
         return None
@@ -132,6 +137,92 @@ def rolling_vwap(df: pd.DataFrame, window: int = 20) -> Optional[float]:
     if total_vol <= 0:
         return None
     return float((tp * vol).sum() / total_vol)
+
+
+def _most_recent_session(df: pd.DataFrame) -> pd.DataFrame:
+    """Slice an intraday frame down to its most recent calendar day's bars.
+
+    A true session VWAP resets each day; using the whole multi-day frame would
+    smear it.  Falls back to the whole frame when the index is not datetime-like
+    or the last day has no rows.
+    """
+    if not isinstance(df.index, pd.DatetimeIndex):
+        return df
+    last_day = df.index[-1].normalize()
+    same_day = df[df.index.normalize() == last_day]
+    return same_day if len(same_day) else df
+
+
+def intraday_vwap(
+    symbol: str,
+    *,
+    interval: str = "5m",
+    period: str = "5d",
+    session_only: bool = True,
+    fetch: Optional[Callable[..., Optional[pd.DataFrame]]] = None,
+) -> Optional[float]:
+    """True intraday VWAP for *symbol* from real *interval* bars.
+
+    Fetches intraday OHLCV via the injected *fetch* callable (typically
+    :func:`data.fetcher.fetch_ohlcv`) and computes ``sum(TP x V) / sum(V)`` with
+    TP = (H + L + C) / 3 over the most recent session (or the whole frame when
+    *session_only* is False).
+
+    Returns ``None`` — signalling the caller to fall back to the daily
+    :func:`rolling_vwap` approximation — whenever intraday data cannot be used:
+    no *fetch* injected, the fetch raises or yields nothing (rate limits /
+    free-tier restrictions), or the session has zero volume.
+    """
+    if fetch is None:
+        return None
+    try:
+        bars = fetch(symbol, period=period, interval=interval)
+    except Exception:  # noqa: BLE001 -- fail-open to the daily approximation
+        return None
+    if bars is None or len(bars) == 0:
+        return None
+    if not {"High", "Low", "Close", "Volume"}.issubset(bars.columns):
+        return None
+    if session_only:
+        bars = _most_recent_session(bars)
+    tp = (
+        bars["High"].astype(float)
+        + bars["Low"].astype(float)
+        + bars["Close"].astype(float)
+    ) / 3.0
+    vol = bars["Volume"].astype(float)
+    total_vol = float(vol.sum())
+    if total_vol <= 0:
+        return None
+    return float((tp * vol).sum() / total_vol)
+
+
+def intraday_atr(
+    symbol: str,
+    *,
+    interval: str = "5m",
+    period: str = "5d",
+    period_bars: int = 14,
+    fetch: Optional[Callable[..., Optional[pd.DataFrame]]] = None,
+) -> Optional[float]:
+    """Real intraday ATR for *symbol* from *interval* bars, or ``None``.
+
+    The intraday counterpart to the daily :func:`atr`.  Callers that previously
+    approximated an intraday ATR as ``daily_atr / 5`` should prefer this when it
+    is available and fall back to that proxy on ``None`` (no *fetch* injected,
+    fetch failure, or too few bars for ``period_bars`` smoothing).
+    """
+    if fetch is None:
+        return None
+    try:
+        bars = fetch(symbol, period=period, interval=interval)
+    except Exception:  # noqa: BLE001 -- fail-open to the daily proxy
+        return None
+    if bars is None or len(bars) < period_bars + 1:
+        return None
+    if not {"High", "Low", "Close"}.issubset(bars.columns):
+        return None
+    return atr(bars, period_bars)
 
 
 def volume_ratio(df: pd.DataFrame, window: int = 20) -> Optional[float]:

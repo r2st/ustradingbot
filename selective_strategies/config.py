@@ -116,6 +116,16 @@ class GapFillConfig:
     gap_max_pct: float = 0.01
     max_body_pct: float = 0.30
     stop_buffer_atr_mult: float = 0.1
+    #: Prefer a real intraday ATR (from intraday bars) for the stop buffer when
+    #: a fetcher is injected; falls back to the ``daily ATR / 5`` proxy.
+    use_intraday: bool = True
+    #: Bar grain for the intraday ATR fetch.
+    intraday_interval: str = "5m"
+    #: Look-back window for the intraday fetch (clamped by the provider tier).
+    intraday_period: str = "5d"
+    #: Divisor turning a daily ATR into a 5-min-ish proxy when intraday is
+    #: unavailable (5m bars are ~1/5 the range of a daily bar, empirically).
+    daily_atr_intraday_divisor: float = 5.0
 
 
 @dataclass

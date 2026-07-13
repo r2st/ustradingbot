@@ -31,6 +31,10 @@ log = structlog.get_logger(__name__)
 
 _GRADE_RANK = {"A": 0, "B": 1, "C": 2, "F": 3}
 
+#: Strategies that accept an injected *fetch* to pull real intraday bars
+#: (graceful daily fallback when the intraday feed is unavailable).
+_INTRADAY_STRATEGIES = frozenset({"hs_gap_fill"})
+
 # Map strategy IDs to SelectiveConfig field names (strip the "hs_" prefix).
 _FIELD_MAP = {
     "hs_rsi2_reversal": "rsi2_reversal",
@@ -61,6 +65,7 @@ def _scan_symbol(
     cfg: SelectiveConfig,
     min_grade: str,
     allowed_strategies: Optional[List[str]],
+    fetch: Optional[Callable[..., Optional[pd.DataFrame]]] = None,
 ) -> Optional[Signal]:
     """Try each selective strategy for one symbol; first qualifying wins."""
     strategies = [
@@ -70,8 +75,15 @@ def _scan_symbol(
     for strategy_id in strategies:
         detector = DETECTORS[strategy_id]
         strategy_cfg = _config_for(cfg, strategy_id)
+        # Intraday-capable detectors get the fetcher so they can pull real
+        # intraday bars (and degrade to daily approximations without it).
+        extra = (
+            {"fetch": fetch}
+            if fetch is not None and strategy_id in _INTRADAY_STRATEGIES
+            else {}
+        )
         sig: Optional[SelectiveSignal] = detector(
-            symbol, df, config=strategy_cfg,
+            symbol, df, config=strategy_cfg, **extra,
         )
         if sig is None:
             continue
@@ -155,7 +167,9 @@ def run_selective_scan(
     if max_workers <= 1 or len(frames) <= 3:
         for sym, df in frames.items():
             try:
-                sig = _scan_symbol(sym, df, cfg, min_grade, allowed_strategies)
+                sig = _scan_symbol(
+                    sym, df, cfg, min_grade, allowed_strategies, fetch=fetch
+                )
                 if sig is not None:
                     signals.append(sig)
             except Exception:
@@ -166,6 +180,7 @@ def run_selective_scan(
             future_to_symbol = {
                 pool.submit(
                     _scan_symbol, sym, df, cfg, min_grade, allowed_strategies,
+                    fetch,
                 ): sym
                 for sym, df in frames.items()
             }

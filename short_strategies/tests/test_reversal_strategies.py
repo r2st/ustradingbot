@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import pandas as pd
+import pytest
+
 from short_strategies.common.config import (
     BuyingClimaxConfig,
     EarningsPopFadeConfig,
@@ -246,6 +249,51 @@ class TestVwapRejection:
         assert vwap_rejection.detect(
             "TEST", make_df(closes), self.CFG, loose_filters
         ) is None
+
+    def test_defaults_to_daily_mode_without_fetch(self, loose_filters):
+        # No fetcher injected -> daily-approximation VWAP, tagged in metadata.
+        sig = vwap_rejection.detect(
+            "TEST", _vwap_rejection_df(), self.CFG, loose_filters
+        )
+        assert sig is not None
+        assert sig.metadata["vwap_mode"] == "daily"
+
+    def test_uses_intraday_vwap_when_fetch_injected(self, loose_filters):
+        # Inject an intraday fetcher whose VWAP sits just above the last close,
+        # reproducing the rejection.  Metadata reports the intraday mode and the
+        # VWAP value comes from the intraday bars, not the daily frame.
+        df = _vwap_rejection_df()
+        last_close = float(df["Close"].iloc[-1])
+        intraday_vwap_level = last_close * 1.03
+
+        idx = pd.date_range("2026-07-13 09:30", periods=6, freq="5min")
+        bars = pd.DataFrame(
+            {
+                "Open": [intraday_vwap_level] * 6,
+                "High": [intraday_vwap_level * 1.001] * 6,
+                "Low": [intraday_vwap_level * 0.999] * 6,
+                "Close": [intraday_vwap_level] * 6,
+                "Volume": [1_000_000.0] * 6,
+            },
+            index=idx,
+        )
+        sig = vwap_rejection.detect(
+            "TEST", df, self.CFG, loose_filters,
+            fetch=lambda *a, **k: bars,
+        )
+        assert sig is not None
+        assert sig.metadata["vwap_mode"] == "intraday"
+        assert sig.metadata["vwap"] == pytest.approx(intraday_vwap_level, rel=1e-3)
+
+    def test_falls_back_to_daily_when_intraday_unavailable(self, loose_filters):
+        # Fetcher raises (rate limit / free tier) -> graceful daily fallback.
+        def boom(*a, **k):
+            raise RuntimeError("429 rate limited")
+        sig = vwap_rejection.detect(
+            "TEST", _vwap_rejection_df(), self.CFG, loose_filters, fetch=boom
+        )
+        assert sig is not None
+        assert sig.metadata["vwap_mode"] == "daily"
 
 
 # ---------------------------------------------------------------------------

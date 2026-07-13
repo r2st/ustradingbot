@@ -748,6 +748,54 @@ class TestGapFillFade:
             sig = detect_gap("TEST", df)
         assert sig is None
 
+    def test_gap_fill_daily_proxy_without_fetch(self):
+        """No fetcher injected -> the stop buffer uses the daily ATR proxy."""
+        df = _make_gap_fill_data(gap_pct=0.005)
+        with patch("selective_strategies.strategies.gap_fill.is_macro_event_day", return_value=False):
+            sig = detect_gap("TEST", df)
+        assert sig is not None
+        assert sig.metadata["atr_mode"] == "daily_proxy"
+        # daily ATR / 5 proxy (default divisor); atr14 is pre-rounded so allow
+        # a small absolute tolerance.
+        assert sig.metadata["intraday_atr"] == pytest.approx(
+            sig.metadata["atr14"] / 5.0, abs=1e-3
+        )
+
+    def test_gap_fill_uses_intraday_atr_when_fetch_injected(self):
+        """An injected intraday fetcher supplies a real intraday ATR."""
+        df = _make_gap_fill_data(gap_pct=0.005)
+        # 40 five-minute bars with a steady 0.50-wide range -> intraday ATR ~0.50,
+        # deliberately different from daily ATR / 5.
+        idx = pd.date_range("2026-07-13 09:30", periods=40, freq="5min")
+        base = float(df["Close"].iloc[-1])
+        bars = pd.DataFrame(
+            {
+                "Open": [base] * 40,
+                "High": [base + 0.25] * 40,
+                "Low": [base - 0.25] * 40,
+                "Close": [base] * 40,
+                "Volume": [500000.0] * 40,
+            },
+            index=idx,
+        )
+        with patch("selective_strategies.strategies.gap_fill.is_macro_event_day", return_value=False):
+            sig = detect_gap("TEST", df, fetch=lambda *a, **k: bars)
+        assert sig is not None
+        assert sig.metadata["atr_mode"] == "intraday"
+        assert sig.metadata["intraday_atr"] == pytest.approx(0.5, abs=1e-6)
+
+    def test_gap_fill_falls_back_when_intraday_unavailable(self):
+        """Fetcher failure (rate limit / free tier) -> daily proxy fallback."""
+        df = _make_gap_fill_data(gap_pct=0.005)
+
+        def boom(*a, **k):
+            raise RuntimeError("429 rate limited")
+
+        with patch("selective_strategies.strategies.gap_fill.is_macro_event_day", return_value=False):
+            sig = detect_gap("TEST", df, fetch=boom)
+        assert sig is not None
+        assert sig.metadata["atr_mode"] == "daily_proxy"
+
 
 class TestTurnaroundTuesday:
     """Tests for the Turnaround Tuesday detector."""

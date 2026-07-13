@@ -5,11 +5,17 @@ Fades overnight gaps that fall within a statistically favorable size range.
 Gap-ups are shorted and gap-downs are bought, targeting the prior day's close
 (the full gap fill).  A first-candle indecision filter (proxied on daily data)
 and macro event blackout reduce false triggers.
+
+The stop buffer is sized off a real intraday ATR
+(:func:`short_strategies.common.indicators.intraday_atr`) when a data fetcher is
+injected and the intraday feed is available; otherwise it degrades to the
+``daily ATR / divisor`` proxy.  The mode used is logged and recorded in the
+signal metadata (``atr_mode``).
 """
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Callable, Optional
 
 import numpy as np
 import pandas as pd
@@ -18,7 +24,14 @@ import structlog
 from selective_strategies.config import GapFillConfig
 from selective_strategies.events import is_macro_event_day
 from selective_strategies.signal import SelectiveSignal
-from short_strategies.common.indicators import atr, rsi, sma, ema, volume_ratio
+from short_strategies.common.indicators import (
+    atr,
+    ema,
+    intraday_atr,
+    rsi,
+    sma,
+    volume_ratio,
+)
 
 log = structlog.get_logger(__name__)
 
@@ -31,8 +44,15 @@ def detect(
     config=None,
     filters=None,
     ctx=None,
+    *,
+    fetch: Optional[Callable[..., Optional[pd.DataFrame]]] = None,
 ) -> Optional[SelectiveSignal]:
-    """Detect gap-fill fade setup on the last bar.  Never raises."""
+    """Detect gap-fill fade setup on the last bar.  Never raises.
+
+    When *fetch* is injected and ``cfg.use_intraday`` is set, the stop buffer
+    uses a real intraday ATR; otherwise it falls back to the ``daily ATR /
+    divisor`` proxy.  The mode used is logged and stored in ``metadata``.
+    """
     try:
         cfg = config or GapFillConfig()
         if df is None or len(df) < 20:
@@ -79,11 +99,27 @@ def detect(
         if body_pct >= cfg.max_body_pct:
             return None
 
-        # ATR for stop buffer (use daily ATR / 5 as 5-min proxy)
+        # ATR for the stop buffer.  Prefer a real intraday ATR; fall back to the
+        # daily ATR / divisor proxy when the intraday feed is unavailable.
         atr_value = atr(df, 14)
         if atr_value is None:
             return None
-        intraday_atr_proxy = atr_value / 5.0
+        intraday_atr_value = None
+        atr_mode = "daily_proxy"
+        if getattr(cfg, "use_intraday", False) and fetch is not None:
+            intraday_atr_value = intraday_atr(
+                symbol,
+                interval=cfg.intraday_interval,
+                period=cfg.intraday_period,
+                fetch=fetch,
+            )
+            if intraday_atr_value is not None:
+                atr_mode = "intraday"
+        if intraday_atr_value is not None:
+            intraday_atr_proxy = intraday_atr_value
+        else:
+            divisor = getattr(cfg, "daily_atr_intraday_divisor", 5.0) or 5.0
+            intraday_atr_proxy = atr_value / divisor
 
         # Target: prior day's close (the gap fill)
         target = prior_close
@@ -123,6 +159,8 @@ def detect(
                 "gap_quality": round(gap_quality, 4),
                 "indecision_quality": round(indecision_quality, 4),
                 "atr14": round(atr_value, 4),
+                "atr_mode": atr_mode,
+                "intraday_atr": round(intraday_atr_proxy, 4),
             },
         )
         log.info(
@@ -130,6 +168,7 @@ def detect(
             symbol=symbol,
             direction=direction,
             gap_pct=round(gap_pct, 4),
+            atr_mode=atr_mode,
         )
         return sig
     except Exception:

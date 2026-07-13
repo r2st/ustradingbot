@@ -29,6 +29,22 @@ from signals.signal_types import ExitEvent, TradeOrder
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 
+def _ensure_eastern(dt: Optional[datetime]) -> Optional[datetime]:
+    """Return *dt* as an Eastern-aware datetime (``None`` passes through).
+
+    ``ExitEvent.exit_date`` and older persisted timestamps are frequently
+    tz-naive, whereas ``entry_time`` and ``datetime.now(tz=EASTERN)`` are
+    Eastern-aware.  Localising naive values to Eastern keeps the
+    ``exit_time - entry_time`` subtraction from raising ``TypeError`` on mixed
+    offset-naive / offset-aware operands.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=EASTERN)
+    return dt
+
+
 # ---------------------------------------------------------------------------
 # Schema definition -- 37 columns
 # ---------------------------------------------------------------------------
@@ -255,7 +271,7 @@ class TradeLogger:
             )
             return
 
-        exit_time = exit_event.exit_date or datetime.now(tz=EASTERN)
+        exit_time = _ensure_eastern(exit_event.exit_date) or datetime.now(tz=EASTERN)
         exit_price = exit_event.exit_price
 
         # Manual sell trades journal direction="short"; every automated entry
@@ -374,7 +390,7 @@ class TradeLogger:
             return
         runner_qty = open_qty - take_qty
         exit_price = exit_event.exit_price
-        exit_time = exit_event.exit_date or datetime.now(tz=EASTERN)
+        exit_time = _ensure_eastern(exit_event.exit_date) or datetime.now(tz=EASTERN)
 
         # Short-aware maths (manual sell trades journal direction="short").
         direction = str(df.at[idx, "direction"] or "long").strip().lower() \

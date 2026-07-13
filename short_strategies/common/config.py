@@ -195,13 +195,20 @@ class EarningsPopFadeConfig:
 class VwapRejectionConfig:
     """Strategy 10 — VWAP rejection short in a downtrend."""
 
-    #: Rolling daily-bar VWAP window (intraday-VWAP approximation).
+    #: Rolling daily-bar VWAP window (fallback intraday-VWAP approximation).
     vwap_window: int = 20
     #: Close must finish at least this fraction below the VWAP.
     reject_close_pct: float = 0.005
     #: Trend classification MA parameters (established downtrend required).
     fast_ema_span: int = 20
     slow_sma_window: int = 50
+    #: Prefer a true intraday VWAP (from real intraday bars) when a fetcher is
+    #: injected; falls back to the daily ``rolling_vwap`` approximation.
+    use_intraday: bool = True
+    #: Bar grain for the intraday VWAP fetch (5m/15m are the practical choices).
+    intraday_interval: str = "5m"
+    #: Look-back window for the intraday fetch (clamped by the provider tier).
+    intraday_period: str = "5d"
 
 
 @dataclass

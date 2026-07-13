@@ -117,4 +117,12 @@ def is_expired(
             return False
     if expiry_hours <= 0:
         return False
+    # Either side may be tz-naive: ``placed_at`` from a bare ``datetime.now()``
+    # or an ISO string persisted before timezones were tracked, and a caller may
+    # pass a naive ``now``.  Assume naive timestamps are Eastern so the two are
+    # always compared on the same footing and the subtraction never raises.
+    if placed.tzinfo is None:
+        placed = placed.replace(tzinfo=EASTERN)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=EASTERN)
     return now >= expiry_at(placed, expiry_hours)
