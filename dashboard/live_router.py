@@ -104,6 +104,37 @@ def _effective_levels(pos: Dict[str, Any]) -> Dict[str, Any]:
     return {"stop": stop, "target": target, "next_level": next_level}
 
 
+def progress_to_target_pct(
+    entry: Optional[float],
+    current: Optional[float],
+    target: Optional[float],
+    side: str = "long",
+) -> Optional[float]:
+    """Percent of the entry→target journey the price has travelled (0-100).
+
+    Powers the "68% to target" progress bar in the position *card* view. For a
+    long, 0% sits at the entry price and 100% at the target; a short is mirrored
+    (progress rises as price falls). The result is clamped to ``[0, 100]`` so a
+    position trading beyond its target or below its entry still renders a sane
+    bar. Returns ``None`` when the inputs are missing or degenerate (entry equal
+    to target), matching the "—" fallback used elsewhere.
+    """
+    if entry is None or current is None or target is None:
+        return None
+    try:
+        entry = float(entry)
+        current = float(current)
+        target = float(target)
+    except (TypeError, ValueError):
+        return None
+    span = (target - entry) if str(side).lower() != "short" else (entry - target)
+    if span == 0:
+        return None
+    travelled = (current - entry) if str(side).lower() != "short" else (entry - current)
+    pct = travelled / span * 100.0
+    return round(max(0.0, min(100.0, pct)), 1)
+
+
 def _position_row(
     pos: Dict[str, Any],
     quote: Dict[str, Any],
@@ -137,6 +168,7 @@ def _position_row(
         "unrealized_pct": None,
         "distance_to_stop_pct": None,
         "distance_to_target_pct": None,
+        "progress_to_target_pct": None,
         "r_progress": None,
         "proximity": None,
         "partial_taken": bool(pos.get("partial_taken", False)),
@@ -175,6 +207,9 @@ def _position_row(
         row["distance_to_target_pct"] = round(
             abs(target - current) / current * 100.0, 2
         )
+    row["progress_to_target_pct"] = progress_to_target_pct(
+        entry, current, target, side
+    )
     if stop:
         risk = (entry - stop) * sign
         if risk > 0:

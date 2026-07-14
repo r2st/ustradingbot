@@ -34,19 +34,46 @@ _MANIFEST = {
     "description": "US/CA equity trading bot dashboard",
     "start_url": "/",
     "display": "standalone",
-    "background_color": "#0b1120",
-    "theme_color": "#0b1120",
+    "background_color": "#0F172A",
+    "theme_color": "#0F172A",
     "icons": [
+        {"src": "/favicon.svg", "sizes": "32x32", "type": "image/svg+xml", "purpose": "any"},
         {"src": "/pwa/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable"},
     ],
 }
 
+# "Bull Circuit" mark — a minimalist bull head drawn from circuit / chart
+# traces (horns in blue, an upward green chart line through the face, and
+# green/red circuit nodes). Drawn on a 32-unit grid so it can be scaled to any
+# icon size with a single <g transform>.
+_BULL_PATHS = (
+    '<path d="M7 13 C4 9 5 5.5 9 7" fill="none" stroke="#3B82F6" stroke-width="2" stroke-linecap="round"/>'
+    '<path d="M25 13 C28 9 27 5.5 23 7" fill="none" stroke="#3B82F6" stroke-width="2" stroke-linecap="round"/>'
+    '<path d="M9 7 C9 11 8.5 13 10 15.5 C11.6 18.2 14 20 16 20 C18 20 20.4 18.2 22 15.5 '
+    'C23.5 13 23 11 23 7" fill="none" stroke="#3B82F6" stroke-width="2" stroke-linejoin="round"/>'
+    '<polyline points="10.5 15 13.5 12.4 16.5 14 21 9" fill="none" stroke="#22C55E" '
+    'stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'
+    '<circle cx="9" cy="7" r="1.7" fill="#22C55E"/>'
+    '<circle cx="23" cy="7" r="1.7" fill="#22C55E"/>'
+    '<circle cx="21" cy="9" r="1.6" fill="#22C55E"/>'
+    '<circle cx="10.5" cy="15" r="1.5" fill="#EF4444"/>'
+    '<circle cx="13" cy="13" r="1" fill="#3B82F6"/>'
+    '<circle cx="19" cy="13" r="1" fill="#3B82F6"/>'
+)
+
+# 32×32 favicon — the bull on a rounded navy tile so it reads on any tab colour.
+_FAVICON_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">'
+    '<rect width="32" height="32" rx="7" fill="#0F172A"/>'
+    + _BULL_PATHS +
+    '</svg>'
+)
+
+# 192×192 maskable PWA icon — same mark scaled 6× on a full-bleed navy tile.
 _ICON_SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">'
-    '<rect width="192" height="192" rx="36" fill="#0b1120"/>'
-    '<polyline points="24,140 68,96 100,120 168,44" fill="none" '
-    'stroke="#22c55e" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>'
-    '<circle cx="168" cy="44" r="12" fill="#22c55e"/></svg>'
+    '<rect width="192" height="192" rx="36" fill="#0F172A"/>'
+    '<g transform="scale(6)">' + _BULL_PATHS + '</g></svg>'
 )
 
 _SERVICE_WORKER = """
@@ -107,6 +134,7 @@ _PWA_CLIENT = """
 
 
 @router.get("/manifest.webmanifest")
+@router.get("/manifest.json")
 async def manifest():
     return Response(content=__import__("json").dumps(_MANIFEST),
                     media_type="application/manifest+json")
@@ -115,6 +143,11 @@ async def manifest():
 @router.get("/sw.js")
 async def service_worker():
     return Response(content=_SERVICE_WORKER, media_type="application/javascript")
+
+
+@router.get("/favicon.svg")
+async def favicon():
+    return Response(content=_FAVICON_SVG, media_type="image/svg+xml")
 
 
 @router.get("/pwa/icon.svg")

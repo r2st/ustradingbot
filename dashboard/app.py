@@ -618,6 +618,10 @@ def _build_help() -> Dict[str, Any]:
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request, _user: str = Depends(require_auth)):
     """Render the main dashboard page (requires HTTP Basic Auth)."""
+    # Open-positions view preference (cards vs. table). Cards are the default;
+    # the client persists the choice in the ``ustb_pos_view`` cookie so the
+    # first server-rendered paint already matches what the user last picked.
+    positions_view = "table" if request.cookies.get("ustb_pos_view") == "table" else "cards"
     return templates.TemplateResponse(
         request,
         "dashboard.html",
@@ -625,6 +629,7 @@ async def dashboard(request: Request, _user: str = Depends(require_auth)):
         # deploy — a heuristically-cached copy kept showing pre-deploy UI.
         headers={"Cache-Control": "no-store"},
         context={
+            "positions_view": positions_view,
             "status": _build_system_status(),
             "paper": _build_paper_trading(),
             "providers": _build_provider_status(),

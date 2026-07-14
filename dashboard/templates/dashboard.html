@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#0f1117">
+<meta name="theme-color" content="#0F172A">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/pwa/icon.svg">
 <title>US Trading Bot Dashboard</title>
@@ -17,25 +18,30 @@
   })();
 </script>
 <style>
+  /* ── Dark theme (default) — "Slate Navy" palette ──────────────────────
+     Background 0F172A→1E293B, cards 1E293B, text F8FAFC / 94A3B8,
+     vivid green/red for P&L. */
   :root {
-    --bg: #0f1117;
-    --surface: #1a1d27;
-    --surface-2: #242836;
-    --border: #2e3344;
-    --text: #e4e6f0;
-    --text-muted: #8b8fa3;
-    --accent: #4f8ff7;
-    --accent-dim: #2d5aa0;
-    --green: #2ecc71;
-    --green-dim: #1a7a42;
-    --red: #e74c3c;
-    --orange: #f39c12;
-    --purple: #9b59b6;
-    --cyan: #00bcd4;
+    --bg: #0F172A;
+    --bg-grad: linear-gradient(160deg, #0F172A 0%, #1E293B 100%);
+    --surface: #1E293B;
+    --surface-2: #334155;
+    --border: #334155;
+    --text: #F8FAFC;
+    --text-muted: #94A3B8;
+    --accent: #3B82F6;
+    --accent-dim: #1E40AF;
+    --green: #22C55E;
+    --green-dim: #15803D;
+    --red: #EF4444;
+    --orange: #F59E0B;
+    --purple: #A855F7;
+    --cyan: #06B6D4;
   }
   /* ── Light theme (feature 15) — toggled via data-theme="light" ── */
   :root[data-theme="light"] {
     --bg: #f4f6fb;
+    --bg-grad: linear-gradient(160deg, #f4f6fb 0%, #e8edf7 100%);
     --surface: #ffffff;
     --surface-2: #eef1f8;
     --border: #d3d9e6;
@@ -53,7 +59,8 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    background: var(--bg);
+    background: var(--bg-grad, var(--bg));
+    background-attachment: fixed;
     color: var(--text);
     line-height: 1.6;
     padding: 0;
@@ -67,7 +74,12 @@
     display: block;
   }
   .header h1 { font-size: 22px; font-weight: 600; }
-  .header h1 span { color: var(--accent); }
+  .brand-title { display: flex; align-items: center; gap: 10px; }
+  .brand-logo { flex: 0 0 auto; }
+  .wordmark { font-weight: 700; letter-spacing: -0.2px; }
+  .wordmark .wm-us { color: var(--accent); }        /* "US" blue */
+  .wordmark .wm-bot { color: var(--text); }          /* "TradingBot" navy/light per theme */
+  .brand-sub { color: var(--text-muted); font-weight: 500; }
   .header .meta { color: var(--text-muted); font-size: 13px; }
   .mode-badge {
     display: inline-block;
@@ -499,18 +511,67 @@
     gap: 12px; flex-wrap: wrap;
   }
   .header-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-  .nav-toggle {
-    display: none;               /* shown only on mobile */
+  .nav-toggle {                  /* hamburger — visible on every breakpoint */
+    display: inline-flex; align-items: center; justify-content: center;
     background: var(--surface-2); color: var(--text);
     border: 1px solid var(--border); border-radius: 8px;
     font-size: 20px; line-height: 1; padding: 8px 14px; cursor: pointer;
   }
-  .section-nav { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
-  .section-nav a {
-    color: var(--text-muted); text-decoration: none; font-size: 13px;
-    font-weight: 600; padding: 6px 12px; border-radius: 8px;
+  .nav-toggle:hover { border-color: var(--accent); }
+
+  /* ── Collapsible sidebar drawer with 5 categories ───────────────────────
+     Slides in from the left; the hamburger toggles it and each category
+     header collapses its own group of links. */
+  .nav-backdrop {
+    position: fixed; inset: 0; z-index: 190;
+    background: rgba(2, 6, 23, 0.55);
   }
-  .section-nav a:hover { background: var(--surface-2); color: var(--text); }
+  .section-nav {
+    position: fixed; top: 0; left: 0; bottom: 0; width: 264px;
+    background: var(--surface); border-right: 1px solid var(--border);
+    padding: 14px 12px 24px; overflow-y: auto; z-index: 200;
+    display: flex; flex-direction: column; gap: 2px;
+    transform: translateX(-100%); transition: transform 0.22s ease;
+  }
+  .section-nav.open { transform: translateX(0); box-shadow: 6px 0 30px rgba(0, 0, 0, 0.45); }
+  .nav-drawer-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 2px 6px 10px; margin-bottom: 4px; border-bottom: 1px solid var(--border);
+  }
+  .nav-drawer-title {
+    font-size: 12px; font-weight: 700; letter-spacing: 0.8px;
+    text-transform: uppercase; color: var(--text-muted);
+  }
+  .nav-close {
+    background: none; border: none; color: var(--text-muted);
+    font-size: 24px; line-height: 1; cursor: pointer; padding: 0 6px;
+  }
+  .nav-close:hover { color: var(--text); }
+  .nav-feature {
+    color: var(--accent); font-weight: 700; text-decoration: none;
+    font-size: 14px; padding: 9px 12px; border-radius: 8px;
+    border: 1px solid var(--accent-dim); margin-bottom: 6px;
+  }
+  .nav-feature:hover { background: var(--accent-dim); color: #fff; }
+  .nav-cat-toggle {
+    width: 100%; display: flex; align-items: center; justify-content: space-between;
+    background: none; border: none; cursor: pointer; color: var(--text-muted);
+    font-size: 11px; font-weight: 700; letter-spacing: 0.8px;
+    text-transform: uppercase; padding: 12px 10px 6px;
+  }
+  .nav-cat-toggle:hover { color: var(--text); }
+  .nav-cat-caret { transition: transform 0.18s ease; font-size: 10px; }
+  .nav-cat.collapsed .nav-cat-caret { transform: rotate(-90deg); }
+  .nav-cat-items {
+    display: flex; flex-direction: column; gap: 2px;
+    overflow: hidden; max-height: 600px; transition: max-height 0.2s ease;
+  }
+  .nav-cat.collapsed .nav-cat-items { max-height: 0; }
+  .section-nav a[href^="#"] {
+    color: var(--text-muted); text-decoration: none; font-size: 14px;
+    font-weight: 500; padding: 9px 12px 9px 18px; border-radius: 8px;
+  }
+  .section-nav a[href^="#"]:hover { background: var(--surface-2); color: var(--text); }
   /* Offset anchor targets so the sticky header doesn't cover section titles. */
   .section { scroll-margin-top: 96px; }
 
@@ -520,15 +581,58 @@
   .data-table th, .data-table td { white-space: nowrap; }
   .risk-grid > div { min-width: 0; overflow-x: auto; }
 
+  /* ── Open-positions: card view + view toggle ────────────────────────── */
+  .pos-head-row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap; margin: 14px 0 8px;
+  }
+  .pos-view-toggle {
+    display: inline-flex; border: 1px solid var(--border);
+    border-radius: 8px; overflow: hidden; background: var(--bg);
+  }
+  .pv-btn {
+    background: none; border: none; color: var(--text-muted);
+    font-size: 13px; font-weight: 600; padding: 6px 14px; cursor: pointer;
+    min-height: 34px;
+  }
+  .pv-btn + .pv-btn { border-left: 1px solid var(--border); }
+  .pv-btn:hover { color: var(--text); }
+  .pv-btn.active { background: var(--accent); color: #fff; }
+
+  .pos-cards {
+    display: grid; gap: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  }
+  .pos-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 10px;
+  }
+  .pos-card.near-stop { border-color: var(--red); box-shadow: 0 0 0 1px var(--red) inset; }
+  .pos-card.near-target { border-color: var(--green); box-shadow: 0 0 0 1px var(--green) inset; }
+  .pos-card-top { display: flex; align-items: center; gap: 8px; }
+  .pos-ticker { font-size: 18px; font-weight: 700; font-family: ui-monospace, Menlo, monospace; }
+  .pos-pnl-pct { margin-left: auto; font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .pos-strategy { font-size: 12px; color: var(--text-muted); text-transform: capitalize; margin-top: -4px; }
+  .pos-card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; }
+  .pcg-item { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+  .pcg-k { color: var(--text-muted); }
+  .pcg-v { font-variant-numeric: tabular-nums; text-align: right; }
+  .pos-progress-wrap { display: flex; align-items: center; gap: 8px; }
+  .pp-end { font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .pos-progress {
+    position: relative; flex: 1; height: 10px; border-radius: 5px;
+    background: linear-gradient(90deg, rgba(239,68,68,.35), rgba(34,197,94,.35));
+  }
+  .pos-card-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+  .pos-card-actions .chip { margin: 0; }
+
   @media (max-width: 768px) {
     body { font-size: 14px; }
     .header { padding: 14px 16px; }
     .header h1 { font-size: 18px; }
-    .nav-toggle { display: block; }
-    /* Collapse the section nav into a hamburger-triggered vertical menu. */
-    .section-nav { display: none; flex-direction: column; margin-top: 10px; }
-    .section-nav.open { display: flex; }
-    .section-nav a { padding: 12px; border: 1px solid var(--border); }
+    /* The sidebar drawer narrows on small screens but keeps its behaviour. */
+    .section-nav { width: min(300px, 84vw); }
+    .section-nav a[href^="#"] { padding: 12px 12px 12px 18px; }
     .mode-banner { padding: 10px 16px; gap: 8px; font-size: 13px; flex-wrap: wrap; }
     .container { padding: 16px; }
     .section-body { padding: 16px; }
@@ -890,7 +994,26 @@
 <div class="header">
   <div class="header-row">
     <div class="brand">
-      <h1><span>US Trading Bot</span> Dashboard</h1>
+      <h1 class="brand-title">
+        <!-- Bull Circuit logo: a minimalist bull head drawn from circuit / chart traces. -->
+        <svg class="brand-logo" viewBox="0 0 32 32" width="34" height="34" role="img" aria-label="US Trading Bot logo">
+          <title>Bull Circuit</title>
+          <path d="M7 13 C4 9 5 5.5 9 7" fill="none" stroke="#3B82F6" stroke-width="2" stroke-linecap="round"/>
+          <path d="M25 13 C28 9 27 5.5 23 7" fill="none" stroke="#3B82F6" stroke-width="2" stroke-linecap="round"/>
+          <path d="M9 7 C9 11 8.5 13 10 15.5 C11.6 18.2 14 20 16 20 C18 20 20.4 18.2 22 15.5 C23.5 13 23 11 23 7"
+                fill="none" stroke="#3B82F6" stroke-width="2" stroke-linejoin="round"/>
+          <polyline points="10.5 15 13.5 12.4 16.5 14 21 9" fill="none" stroke="#22C55E"
+                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="9" cy="7" r="1.7" fill="#22C55E"/>
+          <circle cx="23" cy="7" r="1.7" fill="#22C55E"/>
+          <circle cx="21" cy="9" r="1.6" fill="#22C55E"/>
+          <circle cx="10.5" cy="15" r="1.5" fill="#EF4444"/>
+          <circle cx="13" cy="13" r="1" fill="#3B82F6"/>
+          <circle cx="19" cy="13" r="1" fill="#3B82F6"/>
+        </svg>
+        <span class="wordmark"><span class="wm-us">US</span><span class="wm-bot">TradingBot</span></span>
+        <span class="brand-sub">Dashboard</span>
+      </h1>
       <div class="meta">{{ status.timestamp }}</div>
     </div>
     <div class="header-controls">
@@ -911,32 +1034,77 @@
               aria-expanded="false" aria-controls="sectionNav" onclick="toggleNav()">☰</button>
     </div>
   </div>
-  <nav class="section-nav" id="sectionNav">
-    <a href="/ai-dashboard" style="color: var(--accent); font-weight: 600;">✦ Analyst</a>
-    <a href="#nav-provider" onclick="closeNav()">Data</a>
-    <a href="#nav-account" onclick="closeNav()">Account</a>
-    <a href="#nav-watchlist" onclick="closeNav()">Watchlist</a>
-    <a href="#nav-universe" onclick="closeNav()">Universe</a>
-    <a href="#nav-trade" onclick="closeNav()">Trade</a>
-    <a href="#nav-scanner" onclick="closeNav()">Scanner</a>
-    <a href="#nav-earnings" onclick="closeNav()">Earnings</a>
-    <a href="#nav-sectors" onclick="closeNav()">Sectors</a>
-    <a href="#nav-backtest" onclick="closeNav()">Backtest</a>
-    <a href="#nav-selection" onclick="closeNav()">Selection</a>
-    <a href="#nav-history" onclick="closeNav()">History</a>
-    <a href="#nav-charts" onclick="closeNav()">Charts</a>
-    <a href="#nav-activity" onclick="closeNav()">Activity</a>
-    <a href="#nav-alerts" onclick="closeNav()">Alerts</a>
-    <a href="#nav-strategy" onclick="closeNav()">Strategies</a>
-    <a href="#nav-memory" onclick="closeNav()">Memory</a>
-    <a href="#nav-risk" onclick="closeNav()">Risk</a>
-    <a href="#nav-montecarlo" onclick="closeNav()">Monte&nbsp;Carlo</a>
-    <a href="#nav-notes" onclick="closeNav()">Journal</a>
-    <a href="#nav-engine" onclick="closeNav()">Engine</a>
-    <a href="#nav-api" onclick="closeNav()">API</a>
-    <a href="#nav-status" onclick="closeNav()">System</a>
-    <a href="#nav-help" onclick="closeNav()">Help</a>
+  <nav class="section-nav" id="sectionNav" aria-label="Dashboard sections">
+    <div class="nav-drawer-head">
+      <span class="nav-drawer-title">Navigation</span>
+      <button type="button" class="nav-close" aria-label="Close menu" onclick="closeNav()">&times;</button>
+    </div>
+    <a class="nav-feature" href="/ai-dashboard">✦ Analyst</a>
+
+    <div class="nav-cat" data-cat="trading">
+      <button type="button" class="nav-cat-toggle" aria-expanded="true" onclick="toggleNavCat(this)">
+        <span>Trading</span><span class="nav-cat-caret" aria-hidden="true">▾</span>
+      </button>
+      <div class="nav-cat-items">
+        <a href="#nav-provider" onclick="closeNav()">Data</a>
+        <a href="#nav-account" onclick="closeNav()">Account</a>
+        <a href="#nav-watchlist" onclick="closeNav()">Watchlist</a>
+        <a href="#nav-universe" onclick="closeNav()">Universe</a>
+        <a href="#nav-trade" onclick="closeNav()">Trade</a>
+      </div>
+    </div>
+
+    <div class="nav-cat" data-cat="analysis">
+      <button type="button" class="nav-cat-toggle" aria-expanded="true" onclick="toggleNavCat(this)">
+        <span>Analysis</span><span class="nav-cat-caret" aria-hidden="true">▾</span>
+      </button>
+      <div class="nav-cat-items">
+        <a href="#nav-scanner" onclick="closeNav()">Scanner</a>
+        <a href="#nav-earnings" onclick="closeNav()">Earnings</a>
+        <a href="#nav-sectors" onclick="closeNav()">Sectors</a>
+        <a href="#nav-backtest" onclick="closeNav()">Backtest</a>
+        <a href="#nav-selection" onclick="closeNav()">Selection</a>
+        <a href="#nav-charts" onclick="closeNav()">Charts</a>
+        <a href="#nav-montecarlo" onclick="closeNav()">Monte&nbsp;Carlo</a>
+      </div>
+    </div>
+
+    <div class="nav-cat" data-cat="strategy">
+      <button type="button" class="nav-cat-toggle" aria-expanded="true" onclick="toggleNavCat(this)">
+        <span>Strategy</span><span class="nav-cat-caret" aria-hidden="true">▾</span>
+      </button>
+      <div class="nav-cat-items">
+        <a href="#nav-strategy" onclick="closeNav()">Strategies</a>
+        <a href="#nav-risk" onclick="closeNav()">Risk</a>
+        <a href="#nav-memory" onclick="closeNav()">Memory</a>
+      </div>
+    </div>
+
+    <div class="nav-cat" data-cat="activity">
+      <button type="button" class="nav-cat-toggle" aria-expanded="true" onclick="toggleNavCat(this)">
+        <span>Activity</span><span class="nav-cat-caret" aria-hidden="true">▾</span>
+      </button>
+      <div class="nav-cat-items">
+        <a href="#nav-history" onclick="closeNav()">History</a>
+        <a href="#nav-activity" onclick="closeNav()">Activity</a>
+        <a href="#nav-alerts" onclick="closeNav()">Alerts</a>
+        <a href="#nav-notes" onclick="closeNav()">Journal</a>
+      </div>
+    </div>
+
+    <div class="nav-cat" data-cat="system">
+      <button type="button" class="nav-cat-toggle" aria-expanded="true" onclick="toggleNavCat(this)">
+        <span>System</span><span class="nav-cat-caret" aria-hidden="true">▾</span>
+      </button>
+      <div class="nav-cat-items">
+        <a href="#nav-engine" onclick="closeNav()">Engine</a>
+        <a href="#nav-api" onclick="closeNav()">API</a>
+        <a href="#nav-status" onclick="closeNav()">System</a>
+        <a href="#nav-help" onclick="closeNav()">Help</a>
+      </div>
+    </div>
   </nav>
+  <div class="nav-backdrop" id="navBackdrop" onclick="closeNav()" hidden></div>
 </div>
 
 <!-- ═══════════════════ MODE-SWITCH DIALOG ═══════════════════ -->
@@ -1135,9 +1303,24 @@
     </div>
 
     <!-- Open positions -->
-    <div class="watchlist-label">Open Positions (<span id="paperOpenCountLabel">{{ paper.open_count }}</span>)</div>
+    <div class="pos-head-row">
+      <div class="watchlist-label" style="margin:0;">Open Positions (<span id="paperOpenCountLabel">{{ paper.open_count }}</span>)</div>
+      <div class="pos-view-toggle" id="posViewToggle" role="group" aria-label="Positions view">
+        <button type="button" class="pv-btn {{ 'active' if positions_view == 'cards' else '' }}"
+                data-view="cards" aria-pressed="{{ 'true' if positions_view == 'cards' else 'false' }}"
+                onclick="setPosView('cards')">▦ Cards</button>
+        <button type="button" class="pv-btn {{ 'active' if positions_view == 'table' else '' }}"
+                data-view="table" aria-pressed="{{ 'true' if positions_view == 'table' else 'false' }}"
+                onclick="setPosView('table')">☰ Table</button>
+      </div>
+    </div>
     <div id="paperPositionsWrap">
-    {% if paper.positions %}
+    {% if not paper.positions %}
+    <div class="empty-note">
+      No open positions yet. Start the bot (<code>python engine.py</code>) during market hours
+      and qualifying signals will be filled here automatically.
+    </div>
+    {% elif positions_view == 'table' %}
     <div style="overflow-x:auto;">
       <table class="score-table">
         <thead>
@@ -1179,9 +1362,35 @@
       </table>
     </div>
     {% else %}
-    <div class="empty-note">
-      No open positions yet. Start the bot (<code>python engine.py</code>) during market hours
-      and qualifying signals will be filled here automatically.
+    <div class="pos-cards">
+      {% for pos in paper.positions %}
+      <div class="pos-card" data-symbol="{{ pos.symbol }}">
+        <div class="pos-card-top">
+          <span class="pos-ticker">{{ pos.symbol }}</span>
+          {% if pos.grade %}<span class="grade grade-{{ pos.grade|lower }}">{{ pos.grade }}</span>{% endif %}
+          <span class="pos-pnl-pct">—</span>
+        </div>
+        <div class="pos-strategy">{{ pos.strategy }}</div>
+        <div class="pos-card-grid">
+          <div class="pcg-item"><span class="pcg-k">Shares</span><span class="pcg-v">{{ pos.quantity }}</span></div>
+          <div class="pcg-item"><span class="pcg-k">Value</span><span class="pcg-v">${{ "{:,.2f}".format(pos.cost_basis) }} {{ pos.currency }}</span></div>
+          <div class="pcg-item"><span class="pcg-k">Entry</span><span class="pcg-v">${{ "%.2f"|format(pos.entry_price) }}</span></div>
+          <div class="pcg-item"><span class="pcg-k">Unreal P&amp;L</span><span class="pcg-v">—</span></div>
+        </div>
+        <div class="pos-progress-wrap">
+          <span class="pp-end pp-stop">${{ "%.2f"|format(pos.stop_price) }}</span>
+          <div class="pos-progress">&nbsp;</div>
+          <span class="pp-end pp-target">${{ "%.2f"|format(pos.target_price) }}</span>
+        </div>
+        <div class="pos-card-actions">
+          <button type="button" class="chip" style="cursor:pointer;" onclick="showRationale('{{ pos.symbol }}','')">Why?</button>
+          <button type="button" class="chip" style="cursor:pointer;" onclick="showTAChart('{{ pos.symbol }}','')">TA Chart</button>
+          <button type="button" class="chip" style="cursor:pointer;color:var(--red,#e74c3c);"
+                  title="Close this position at market now (admin password required)"
+                  onclick="stopTrade('{{ pos.symbol }}')">Stop</button>
+        </div>
+      </div>
+      {% endfor %}
     </div>
     {% endif %}
     </div>
@@ -2963,19 +3172,55 @@
 </div><!-- /container -->
 
 <script>
-  // ── Mobile in-page navigation (hamburger) ───────────────────────────
+  // ── Sidebar navigation drawer (hamburger) ───────────────────────────
   function toggleNav() {
     var nav = document.getElementById("sectionNav");
     var btn = document.getElementById("navToggle");
+    var bd = document.getElementById("navBackdrop");
     var open = nav.classList.toggle("open");
     if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
+    if (bd) bd.hidden = !open;
   }
   function closeNav() {
     var nav = document.getElementById("sectionNav");
     var btn = document.getElementById("navToggle");
+    var bd = document.getElementById("navBackdrop");
     if (nav) nav.classList.remove("open");
     if (btn) btn.setAttribute("aria-expanded", "false");
+    if (bd) bd.hidden = true;
   }
+  // Collapse / expand one sidebar category; persist the set of collapsed
+  // categories so the drawer reopens the way the user left it.
+  function toggleNavCat(btn) {
+    var cat = btn.closest(".nav-cat");
+    if (!cat) return;
+    var collapsed = cat.classList.toggle("collapsed");
+    btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    try {
+      var key = "ustb_nav_collapsed";
+      var set = new Set(JSON.parse(localStorage.getItem(key) || "[]"));
+      var name = cat.getAttribute("data-cat");
+      if (collapsed) set.add(name); else set.delete(name);
+      localStorage.setItem(key, JSON.stringify(Array.from(set)));
+    } catch (e) {}
+  }
+  // Restore collapsed categories on load.
+  (function restoreNavCats() {
+    try {
+      var set = new Set(JSON.parse(localStorage.getItem("ustb_nav_collapsed") || "[]"));
+      document.querySelectorAll(".nav-cat").forEach(function (cat) {
+        if (set.has(cat.getAttribute("data-cat"))) {
+          cat.classList.add("collapsed");
+          var b = cat.querySelector(".nav-cat-toggle");
+          if (b) b.setAttribute("aria-expanded", "false");
+        }
+      });
+    } catch (e) {}
+  })();
+  // Close the drawer with Escape.
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") closeNav();
+  });
 
   // Current mode is injected server-side ("LIVE" or "PAPER").
   var CURRENT_MODE = "{{ status.trading_mode }}";
@@ -3652,12 +3897,99 @@
       'border-radius:4px;background:' + color + ';"></span></div>';
   }
 
-  function _renderPaperPositions(p) {
-    if (!p.positions || !p.positions.length) {
-      return '<div class="empty-note">No open positions yet. Start the bot ' +
-        "(<code>python engine.py</code>) during market hours and qualifying " +
-        "signals will be filled here automatically.</div>";
+  // ── Open-positions view preference (cards vs. table), persisted in a cookie
+  //    so it survives reloads and matches the server-rendered first paint. ──
+  function _setCookie(name, val, days) {
+    var d = new Date();
+    d.setTime(d.getTime() + (days || 365) * 86400000);
+    document.cookie = name + "=" + val + ";expires=" + d.toUTCString() + ";path=/;SameSite=Lax";
+  }
+  function _getCookie(name) {
+    var m = document.cookie.match(new RegExp("(?:^|; )" + name + "=([^;]*)"));
+    return m ? m[1] : null;
+  }
+  var _posView = _getCookie("ustb_pos_view") === "table" ? "table" : "cards";
+
+  function setPosView(view) {
+    _posView = (view === "table") ? "table" : "cards";
+    _setCookie("ustb_pos_view", _posView, 365);
+    var btns = document.querySelectorAll("#posViewToggle .pv-btn");
+    for (var i = 0; i < btns.length; i++) {
+      var on = btns[i].getAttribute("data-view") === _posView;
+      btns[i].classList.toggle("active", on);
+      btns[i].setAttribute("aria-pressed", on ? "true" : "false");
     }
+    var el = document.getElementById("paperPositionsWrap");
+    if (el && _lastPaperData) el.innerHTML = _renderPaperPositions(_lastPaperData);
+    else if (el) refreshPaperAccount();
+  }
+
+  // Full-width progress bar for the card layout (the table uses _progressBar).
+  function _cardProgressBar(live) {
+    if (!live || live.current_price == null || !live.stop_price || !live.target_price) {
+      return '<div class="pos-progress">&nbsp;</div>';
+    }
+    var lo = Math.min(live.stop_price, live.target_price);
+    var hi = Math.max(live.stop_price, live.target_price);
+    if (hi <= lo) return '<div class="pos-progress">&nbsp;</div>';
+    function xpos(v) { return Math.min(100, Math.max(0, (v - lo) / (hi - lo) * 100)); }
+    var cur = xpos(live.current_price), ent = xpos(live.entry_price);
+    var color = live.proximity === "near_stop" ? "var(--red)"
+      : live.proximity === "near_target" ? "var(--green)" : "var(--accent)";
+    return '<div class="pos-progress">' +
+      '<span style="position:absolute;left:' + ent.toFixed(1) + '%;top:-2px;width:2px;height:14px;background:var(--text-muted);"></span>' +
+      '<span style="position:absolute;left:' + cur.toFixed(1) + '%;top:-3px;width:8px;height:16px;margin-left:-4px;' +
+      'border-radius:4px;background:' + color + ';"></span></div>';
+  }
+
+  function _renderPositionsCards(p) {
+    var cards = p.positions.map(function (pos) {
+      var live = _livePnl[pos.symbol] || null;
+      var grade = pos.grade
+        ? '<span class="grade grade-' + esc(String(pos.grade).toLowerCase()) +
+          '">' + esc(pos.grade) + "</span>"
+        : "";
+      var pnlPct = '<span class="pos-pnl-pct">—</span>';
+      var unreal = "—";
+      if (live && live.unrealized_pnl != null) {
+        var cls = _pnlClass(live.unrealized_pnl);
+        var pctTxt = live.unrealized_pct != null
+          ? (live.unrealized_pct >= 0 ? "+" : "") + Number(live.unrealized_pct).toFixed(2) + "%"
+          : "—";
+        pnlPct = '<span class="pos-pnl-pct ' + cls + '">' + pctTxt + "</span>";
+        unreal = '<span class="' + cls + '">' +
+          (live.unrealized_pnl >= 0 ? "+" : "") + "$" + Number(live.unrealized_pnl).toFixed(2) + "</span>";
+      }
+      var stop = live && live.stop_price != null ? live.stop_price : pos.stop_price;
+      var target = live && live.target_price != null ? live.target_price : pos.target_price;
+      var cardCls = "pos-card";
+      if (live && live.proximity === "near_stop") cardCls += " near-stop";
+      else if (live && live.proximity === "near_target") cardCls += " near-target";
+      var shortChip = (live && live.side === "short") ? ' <span class="chip">short</span>' : "";
+      return '<div class="' + cardCls + '" data-symbol="' + esc(pos.symbol) + '">' +
+        '<div class="pos-card-top"><span class="pos-ticker">' + esc(pos.symbol) + "</span>" +
+          grade + shortChip + pnlPct + "</div>" +
+        '<div class="pos-strategy">' + esc(pos.strategy) + "</div>" +
+        '<div class="pos-card-grid">' +
+          '<div class="pcg-item"><span class="pcg-k">Shares</span><span class="pcg-v">' + esc(pos.quantity) + "</span></div>" +
+          '<div class="pcg-item"><span class="pcg-k">Value</span><span class="pcg-v">' + _money(pos.cost_basis) + " " + esc(pos.currency) + "</span></div>" +
+          '<div class="pcg-item"><span class="pcg-k">Entry</span><span class="pcg-v">$' + Number(pos.entry_price || 0).toFixed(2) + "</span></div>" +
+          '<div class="pcg-item"><span class="pcg-k">Unreal P&amp;L</span><span class="pcg-v">' + unreal + "</span></div>" +
+        "</div>" +
+        '<div class="pos-progress-wrap"><span class="pp-end pp-stop">$' + Number(stop || 0).toFixed(2) + "</span>" +
+          _cardProgressBar(live) +
+          '<span class="pp-end pp-target">$' + Number(target || 0).toFixed(2) + "</span></div>" +
+        '<div class="pos-card-actions">' +
+          '<button type="button" class="chip" style="cursor:pointer;" onclick="showRationale(\'' + esc(pos.symbol) + "','')\">Why?</button>" +
+          '<button type="button" class="chip" style="cursor:pointer;" onclick="showTAChart(\'' + esc(pos.symbol) + "','')\">TA Chart</button>" +
+          '<button type="button" class="chip" style="cursor:pointer;color:var(--red,#e74c3c);" ' +
+            'title="Close this position at market now (admin password required)" onclick="stopTrade(\'' + esc(pos.symbol) + "')\">Stop</button>" +
+        "</div></div>";
+    }).join("");
+    return '<div class="pos-cards">' + cards + "</div>";
+  }
+
+  function _renderPositionsTable(p) {
     var rows = p.positions.map(function (pos) {
       var grade = pos.grade
         ? '<span class="grade grade-' + esc(String(pos.grade).toLowerCase()) +
@@ -3709,6 +4041,15 @@
       "<th>Stop ◄─● ─► Target</th>" +
       '<th class="num">Cost Basis</th>' +
       "<th>Opened</th><th></th></tr></thead><tbody>" + rows + "</tbody></table></div>";
+  }
+
+  function _renderPaperPositions(p) {
+    if (!p.positions || !p.positions.length) {
+      return '<div class="empty-note">No open positions yet. Start the bot ' +
+        "(<code>python engine.py</code>) during market hours and qualifying " +
+        "signals will be filled here automatically.</div>";
+    }
+    return _posView === "table" ? _renderPositionsTable(p) : _renderPositionsCards(p);
   }
 
   function _renderPaperTrades(p) {
