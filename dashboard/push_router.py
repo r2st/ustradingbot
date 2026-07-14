@@ -15,7 +15,7 @@ from fastapi.responses import Response
 
 from config.settings import get_settings
 from dashboard.auth import require_auth
-from dashboard.push import get_push_store
+from dashboard.push import CATEGORIES, get_push_store, _normalize_category
 
 router = APIRouter(tags=["pwa"])
 
@@ -98,37 +98,20 @@ self.addEventListener('notificationclick', (event) => {
 
 _PWA_CLIENT = """
 (function () {
+  // Register the service worker so the dashboard is installable as a PWA.
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(function () {});
   }
   function enable() {
-    if (!('Notification' in window)) return;
-    if (Notification.permission === 'default') Notification.requestPermission();
+    if (!('Notification' in window)) return Promise.resolve('unsupported');
+    if (Notification.permission === 'default') return Notification.requestPermission();
+    return Promise.resolve(Notification.permission);
   }
   window.enablePushNotifications = enable;
-
-  var KEY = 'ustb_push_last_id';
-  function lastId() { return parseInt(localStorage.getItem(KEY) || '0', 10) || 0; }
-  function setLast(id) { localStorage.setItem(KEY, String(id)); }
-
-  function poll() {
-    if (!('Notification' in window) || Notification.permission !== 'granted') return;
-    fetch('/api/push/poll?since=' + lastId(), { credentials: 'same-origin' })
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (data) {
-        if (!data || !data.notifications) return;
-        data.notifications.forEach(function (n) {
-          try { new Notification(n.title, { body: n.body, icon: '/pwa/icon.svg' }); } catch (e) {}
-          if (n.id > lastId()) setLast(n.id);
-        });
-      })
-      .catch(function () {});
-  }
-  // Seed lastId so we don't replay history on first grant, then poll.
-  fetch('/api/push/status', { credentials: 'same-origin' })
-    .then(function (r) { return r.ok ? r.json() : null; })
-    .then(function (d) { if (d && lastId() === 0) setLast(d.latest_id || 0); });
-  setInterval(poll, 20000);
+  // NOTE: notification polling, browser-Notification raising, the unread bell,
+  // and per-category preferences all live in the dashboard's notification
+  // center (see initNotificationCenter in dashboard.html) so there is exactly
+  // one poller and no duplicate alerts.
 })();
 """
 
@@ -197,6 +180,73 @@ async def push_unsubscribe(request: Request, _user: str = Depends(require_auth))
 
 
 @router.post("/api/push/test")
-async def push_test(_user: str = Depends(require_auth)):
-    notif = _store().publish("Trading Bot", "Test notification from the dashboard.")
+async def push_test(request: Request, _user: str = Depends(require_auth)):
+    body = await _body(request)
+    category = str(body.get("category", "general"))
+    labels = {
+        "trade_executed": ("Trade executed", "AAPL — bought 25 @ $198.40 (Momentum)."),
+        "stop_hit": ("Stop hit", "TSLA — stopped out at $242.10 (−1.0R)."),
+        "target_reached": ("Target reached", "NVDA — target hit at $132.00 (+2.3R)."),
+        "ai_alert": ("AI alert", "Regime shifted to risk-off — tightening exits."),
+        "general": ("Trading Bot", "Test notification from the dashboard."),
+    }
+    title, msg = labels.get(_normalize_category(category), labels["general"])
+    notif = _store().publish(title, msg, category=category)
     return {"ok": True, "notification": notif.to_dict()}
+
+
+# ---------------------------------------------------------------------------
+# Notification center — recent list, unread badge, mark-read (Phase 2)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/api/notifications")
+async def notifications_list(limit: int = 50, _user: str = Depends(require_auth)):
+    store = _store()
+    return {
+        "notifications": store.recent(limit),
+        "unread": store.unread_count(),
+        "latest_id": store.latest_id(),
+    }
+
+
+@router.get("/api/notifications/unread")
+async def notifications_unread(_user: str = Depends(require_auth)):
+    return {"unread": _store().unread_count()}
+
+
+@router.post("/api/notifications/read")
+async def notifications_read(request: Request, _user: str = Depends(require_auth)):
+    body = await _body(request)
+    ids = body.get("ids", [])
+    if not isinstance(ids, list):
+        ids = []
+    store = _store()
+    changed = store.mark_read(ids)
+    return {"ok": True, "changed": changed, "unread": store.unread_count()}
+
+
+@router.post("/api/notifications/read-all")
+async def notifications_read_all(_user: str = Depends(require_auth)):
+    store = _store()
+    changed = store.mark_all_read()
+    return {"ok": True, "changed": changed, "unread": store.unread_count()}
+
+
+# ---------------------------------------------------------------------------
+# Notification preferences (Phase 2)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/api/notifications/preferences")
+async def notifications_get_prefs(_user: str = Depends(require_auth)):
+    return {"preferences": _store().get_preferences(), "categories": list(CATEGORIES)}
+
+
+@router.post("/api/notifications/preferences")
+async def notifications_set_prefs(request: Request, _user: str = Depends(require_auth)):
+    body = await _body(request)
+    prefs = body.get("preferences", body)
+    if not isinstance(prefs, dict):
+        prefs = {}
+    return {"ok": True, "preferences": _store().set_preferences(prefs)}

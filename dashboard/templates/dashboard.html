@@ -772,6 +772,104 @@
   }
   .icon-btn:hover { background: var(--accent-dim); border-color: var(--accent); }
   .icon-btn.active { background: var(--green-dim); border-color: var(--green); }
+
+  /* ── Phase 2: real-time LIVE indicator ── */
+  .live-indicator {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 11px; border-radius: 999px; font-size: 12px; font-weight: 700;
+    letter-spacing: .04em; border: 1px solid var(--border); background: var(--surface-2);
+    color: var(--muted); user-select: none; white-space: nowrap;
+  }
+  .live-indicator .live-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--muted);
+    box-shadow: 0 0 0 0 rgba(46, 204, 113, 0);
+  }
+  .live-indicator.live { color: var(--green); border-color: var(--green-dim); }
+  .live-indicator.live .live-dot { background: var(--green); animation: livePulse 1.6s ease-out infinite; }
+  .live-indicator.closed { color: var(--muted); }
+  .live-indicator.closed .live-dot { background: var(--muted); animation: none; }
+  .live-indicator.reconnect { color: #e0a83e; border-color: #6b551e; }
+  .live-indicator.reconnect .live-dot { background: #e0a83e; animation: livePulseAmber 1s ease-out infinite; }
+  @keyframes livePulse {
+    0%   { box-shadow: 0 0 0 0 rgba(46, 204, 113, .55); }
+    70%  { box-shadow: 0 0 0 7px rgba(46, 204, 113, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(46, 204, 113, 0); }
+  }
+  @keyframes livePulseAmber {
+    0%   { box-shadow: 0 0 0 0 rgba(224, 168, 62, .55); }
+    70%  { box-shadow: 0 0 0 7px rgba(224, 168, 62, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(224, 168, 62, 0); }
+  }
+
+  /* ── Phase 2: P&L change flash + card pulse ── */
+  .flash-up  { animation: flashUp .9s ease-out; }
+  .flash-down{ animation: flashDown .9s ease-out; }
+  @keyframes flashUp {
+    0%   { background-color: rgba(46, 204, 113, .38); border-radius: 6px; }
+    100% { background-color: transparent; }
+  }
+  @keyframes flashDown {
+    0%   { background-color: rgba(231, 76, 60, .38); border-radius: 6px; }
+    100% { background-color: transparent; }
+  }
+  .card-pulse { animation: cardPulse .8s ease-out; }
+  @keyframes cardPulse {
+    0%   { box-shadow: 0 0 0 0 rgba(79, 143, 247, .5); }
+    100% { box-shadow: 0 0 0 8px rgba(79, 143, 247, 0); }
+  }
+  .updated-stamp {
+    font-size: 11px; color: var(--muted); display: inline-flex; align-items: center; gap: 5px;
+  }
+  .updated-stamp.pulse { animation: stampPulse .7s ease-out; }
+  @keyframes stampPulse {
+    0% { color: var(--accent); } 100% { color: var(--muted); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .live-indicator .live-dot, .flash-up, .flash-down, .card-pulse, .updated-stamp.pulse { animation: none !important; }
+  }
+
+  /* ── Phase 2: notification center ── */
+  .notif-wrap { position: relative; display: inline-block; }
+  .notif-badge {
+    position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px;
+    padding: 0 5px; border-radius: 9px; background: var(--red); color: #fff;
+    font-size: 11px; font-weight: 700; line-height: 18px; text-align: center;
+    box-shadow: 0 0 0 2px var(--bg); display: none;
+  }
+  .notif-badge.show { display: block; }
+  .notif-dropdown {
+    position: absolute; top: 48px; right: 0; width: 340px; max-width: 88vw;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    box-shadow: 0 12px 32px rgba(0,0,0,.35); z-index: 120; overflow: hidden; display: none;
+  }
+  .notif-dropdown.open { display: block; }
+  .notif-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 14px; border-bottom: 1px solid var(--border);
+  }
+  .notif-head h4 { margin: 0; font-size: 14px; }
+  .notif-head button {
+    background: none; border: none; color: var(--accent); cursor: pointer;
+    font-size: 12px; padding: 2px 4px;
+  }
+  .notif-list { max-height: 340px; overflow-y: auto; }
+  .notif-item {
+    display: flex; gap: 10px; padding: 11px 14px; border-bottom: 1px solid var(--border);
+    cursor: default; align-items: flex-start;
+  }
+  .notif-item.unread { background: rgba(79, 143, 247, .08); }
+  .notif-item .notif-ico { font-size: 16px; line-height: 1.3; flex: 0 0 auto; }
+  .notif-item .notif-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .notif-item .notif-title { font-size: 13px; font-weight: 600; }
+  .notif-item .notif-text { font-size: 12px; color: var(--muted); word-break: break-word; }
+  .notif-item .notif-time { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .notif-empty { padding: 22px 14px; text-align: center; color: var(--muted); font-size: 13px; }
+  .notif-prefs { padding: 10px 14px; border-top: 1px solid var(--border); }
+  .notif-prefs summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+  .notif-prefs label {
+    display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 5px 0;
+  }
+  .notif-prefs label input { width: auto; }
   .subgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
   .chip {
     display: inline-flex; align-items: center; gap: 6px; background: var(--surface-2);
@@ -1022,12 +1120,38 @@
       {% else %}
         <span class="mode-badge mode-live" id="modeBadge">{{ status.mode }}</span>
       {% endif %}
+      <span class="live-indicator closed" id="liveIndicator" title="Real-time P&amp;L feed status">
+        <span class="live-dot"></span><span id="liveIndicatorText">CLOSED</span>
+      </span>
       <button type="button" class="mode-toggle-btn" id="modeToggleBtn"
               onclick="openModeDialog()">
         {% if paper.is_live %}Switch to Paper{% else %}Switch to Live{% endif %}
       </button>
-      <button type="button" class="icon-btn" id="notifyBtn" title="Enable notifications"
-              aria-label="Enable notifications" onclick="enableNotifications()">🔔</button>
+      <span class="notif-wrap">
+        <button type="button" class="icon-btn" id="notifyBtn" title="Notifications"
+                aria-label="Notifications" aria-haspopup="true" aria-expanded="false"
+                onclick="toggleNotifDropdown()">🔔<span class="notif-badge" id="notifBadge">0</span></button>
+        <div class="notif-dropdown" id="notifDropdown" role="dialog" aria-label="Notifications">
+          <div class="notif-head">
+            <h4>Notifications</h4>
+            <div>
+              <button type="button" onclick="enableNotifications()" title="Allow browser notifications">Enable</button>
+              <button type="button" onclick="markAllNotifsRead()">Mark all read</button>
+            </div>
+          </div>
+          <div class="notif-list" id="notifList">
+            <div class="notif-empty">No notifications yet.</div>
+          </div>
+          <details class="notif-prefs">
+            <summary>Notification preferences</summary>
+            <div id="notifPrefs"></div>
+            <div style="margin-top:8px;">
+              <button type="button" class="btn-secondary" onclick="testNotification()">Send test</button>
+            </div>
+            <div id="pushResult" class="modal-result"></div>
+          </details>
+        </div>
+      </span>
       <button type="button" class="icon-btn" id="themeToggle" title="Toggle light / dark"
               aria-label="Toggle light or dark theme" onclick="toggleTheme()">🌙</button>
       <button type="button" class="nav-toggle" id="navToggle" aria-label="Toggle menu"
@@ -1223,6 +1347,8 @@
   <div class="section-header">
     <div class="section-icon icon-paper">P</div>
     <h2>{{ paper.mode|capitalize }} Trading Account</h2>
+    <span class="updated-stamp" id="pnlUpdatedStamp" style="margin-left:auto;"
+          title="Last real-time P&amp;L update"></span>
   </div>
   <div class="section-body">
     <!-- Account summary cards -->
@@ -3074,10 +3200,12 @@
         </div>
 
         <h4 style="margin-top:16px;">Notifications <span class="bt-hint">(feature 17)</span></h4>
-        <p class="muted-note">Install this dashboard as an app and get push alerts on trades.</p>
+        <p class="muted-note">Real-time browser push for trades executed, stops hit, targets
+          reached, and AI alerts. Open the <strong>🔔 bell</strong> in the header to enable
+          them, review recent alerts, and choose which categories notify you.</p>
         <button type="button" class="btn-secondary" onclick="enableNotifications()">Enable notifications</button>
-        <button type="button" class="btn-secondary" onclick="testNotification()">Send test</button>
-        <div id="pushResult" class="modal-result"></div>
+        <button type="button" class="btn-secondary" onclick="openNotifDropdown()">Open notifications</button>
+        <div id="pushResultSection" class="modal-result"></div>
       </div>
       <div>
         <h4>REST API Keys <span class="bt-hint">(feature 19)</span></h4>
@@ -3877,6 +4005,140 @@
     if (el) el.textContent = String(text);
   }
 
+  // ══════════════════ Phase 2: P&L animations ══════════════════
+  function _reducedMotion() {
+    try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; }
+    catch (e) { return false; }
+  }
+  function _pnlValueClass(v) { return "value " + _pnlClass(v); }
+
+  // Count-up/count-down a numeric display, flashing green (up) / red (down) on
+  // change. ``fmt`` renders the number; ``clsFn`` optionally recomputes the
+  // element's className each frame (so the +/- colour tracks the value).
+  var _numState = {};
+  function animateValue(id, target, fmt, clsFn) {
+    var el = document.getElementById(id); if (!el) return;
+    target = Number(target); if (isNaN(target)) return;
+    fmt = fmt || function (v) { return String(v); };
+    var prev = _numState[id];
+    function paint(v) { el.textContent = fmt(v); if (clsFn) el.className = clsFn(v); }
+    if (prev === undefined || prev === target || _reducedMotion()) {
+      _numState[id] = target; paint(target); return;
+    }
+    // Flash the cell background to signal the direction of change.
+    var up = target >= prev;
+    el.classList.remove("flash-up", "flash-down");
+    void el.offsetWidth;                       // reflow so the anim restarts
+    el.classList.add(up ? "flash-up" : "flash-down");
+    // Smoothly count from prev -> target (ease-out cubic).
+    var start = prev, t0 = null, dur = 600;
+    function step(ts) {
+      if (t0 === null) t0 = ts;
+      var p = Math.min(1, (ts - t0) / dur);
+      var eased = 1 - Math.pow(1 - p, 3);
+      paint(start + (target - start) * eased);
+      if (p < 1) requestAnimationFrame(step); else paint(target);
+    }
+    requestAnimationFrame(step);
+    _numState[id] = target;
+  }
+
+  function pulseEl(id) {
+    if (_reducedMotion()) return;
+    var el = document.getElementById(id); if (!el) return;
+    el.classList.remove("card-pulse");
+    void el.offsetWidth;
+    el.classList.add("card-pulse");
+  }
+
+  // "Last updated" stamp that pulses each time real-time data lands.
+  function bumpUpdatedStamp(asOf) {
+    var el = document.getElementById("pnlUpdatedStamp"); if (!el) return;
+    var when = asOf ? etTime(asOf) : etTime(new Date().toISOString());
+    el.textContent = "● updated " + when + " ET";
+    if (_reducedMotion()) return;
+    el.classList.remove("pulse"); void el.offsetWidth; el.classList.add("pulse");
+  }
+
+  // ══════════════════ Phase 2: real-time P&L WebSocket ══════════════════
+  // Streams the live-P&L snapshot over /ws/pnl (5 s during market hours).
+  // Falls back to the existing REST polling if the socket can't be opened,
+  // and reconnects with exponential backoff when it drops.
+  var _ws = null;
+  var _wsConnected = false;
+  var _wsBackoff = 1000;                        // ms, doubles up to _wsBackoffMax
+  var _wsBackoffMax = 30000;
+  var _wsReconnectTimer = null;
+  var _wsWantOpen = true;                       // false once we give up / page hidden
+
+  function setLiveIndicator(mode, label) {
+    var el = document.getElementById("liveIndicator");
+    var txt = document.getElementById("liveIndicatorText");
+    if (!el) return;
+    el.classList.remove("live", "closed", "reconnect");
+    el.classList.add(mode);
+    if (txt) txt.textContent = label || mode.toUpperCase();
+  }
+
+  function _wsUrl(token) {
+    var proto = location.protocol === "https:" ? "wss:" : "ws:";
+    var u = proto + "//" + location.host + "/ws/pnl";
+    return token ? (u + "?token=" + encodeURIComponent(token)) : u;
+  }
+
+  function _applyLiveFrame(d) {
+    _livePnl = {};
+    (d.positions || []).forEach(function (p) { _livePnl[p.symbol] = p; });
+    _applyLiveTotals(d);
+    if (_lastPaperData) {
+      var el = document.getElementById("paperPositionsWrap");
+      if (el) { el.innerHTML = _renderPaperPositions(_lastPaperData); pulseEl("paperPositionsWrap"); }
+    }
+    setLiveIndicator(d.market_open ? "live" : "closed", d.market_open ? "LIVE" : "CLOSED");
+  }
+
+  async function _openPnlSocket() {
+    if (!("WebSocket" in window) || !_wsWantOpen) return;
+    var token = "";
+    try {
+      var r = await fetch("/api/ws/token", { credentials: "same-origin" });
+      if (r.ok) token = (await r.json()).token || "";
+    } catch (e) { /* fall through — may still connect if auth is off */ }
+    try {
+      _ws = new WebSocket(_wsUrl(token));
+    } catch (e) { _scheduleReconnect(); return; }
+
+    _ws.onopen = function () {
+      _wsConnected = true; _wsBackoff = 1000;
+    };
+    _ws.onmessage = function (ev) {
+      try {
+        var d = JSON.parse(ev.data);
+        if (d && d.type === "pnl") _applyLiveFrame(d);
+      } catch (e) { /* ignore malformed frame */ }
+    };
+    _ws.onclose = function () {
+      _wsConnected = false; _ws = null;
+      if (_wsWantOpen) { setLiveIndicator("reconnect", "RECONNECT…"); _scheduleReconnect(); }
+    };
+    _ws.onerror = function () { try { _ws && _ws.close(); } catch (e) {} };
+  }
+
+  function _scheduleReconnect() {
+    if (_wsReconnectTimer || !_wsWantOpen) return;
+    var delay = _wsBackoff;
+    _wsBackoff = Math.min(_wsBackoff * 2, _wsBackoffMax);
+    _wsReconnectTimer = setTimeout(function () {
+      _wsReconnectTimer = null;
+      if (!document.hidden) _openPnlSocket();
+      else _scheduleReconnect();
+    }, delay);
+  }
+
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden && !_wsConnected && _wsWantOpen && !_wsReconnectTimer) _openPnlSocket();
+  });
+
   // Live per-position P&L cache (monitoring F1/F3): symbol -> live row.
   var _livePnl = {};
 
@@ -4079,11 +4341,9 @@
   }
 
   function applyPaperAccount(p) {
-    _setText("paperEquity", _money(p.account_equity));
-    var el = document.getElementById("paperRealized");
-    if (el) { el.className = "value " + _pnlClass(p.realized_pnl); el.textContent = _pnlText(p.realized_pnl); }
-    el = document.getElementById("paperToday");
-    if (el) { el.className = "value " + _pnlClass(p.today_pnl); el.textContent = _pnlText(p.today_pnl); }
+    animateValue("paperEquity", p.account_equity, _money);
+    animateValue("paperRealized", p.realized_pnl, _pnlText, _pnlValueClass);
+    animateValue("paperToday", p.today_pnl, _pnlText, _pnlValueClass);
     _setText("paperOpenCount", p.open_count);
     _setText("paperOpenCountLabel", p.open_count);
     _setText("paperClosedTrades", p.total_trades);
@@ -4152,13 +4412,14 @@
 
   function _applyLiveTotals(d) {
     var t = d.totals || {};
-    var el = document.getElementById("paperUnrealized");
-    if (el) { el.className = "value " + _pnlClass(t.unrealized); el.textContent = _pnlText(t.unrealized); }
-    el = document.getElementById("paperTodayTotal");
-    if (el) { el.className = "value " + _pnlClass(t.today_total); el.textContent = _pnlText(t.today_total); }
+    if (t.unrealized != null)
+      animateValue("paperUnrealized", t.unrealized, _pnlText, _pnlValueClass);
+    if (t.today_total != null)
+      animateValue("paperTodayTotal", t.today_total, _pnlText, _pnlValueClass);
     if (t.unrealized != null && t.account_equity != null) {
-      _setText("paperEquity", _money(t.account_equity));
+      animateValue("paperEquity", t.account_equity, _money);
     }
+    bumpUpdatedStamp(d.as_of);
     var status = document.getElementById("livePnlStatus");
     if (status) {
       var asOf = d.as_of ? etTime(d.as_of) : "—";
@@ -4197,9 +4458,11 @@
       var labels = pts.map(function (p) { return String(p.ts).slice(11, 16); });
       var totals = pts.map(function (p) { return p.total; });
       if (_intradayChart) {
+        var grew = labels.length > _intradayChart.data.labels.length;
         _intradayChart.data.labels = labels;
         _intradayChart.data.datasets[0].data = totals;
-        _intradayChart.update("none");
+        // Animate smoothly when a new point arrives; silent for in-place edits.
+        _intradayChart.update(_reducedMotion() ? "none" : (grew ? "active" : "none"));
         return;
       }
       _intradayChart = new Chart(canvas, {
@@ -4208,7 +4471,8 @@
           label: "Today's total P&L ($)", data: totals,
           borderColor: "#4f8ff7", backgroundColor: "rgba(79,143,247,.15)",
           fill: true, pointRadius: 0, borderWidth: 2, tension: 0.25 }] },
-        options: { responsive: true, maintainAspectRatio: false, animation: false,
+        options: { responsive: true, maintainAspectRatio: false,
+          animation: _reducedMotion() ? false : { duration: 500 },
           plugins: { legend: { display: false } },
           scales: { x: { ticks: { maxTicksLimit: 8 } }, y: { grace: "10%" } } }
       });
@@ -4217,6 +4481,7 @@
 
   (function () {
     refreshLivePnl(); refreshIntradayChart();
+    _openPnlSocket();                          // Phase 2: prefer the live socket
     setInterval(function () {
       if (document.hidden) return;
       _livePnlTick += 1;
@@ -4224,8 +4489,13 @@
         var badge = document.getElementById("engMarket");
         if (badge) _liveMarketOpen = /open/i.test(badge.textContent || "");
       } catch (e) {}
+      // The WebSocket drives live P&L when connected; poll only as a fallback.
       // Every 15 s when the market is open; every 60 s otherwise.
-      if (_liveMarketOpen || _livePnlTick % 4 === 0) refreshLivePnl();
+      if (!_wsConnected && (_liveMarketOpen || _livePnlTick % 4 === 0)) refreshLivePnl();
+      if (!_wsConnected) {
+        // No socket: mirror the market state on the header indicator.
+        setLiveIndicator(_liveMarketOpen ? "live" : "closed", _liveMarketOpen ? "LIVE" : "CLOSED");
+      }
       if (_livePnlTick % 4 === 0) refreshIntradayChart();
     }, 15000);
   })();
@@ -4246,20 +4516,176 @@
   }
   applyThemeIcon();
 
-  // ── Notifications (feature 17) ──
+  // ══════════════════ Phase 2: notification center ══════════════════
+  var NOTIF_META = {
+    trade_executed: { label: "Trade executed", ico: "🟢" },
+    stop_hit:       { label: "Stop hit",        ico: "🔴" },
+    target_reached: { label: "Target reached",  ico: "🎯" },
+    ai_alert:       { label: "AI alert",        ico: "✦"  },
+    general:        { label: "General",         ico: "🔔" }
+  };
+  var _notifLastSeen = -1;      // highest id we've raised a browser notice for
+  var _notifPrefs = {};
+  var _notifSeeded = false;
+
+  function _notifPushResult(text, ok) {
+    setMsg("pushResult", text, ok);
+    var s = document.getElementById("pushResultSection");
+    if (s) { s.textContent = text; s.style.color = ok ? "var(--green)" : "var(--red)"; }
+  }
+
   function enableNotifications() {
-    if (window.enablePushNotifications) window.enablePushNotifications();
-    if (!("Notification" in window)) { setMsg("pushResult", "Notifications unsupported.", false); return; }
-    Notification.requestPermission().then(function (p) {
+    var p = window.enablePushNotifications ? window.enablePushNotifications()
+                                           : Promise.resolve("unsupported");
+    Promise.resolve(p).then(function (perm) {
       var btn = document.getElementById("notifyBtn");
-      if (btn && p === "granted") btn.classList.add("active");
-      setMsg("pushResult", p === "granted" ? "Notifications enabled." : "Permission: " + p, p === "granted");
+      if (btn && perm === "granted") btn.classList.add("active");
+      _notifPushResult(perm === "granted" ? "Browser notifications enabled." :
+        (perm === "unsupported" ? "Notifications unsupported in this browser." :
+         "Permission: " + perm), perm === "granted");
     });
   }
+
   async function testNotification() {
-    try { await jsend("POST", "/api/push/test"); setMsg("pushResult", "Test sent — grant permission if you don't see it.", true); }
-    catch (e) { setMsg("pushResult", String(e), false); }
+    try {
+      await jsend("POST", "/api/push/test", { category: "trade_executed" });
+      _notifPushResult("Test sent — grant permission if you don't see a popup.", true);
+      refreshNotifs();
+    } catch (e) { _notifPushResult(String(e), false); }
   }
+
+  function _relTime(ts) {
+    var secs = Math.max(0, Math.floor(Date.now() / 1000 - Number(ts)));
+    if (secs < 60) return "just now";
+    if (secs < 3600) return Math.floor(secs / 60) + "m ago";
+    if (secs < 86400) return Math.floor(secs / 3600) + "h ago";
+    return Math.floor(secs / 86400) + "d ago";
+  }
+
+  function _renderNotifList(items) {
+    var list = document.getElementById("notifList"); if (!list) return;
+    if (!items || !items.length) {
+      list.innerHTML = '<div class="notif-empty">No notifications yet.</div>';
+      return;
+    }
+    list.innerHTML = items.map(function (n) {
+      var meta = NOTIF_META[n.category] || NOTIF_META.general;
+      return '<div class="notif-item ' + (n.read ? "" : "unread") + '" data-id="' + n.id +
+        '" onclick="markNotifRead(' + n.id + ')">' +
+        '<span class="notif-ico">' + meta.ico + '</span>' +
+        '<span class="notif-body"><span class="notif-title">' + esc(n.title) + '</span>' +
+        '<span class="notif-text">' + esc(n.body) + '</span>' +
+        '<span class="notif-time">' + esc(meta.label) + ' · ' + _relTime(n.ts) + '</span></span></div>';
+    }).join("");
+  }
+
+  function _setNotifBadge(unread) {
+    var b = document.getElementById("notifBadge"); if (!b) return;
+    if (unread > 0) { b.textContent = unread > 99 ? "99+" : String(unread); b.classList.add("show"); }
+    else { b.classList.remove("show"); }
+  }
+
+  async function refreshNotifs() {
+    try {
+      var d = await jget("/api/notifications?limit=50");
+      var items = d.notifications || [];
+      _renderNotifList(items);
+      _setNotifBadge(d.unread || 0);
+      // Raise a native browser Notification for genuinely new items whose
+      // category is enabled — but never replay history on first load.
+      var maxId = _notifSeeded ? _notifLastSeen : (d.latest_id || 0);
+      if (_notifSeeded && ("Notification" in window) && Notification.permission === "granted") {
+        items.slice().reverse().forEach(function (n) {
+          if (n.id > _notifLastSeen && _notifPrefs[n.category] !== false) {
+            try { new Notification(n.title, { body: n.body, icon: "/pwa/icon.svg" }); } catch (e) {}
+          }
+          if (n.id > maxId) maxId = n.id;
+        });
+      }
+      _notifLastSeen = Math.max(_notifLastSeen, maxId, d.latest_id || 0);
+      _notifSeeded = true;
+    } catch (e) { /* transient */ }
+  }
+
+  async function markNotifRead(id) {
+    try {
+      var d = await jsend("POST", "/api/notifications/read", { ids: [id] });
+      _setNotifBadge(d.unread || 0);
+      var el = document.querySelector('.notif-item[data-id="' + id + '"]');
+      if (el) el.classList.remove("unread");
+    } catch (e) {}
+  }
+
+  async function markAllNotifsRead() {
+    try {
+      var d = await jsend("POST", "/api/notifications/read-all", {});
+      _setNotifBadge(d.unread || 0);
+      var els = document.querySelectorAll(".notif-item.unread");
+      for (var i = 0; i < els.length; i++) els[i].classList.remove("unread");
+    } catch (e) {}
+  }
+
+  function _renderNotifPrefs() {
+    var wrap = document.getElementById("notifPrefs"); if (!wrap) return;
+    var order = ["trade_executed", "stop_hit", "target_reached", "ai_alert"];
+    wrap.innerHTML = order.map(function (cat) {
+      var meta = NOTIF_META[cat];
+      return '<label><input type="checkbox" ' + (_notifPrefs[cat] !== false ? "checked" : "") +
+        ' onchange="setNotifPref(\'' + cat + '\', this.checked)"> ' + meta.ico + " " + esc(meta.label) + "</label>";
+    }).join("");
+  }
+
+  async function loadNotifPrefs() {
+    try {
+      var d = await jget("/api/notifications/preferences");
+      _notifPrefs = d.preferences || {};
+      _renderNotifPrefs();
+    } catch (e) {}
+  }
+
+  async function setNotifPref(cat, enabled) {
+    _notifPrefs[cat] = enabled;
+    var body = { preferences: {} }; body.preferences[cat] = enabled;
+    try {
+      var d = await jsend("POST", "/api/notifications/preferences", body);
+      _notifPrefs = d.preferences || _notifPrefs;
+    } catch (e) {}
+  }
+
+  function toggleNotifDropdown() {
+    var dd = document.getElementById("notifDropdown"); if (!dd) return;
+    var open = dd.classList.toggle("open");
+    var btn = document.getElementById("notifyBtn");
+    if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
+    if (open) refreshNotifs();
+  }
+  function openNotifDropdown() {
+    var dd = document.getElementById("notifDropdown");
+    if (dd && !dd.classList.contains("open")) toggleNotifDropdown();
+    try { dd.scrollIntoView({ block: "nearest" }); } catch (e) {}
+  }
+  // Close the dropdown when clicking outside it.
+  document.addEventListener("click", function (ev) {
+    var wrap = ev.target.closest ? ev.target.closest(".notif-wrap") : null;
+    if (!wrap) {
+      var dd = document.getElementById("notifDropdown");
+      if (dd && dd.classList.contains("open")) {
+        dd.classList.remove("open");
+        var btn = document.getElementById("notifyBtn");
+        if (btn) btn.setAttribute("aria-expanded", "false");
+      }
+    }
+  });
+
+  (function initNotificationCenter() {
+    if ("Notification" in window && Notification.permission === "granted") {
+      var btn = document.getElementById("notifyBtn");
+      if (btn) btn.classList.add("active");
+    }
+    loadNotifPrefs();
+    refreshNotifs();                            // seeds _notifLastSeen
+    setInterval(function () { if (!document.hidden) refreshNotifs(); }, 15000);
+  })();
 
   // ── Watchlist (feature 1) ──
   async function loadWatchlist() {

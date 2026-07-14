@@ -258,12 +258,15 @@ def _sample_intraday(data_dir: Path, totals: Dict[str, Any]) -> None:
         pass
 
 
-@router.get("/pnl")
-async def live_pnl(_user: str = Depends(require_auth)):
-    """Live unrealized P&L per open position + portfolio totals (F1 + F3)."""
+def build_pnl_snapshot(settings) -> Dict[str, Any]:
+    """Mark every open position to market and return the F1+F3 P&L snapshot.
+
+    Shared by ``GET /api/live/pnl`` and the ``/ws/pnl`` WebSocket so both emit
+    byte-identical payloads.  Synchronous (does the quote fetch inline); call
+    it from a threadpool inside async contexts to avoid blocking the loop.
+    """
     from dashboard import quotes
 
-    settings = get_settings()
     data_dir = Path(settings.DATA_DIR)
     positions_raw = _load_positions(data_dir)
     symbols = [str(p.get("symbol", "")) for p in positions_raw if p.get("symbol")]
@@ -318,6 +321,12 @@ async def live_pnl(_user: str = Depends(require_auth)):
         "positions": rows,
         "totals": totals,
     }
+
+
+@router.get("/pnl")
+async def live_pnl(_user: str = Depends(require_auth)):
+    """Live unrealized P&L per open position + portfolio totals (F1 + F3)."""
+    return build_pnl_snapshot(get_settings())
 
 
 @router.get("/pnl/intraday")

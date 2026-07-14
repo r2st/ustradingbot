@@ -1111,6 +1111,7 @@ from dashboard.ta_router import router as _ta_router  # noqa: E402
 from dashboard.positions_router import router as _positions_router  # noqa: E402
 from dashboard.earnings_router import router as _earnings_router  # noqa: E402
 from dashboard.memory_router import router as _memory_router  # noqa: E402
+from dashboard.ws_pnl import router as _ws_pnl_router  # noqa: E402
 
 for _r in (
     _universe_router,
@@ -1133,5 +1134,6 @@ for _r in (
     _positions_router,
     _earnings_router,
     _memory_router,
+    _ws_pnl_router,
 ):
     app.include_router(_r)

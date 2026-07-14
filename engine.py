@@ -471,10 +471,15 @@ class TradingEngine:
                 exit_price=round(event.exit_price, 4),
                 pnl_gross=round(event.pnl_gross, 2),
             )
+            _exit_categories = {
+                "STOP_HIT": "stop_hit",
+                "TARGET_HIT": "target_reached",
+            }
             self._push_notify(
                 f"Exit: {event.symbol}",
                 f"Closed {event.symbol} @ {event.exit_price:.2f} "
                 f"({event.exit_reason.value}), P&L {event.pnl_gross:+.2f}",
+                category=_exit_categories.get(event.exit_reason.value, "trade_executed"),
             )
         await self._check_risk_alerts()
 
@@ -1096,6 +1101,7 @@ class TradingEngine:
             f"Entry: {sig.symbol}",
             f"{action} {order.quantity} {sig.symbol} @ {order.signal.entry_price:.2f} "
             f"({sig.strategy}, grade {sig.grade.value})",
+            category="trade_executed",
         )
         return True
 
@@ -1251,12 +1257,17 @@ class TradingEngine:
             indicators=rationale.get("indicators"),
         )
 
-    def _push_notify(self, title: str, body: str) -> None:
-        """Enqueue a PWA push notification (feature 17).  Best-effort."""
+    def _push_notify(self, title: str, body: str, category: str = "general") -> None:
+        """Enqueue a PWA push notification (feature 17).  Best-effort.
+
+        *category* is one of the Phase 2 notification types (``trade_executed``,
+        ``stop_hit``, ``target_reached``, ``ai_alert``); the push store drops it
+        when the user has muted that category.
+        """
         try:
             from dashboard.push import publish
 
-            publish(title, body, self.settings.DATA_DIR)
+            publish(title, body, self.settings.DATA_DIR, category=category)
         except Exception:  # noqa: BLE001 -- notifications must never break trading
             pass
 
