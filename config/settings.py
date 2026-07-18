@@ -32,7 +32,32 @@ EASTERN = ZoneInfo("America/New_York")
 _KEYS_DIR: Path = Path(__file__).resolve().parent.parent / "keys"
 _KEY_FILES: Dict[str, str] = {
     "POLYGON_API_KEY": "polygon_api_key",
+    # The OpenRouter key powers the AI veto, trade-reflection lessons, and the
+    # Analyst "Live AI Commentary" page.  Kept as a loose ``keys/`` file so a
+    # ``.env`` that still carries the ``.env.example`` placeholder cannot send a
+    # bogus key and 401 the Analyst page.
+    "OPENROUTER_API_KEY": "openrouter-key",
 }
+
+
+def _is_placeholder(value: str) -> bool:
+    """Return ``True`` when *value* is an unfilled ``.env.example`` placeholder.
+
+    ``.env.example`` ships secrets as ``your_openrouter_key_here`` and the like.
+    When ``.env`` is copied from it and left unedited, the placeholder is a
+    non-empty string that would otherwise masquerade as a real credential — and
+    for the OpenRouter key that means every AI call returns ``401 Unauthorized``
+    instead of degrading cleanly.  Treating placeholders as *unset* lets the
+    loose ``keys/`` file (or an honest "not configured" state) win instead.
+    """
+    v = str(value or "").strip().lower()
+    if not v:
+        return True
+    return (
+        v.startswith("your_")
+        or v.endswith("_here")
+        or v in {"changeme", "change_me", "xxx", "todo", "none", "placeholder"}
+    )
 
 
 class Settings(BaseSettings):
@@ -309,16 +334,27 @@ class Settings(BaseSettings):
         if os.environ.get("USTB_SKIP_KEY_FILES"):
             return self
         for field_name, filename in _KEY_FILES.items():
-            if getattr(self, field_name, ""):
-                continue  # env / .env / explicit value takes precedence
+            current = str(getattr(self, field_name, "") or "")
+            if current and not _is_placeholder(current):
+                continue  # a real env / .env / explicit value takes precedence
+            # The field is unset or still holds an ``.env.example`` placeholder;
+            # prefer the loose key file when it carries a real value.
+            file_value = ""
             path = _KEYS_DIR / filename
             try:
                 if path.is_file():
-                    value = path.read_text(encoding="utf-8").strip()
-                    if value:
-                        setattr(self, field_name, value)
+                    candidate = path.read_text(encoding="utf-8").strip()
+                    if candidate and not _is_placeholder(candidate):
+                        file_value = candidate
             except OSError:
-                continue
+                file_value = ""
+            if file_value:
+                setattr(self, field_name, file_value)
+            elif _is_placeholder(current) and current:
+                # No usable file and only a placeholder in hand — scrub it so
+                # downstream "is the key configured?" checks report the truth
+                # (a clean degrade) instead of shipping a value that only 401s.
+                setattr(self, field_name, "")
         return self
 
     # ── Data cache TTLs (seconds) ───────────────────────────────────────────
