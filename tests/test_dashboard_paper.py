@@ -59,7 +59,8 @@ def test_dashboard_shows_paper_banner_by_default(client, monkeypatch, tmp_path) 
     assert resp.status_code == 200
     assert "Paper Trading" in resp.text
     assert "Simulated money" in resp.text
-    assert "How to Use Paper Trading" in resp.text
+    # The Help section still carries the paper-trading walkthrough.
+    assert "Paper-trading walkthrough" in resp.text
 
 
 def test_dashboard_shows_live_banner_when_live(client, monkeypatch, tmp_path) -> None:

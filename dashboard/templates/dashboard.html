@@ -246,6 +246,31 @@
   }
   .help-col h4 { font-size: 13px; margin-bottom: 8px; color: var(--text); }
 
+  /* Per-section reference cards inside the Help section. Each "?" link in a
+     section header deep-links to #help-<key>, so cards need a scroll offset. */
+  .help-ref-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 16px; margin: 6px 0 26px;
+  }
+  .help-guide {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 14px 16px; scroll-margin-top: 96px;
+  }
+  .help-guide:target {
+    border-color: var(--purple);
+    box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.35);
+  }
+  .help-guide-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .help-guide-head h4 { font-size: 14px; margin: 0; color: var(--text); }
+  .help-guide-what { font-size: 12.5px; color: var(--text-muted); margin: 0 0 8px; line-height: 1.45; }
+  .help-guide .help-list li { padding: 5px 10px 5px 26px; margin-bottom: 2px; }
+  .help-guide-tips { margin: 8px 0 0; padding: 8px 10px; border-radius: 6px;
+    background: var(--surface-2); font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+  .help-guide-tips strong { color: var(--text); }
+  .help-guide-doc { display: inline-block; margin-top: 8px; font-size: 12px; color: var(--accent); }
+  .help-back-top { display: inline-block; margin-left: 8px; font-size: 11px; color: var(--text-muted); text-decoration: none; }
+  .help-back-top:hover { color: var(--accent); }
+
   /* Section cards */
   .section {
     background: var(--surface);
@@ -263,9 +288,27 @@
     background: var(--surface-2);
   }
   .section-header h2 { font-size: 16px; font-weight: 600; }
+  /* Title + one-line description stack, so headers can carry a subtitle. */
+  .section-titles { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .section-sub {
+    font-size: 12px; color: var(--text-muted); font-weight: 400;
+    line-height: 1.35; margin: 0;
+  }
+  /* Round "?" that deep-links to this section's card in the Help reference. */
+  .section-help-link {
+    margin-left: auto; flex: none;
+    width: 24px; height: 24px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: #5b3a8c; color: var(--purple);
+    font-size: 13px; font-weight: 700; text-decoration: none;
+    border: 1px solid transparent; transition: background .15s, color .15s;
+  }
+  .section-help-link:hover, .section-help-link:focus-visible {
+    background: var(--purple); color: #fff; outline: none;
+  }
   .section-icon {
     width: 28px; height: 28px;
-    border-radius: 6px;
+    border-radius: 6px; flex: none;
     display: flex; align-items: center; justify-content: center;
     font-size: 14px;
   }
@@ -1271,7 +1314,11 @@
 <div class="section" id="nav-provider">
   <div class="section-header">
     <div class="section-icon icon-provider">D</div>
-    <h2>Market Data Provider</h2>
+    <div class="section-titles">
+      <h2>Market Data Provider</h2>
+      <p class="section-sub">{{ guides_map.provider.summary }}</p>
+    </div>
+    <a class="section-help-link" href="#help-provider" title="How to use this section — opens the Help reference" aria-label="Help and how-to for Market Data Provider">?</a>
   </div>
   <div class="section-body">
     <div class="provider-active">
@@ -1346,9 +1393,13 @@
 <div class="section" id="nav-account">
   <div class="section-header">
     <div class="section-icon icon-paper">P</div>
-    <h2>{{ paper.mode|capitalize }} Trading Account</h2>
+    <div class="section-titles">
+      <h2>{{ paper.mode|capitalize }} Trading Account</h2>
+      <p class="section-sub">{{ guides_map.account.summary }}</p>
+    </div>
     <span class="updated-stamp" id="pnlUpdatedStamp" style="margin-left:auto;"
           title="Last real-time P&amp;L update"></span>
+    <a class="section-help-link" href="#help-account" title="How to use this section — opens the Help reference" aria-label="Help and how-to for Trading Account">?</a>
   </div>
   <div class="section-body">
     <!-- Account summary cards -->
@@ -1562,7 +1613,11 @@
 <div class="section" id="nav-strategy">
   <div class="section-header">
     <div class="section-icon icon-strategy">C</div>
-    <h2>Strategy Performance Comparison</h2>
+    <div class="section-titles">
+      <h2>Strategy Performance Comparison</h2>
+      <p class="section-sub">{{ guides_map.strategy.summary }}</p>
+    </div>
+    <a class="section-help-link" href="#help-strategy" title="How to use this section — opens the Help reference" aria-label="Help and how-to for Strategy Performance Comparison">?</a>
   </div>
   <div class="section-body">
     {% if strategy_comparison %}
@@ -1626,7 +1681,11 @@
 <div class="section" id="nav-backtest">
   <div class="section-header">
     <div class="section-icon icon-backtest">B</div>
-    <h2>Backtesting</h2>
+    <div class="section-titles">
+      <h2>Backtesting</h2>
+      <p class="section-sub">{{ guides_map.backtest.summary }}</p>
+    </div>
+    <a class="section-help-link" href="#help-backtest" title="How to use this section — opens the Help reference" aria-label="Help and how-to for Backtesting">?</a>
   </div>
   <div class="section-body">
     <p class="bt-hint">Replay the strategies over historical daily bars (Yahoo Finance) and
@@ -1741,7 +1800,11 @@
 <div class="section" id="nav-selection">
   <div class="section-header">
     <div class="section-icon icon-strategy">✓</div>
-    <h2>Engine Trade Selection</h2>
+    <div class="section-titles">
+      <h2>Engine Trade Selection</h2>
+      <p class="section-sub">{{ guides_map.selection.summary }}</p>
+    </div>
+    <a class="section-help-link" href="#help-selection" title="How to use this section — opens the Help reference" aria-label="Help and how-to for Engine Trade Selection">?</a>
   </div>
   <div class="section-body">
     <p class="muted-note">Pin the engine to the <strong>symbols</strong>,
@@ -1795,7 +1858,11 @@
 <div class="section" id="nav-history">
   <div class="section-header">
     <div class="section-icon icon-paper">H</div>
-    <h2>Trade History &amp; Analytics</h2>
+    <div class="section-titles">
+      <h2>Trade History &amp; Analytics</h2>
+      <p class="section-sub">{{ guides_map.history.summary }}</p>
+    </div>
+    <a class="section-help-link" href="#help-history" title="How to use this section — opens the Help reference" aria-label="Help and how-to for Trade History &amp; Analytics">?</a>
   </div>
   <div class="section-body">
     <div class="stat-cards" id="histStatCards">
@@ -1864,7 +1931,11 @@
 <div class="section" id="nav-charts">
   <div class="section-header">
     <div class="section-icon icon-strategy">C</div>
-    <h2>Performance Charts</h2>
+    <div class="section-titles">
+      <h2>Performance Charts</h2>
+      <p class="section-sub">{{ guides_map.charts.summary }}</p>
+    </div>
+    <a class="section-help-link" href="#help-charts" title="How to use this section — opens the Help reference" aria-label="Help and how-to for Performance Charts">?</a>
   </div>
   <div class="section-body">
     <div class="risk-grid">
@@ -1901,7 +1972,11 @@
 <div class="section" id="nav-activity">
   <div class="section-header">
     <div class="section-icon icon-engine">A</div>
-    <h2>Engine Activity</h2>
+    <div class="section-titles">
+      <h2>Engine Activity</h2>
+      <p class="section-sub">{{ guides_map.activity.summary }}</p>
+    </div>
+    <a class="section-help-link" href="#help-activity" title="How to use this section — opens the Help reference" aria-label="Help and how-to for Engine Activity">?</a>
   </div>
   <div class="section-body">
     <p class="muted-note">What the engine did each cycle — scans, every gate rejection with
@@ -1945,7 +2020,11 @@
 <div class="section" id="nav-alerts">
   <div class="section-header">
     <div class="section-icon icon-risk">!</div>
-    <h2>Alerts &amp; Notifications</h2>
+    <div class="section-titles">
+      <h2>Alerts &amp; Notifications</h2>
+      <p class="section-sub">{{ guides_map.alerts.summary }}</p>
+    </div>
+    <a class="section-help-link" href="#help-alerts" title="How to use this section — opens the Help reference" aria-label="Help and how-to for Alerts &amp; Notifications">?</a>
   </div>
   <div class="section-body">
     <h4>Channels</h4>
@@ -2018,7 +2097,11 @@
 <div class="section" id="nav-memory">
   <div class="section-header">
     <div class="section-icon icon-scoring">M</div>
-    <h2>AI Memory &amp; Learning</h2>
+    <div class="section-titles">
+      <h2>AI Memory &amp; Learning</h2>
+      <p class="section-sub">{{ guides_map.memory.summary }}</p>
+    </div>
+    <a class="section-help-link" href="#help-memory" title="How to use this section — opens the Help reference" aria-label="Help and how-to for AI Memory &amp; Learning">?</a>
   </div>
   <div class="section-body">
     <p class="muted-note">The bot's self-written memory. After every trade closes the reflection
@@ -2192,7 +2275,11 @@
 <div class="section" id="nav-risk">
   <div class="section-header">
     <div class="section-icon icon-risk">R</div>
-    <h2>Risk Dashboard</h2>
+    <div class="section-titles">
+      <h2>Risk Dashboard</h2>
+      <p class="section-sub">{{ guides_map.risk.summary }}</p>
+    </div>
+    <a class="section-help-link" href="#help-risk" title="How to use this section — opens the Help reference" aria-label="Help and how-to for Risk Dashboard">?</a>
   </div>
   <div class="section-body">
     <div class="stat-cards" id="riskStatCards">
@@ -2416,7 +2503,11 @@
 <div class="section" id="nav-engine">
   <div class="section-header">
     <div class="section-icon icon-engine">E</div>
-    <h2>Engine Control</h2>
+    <div class="section-titles">
+      <h2>Engine Control</h2>
+      <p class="section-sub">{{ guides_map.engine.summary }}</p>
+    </div>
+    <a class="section-help-link" href="#help-engine" title="How to use this section — opens the Help reference" aria-label="Help and how-to for Engine Control">?</a>
   </div>
   <div class="section-body">
     <div class="engine-state-row">
@@ -2474,7 +2565,11 @@
 <div class="section" id="nav-status">
   <div class="section-header">
     <div class="section-icon icon-status">S</div>
-    <h2>System Status &amp; Configuration</h2>
+    <div class="section-titles">
+      <h2>System Status &amp; Configuration</h2>
+      <p class="section-sub">{{ guides_map.status.summary }}</p>
+    </div>
+    <a class="section-help-link" href="#help-status" title="How to use this section — opens the Help reference" aria-label="Help and how-to for System Status &amp; Configuration">?</a>
   </div>
   <div class="section-body">
     <div class="kv-grid">
@@ -2652,7 +2747,11 @@
 <div class="section" id="nav-watchlist">
   <div class="section-header">
     <div class="section-icon icon-scoring">W</div>
-    <h2>Watchlist Management</h2>
+    <div class="section-titles">
+      <h2>Watchlist Management</h2>
+      <p class="section-sub">{{ guides_map.watchlist.summary }}</p>
+    </div>
+    <a class="section-help-link" href="#help-watchlist" title="How to use this section — opens the Help reference" aria-label="Help and how-to for Watchlist Management">?</a>
   </div>
   <div class="section-body">
     <p class="muted-note">Organise symbols into named lists. The engine scans every
@@ -2691,7 +2790,11 @@
 <div class="section" id="nav-universe">
   <div class="section-header">
     <div class="section-icon icon-universe">U</div>
-    <h2>Universe Browser</h2>
+    <div class="section-titles">
+      <h2>Universe Browser</h2>
+      <p class="section-sub">{{ guides_map.universe.summary }}</p>
+    </div>
+    <a class="section-help-link" href="#help-universe" title="How to use this section — opens the Help reference" aria-label="Help and how-to for Universe Browser">?</a>
   </div>
   <div class="section-body">
     <!-- Not-initialized fallback (shown when universe unavailable) -->
@@ -3002,7 +3105,11 @@
 <div class="section" id="nav-trade">
   <div class="section-header">
     <div class="section-icon icon-strategy">T</div>
-    <h2>Manual Trade Entry</h2>
+    <div class="section-titles">
+      <h2>Manual Trade Entry</h2>
+      <p class="section-sub">{{ guides_map.trade.summary }}</p>
+    </div>
+    <a class="section-help-link" href="#help-trade" title="How to use this section — opens the Help reference" aria-label="Help and how-to for Manual Trade Entry">?</a>
   </div>
   <div class="section-body">
     <p class="muted-note">Place a trade by hand — <strong>buy</strong> (long) or
@@ -3049,7 +3156,11 @@
 <div class="section" id="nav-scanner">
   <div class="section-header">
     <div class="section-icon icon-risk">S</div>
-    <h2>Pre-Market Scanner</h2>
+    <div class="section-titles">
+      <h2>Pre-Market Scanner</h2>
+      <p class="section-sub">{{ guides_map.scanner.summary }}</p>
+    </div>
+    <a class="section-help-link" href="#help-scanner" title="How to use this section — opens the Help reference" aria-label="Help and how-to for Pre-Market Scanner">?</a>
   </div>
   <div class="section-body">
     <p class="muted-note">Scans the watchlist for opening <strong>gaps</strong> and
@@ -3068,7 +3179,11 @@
 <div class="section" id="nav-earnings">
   <div class="section-header">
     <div class="section-icon icon-backtest">E</div>
-    <h2>Earnings Calendar</h2>
+    <div class="section-titles">
+      <h2>Earnings Calendar</h2>
+      <p class="section-sub">{{ guides_map.earnings.summary }}</p>
+    </div>
+    <a class="section-help-link" href="#help-earnings" title="How to use this section — opens the Help reference" aria-label="Help and how-to for Earnings Calendar">?</a>
   </div>
   <div class="section-body">
     <h4>Upcoming</h4>
@@ -3102,7 +3217,11 @@
 <div class="section" id="nav-sectors">
   <div class="section-header">
     <div class="section-icon icon-scoring">S</div>
-    <h2>Sector Rotation &amp; Breadth</h2>
+    <div class="section-titles">
+      <h2>Sector Rotation &amp; Breadth</h2>
+      <p class="section-sub">{{ guides_map.sectors.summary }}</p>
+    </div>
+    <a class="section-help-link" href="#help-sectors" title="How to use this section — opens the Help reference" aria-label="Help and how-to for Sector Rotation &amp; Breadth">?</a>
   </div>
   <div class="section-body">
     <p class="muted-note">The 11 SPDR sector ETFs ranked by relative strength vs SPY.
@@ -3126,7 +3245,11 @@
 <div class="section" id="nav-montecarlo">
   <div class="section-header">
     <div class="section-icon icon-scoring">M</div>
-    <h2>Monte Carlo &amp; Market Intelligence</h2>
+    <div class="section-titles">
+      <h2>Monte Carlo &amp; Market Intelligence</h2>
+      <p class="section-sub">{{ guides_map.montecarlo.summary }}</p>
+    </div>
+    <a class="section-help-link" href="#help-montecarlo" title="How to use this section — opens the Help reference" aria-label="Help and how-to for Monte Carlo &amp; Market Intelligence">?</a>
   </div>
   <div class="section-body">
     <div class="subgrid">
@@ -3155,7 +3278,11 @@
 <div class="section" id="nav-notes">
   <div class="section-header">
     <div class="section-icon icon-help">J</div>
-    <h2>Trade Journal Notes</h2>
+    <div class="section-titles">
+      <h2>Trade Journal Notes</h2>
+      <p class="section-sub">{{ guides_map.notes.summary }}</p>
+    </div>
+    <a class="section-help-link" href="#help-notes" title="How to use this section — opens the Help reference" aria-label="Help and how-to for Trade Journal Notes">?</a>
   </div>
   <div class="section-body">
     <p class="muted-note">Attach notes &amp; tags to trades (by trade ID from the history table).
@@ -3186,7 +3313,11 @@
 <div class="section" id="nav-api">
   <div class="section-header">
     <div class="section-icon icon-engine">A</div>
-    <h2>API, Export &amp; Accounts</h2>
+    <div class="section-titles">
+      <h2>API, Export &amp; Accounts</h2>
+      <p class="section-sub">{{ guides_map.api.summary }}</p>
+    </div>
+    <a class="section-help-link" href="#help-api" title="How to use this section — opens the Help reference" aria-label="Help and how-to for API, Export &amp; Accounts">?</a>
   </div>
   <div class="section-body">
     <div class="subgrid">
@@ -3232,9 +3363,45 @@
 <div class="section" id="nav-help">
   <div class="section-header">
     <div class="section-icon icon-help">?</div>
-    <h2>How to Use Paper Trading</h2>
+    <div class="section-titles">
+      <h2>Help &amp; Documentation</h2>
+      <p class="section-sub">What every section does and how to use it — plus the paper-trading walkthrough.</p>
+    </div>
   </div>
   <div class="section-body">
+
+    <!-- ── Per-section reference. Each section header's "?" links to #help-<key>. ── -->
+    <h3 style="margin:0 0 4px;">Section reference</h3>
+    <p style="font-size:13px; color:var(--text-muted); margin:0 0 14px;">
+      Every section on this dashboard has a <strong>“?”</strong> in its header that jumps here.
+      Use these cards to learn what a section is for, what each control does, and tips for using it well.
+    </p>
+    <div class="help-ref-grid">
+      {% for g in guides %}
+      <div class="help-guide" id="help-{{ g.key }}">
+        <div class="help-guide-head">
+          <h4>{{ g.title }}</h4>
+          <a class="help-back-top" href="#nav-{{ g.key }}"
+             title="Go to the {{ g.title }} section">↑ open section</a>
+        </div>
+        <p class="help-guide-what">{{ g.what }}</p>
+        <ul class="help-list">
+          {% for step in g.how %}<li>{{ step }}</li>{% endfor %}
+        </ul>
+        {% if g.tips %}
+        <div class="help-guide-tips">
+          <strong>Tips:</strong>
+          {% for tip in g.tips %}{{ tip }}{% if not loop.last %} {% endif %}{% endfor %}
+        </div>
+        {% endif %}
+        {% if g.doc %}
+        <a class="help-guide-doc" href="{{ g.doc.url }}" target="_blank" rel="noopener">{{ g.doc.label }} →</a>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+
+    <h3 style="margin:22px 0 4px;">Paper-trading walkthrough</h3>
     <p style="font-size:13px; color:var(--text-muted); margin-bottom:14px;">
       Paper trading is the <strong>default mode</strong> — it simulates every fill with
       realistic slippage and commissions, so you can validate the strategies risk-free

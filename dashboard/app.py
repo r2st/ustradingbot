@@ -611,6 +611,370 @@ def _build_help() -> Dict[str, Any]:
     }
 
 
+# Anchor of the in-page documentation section every "?" help link points at.
+HELP_SECTION_ANCHOR = "nav-help"
+
+
+def _build_section_guides() -> List[Dict[str, Any]]:
+    """Per-section documentation shown as subtitles and in the Help reference.
+
+    Each entry is the single source of truth for a dashboard section's one-line
+    subtitle (``summary``) *and* its detailed how-to card (rendered inside the
+    Help section at ``#help-<key>``). ``key`` matches the section's ``nav-<key>``
+    anchor so the header's "?" link can deep-link to the matching card.
+
+    Fields:
+      * ``key``     — matches the ``nav-<key>`` section id (and ``help-<key>`` card)
+      * ``title``   — human label (mirrors the section's ``<h2>``)
+      * ``summary`` — one line shown under the heading; keep it scannable
+      * ``what``    — a sentence on what the section is for
+      * ``how``     — ordered how-to / what-the-controls-mean bullets
+      * ``tips``    — optional best-practice bullets
+      * ``doc``     — optional {"label", "url"} "Learn more" link
+    """
+    return [
+        {
+            "key": "provider",
+            "title": "Market Data Provider",
+            "summary": "Choose where live price data comes from and store each provider's API key.",
+            "what": "Selects the source the engine and dashboard pull quotes and history "
+                    "from, and lets you save provider API keys without editing files.",
+            "how": [
+                "Pick a source in “Select provider” and click Apply — the engine restarts on the new feed.",
+                "Yahoo Finance is the free default and needs no key; Alpaca and Polygon.io need one.",
+                "Each provider card shows Connected or Needs API key.",
+                "Paste a key under API Keys and Save — saving Alpaca keys auto-switches the active provider.",
+                "Keys are written only to your local .env and never leave this machine.",
+            ],
+            "tips": [
+                "Alpaca adds realtime websocket streaming for lower-latency exits.",
+                "Use the “Get a key” link on each card to reach the provider's signup page.",
+            ],
+        },
+        {
+            "key": "account",
+            "title": "Trading Account",
+            "summary": "Your live equity, today's P&L, cash balances and every open position.",
+            "what": "The at-a-glance state of the account the engine is trading — paper by "
+                    "default, live once you switch broker.",
+            "how": [
+                "Account Equity = starting capital + realised P&L from closed trades.",
+                "Today's P&L sums the net P&L of trades that closed today; it updates in real time over a websocket.",
+                "Open Positions lists each live lot: entry, stop, target, cost basis and setup grade.",
+                "Toggle the Cards / Table view with the buttons in the header; your choice is remembered.",
+                "Balances show committed vs. available capital per currency (USD / CAD).",
+            ],
+            "tips": [
+                "A red banner and “LIVE” label mean real money is at risk; paper mode is labelled and safe.",
+            ],
+        },
+        {
+            "key": "strategy",
+            "title": "Strategy Performance Comparison",
+            "summary": "Win rate, profit factor and expectancy broken down per strategy.",
+            "what": "Shows which edges are actually working by comparing every strategy's "
+                    "closed-trade statistics side by side.",
+            "how": [
+                "Each row is one strategy (VCP, PEAD, momentum, swing, mean-reversion, …).",
+                "Profit Factor = gross wins ÷ gross losses; above 1.5 is healthy.",
+                "Expectancy is the average R-multiple per trade; positive means a real edge.",
+                "Win rate and average win/loss give context — a low win rate can still profit with big winners.",
+            ],
+            "tips": [
+                "Judge a strategy on dozens of closed trades, not a handful — small samples mislead.",
+            ],
+        },
+        {
+            "key": "backtest",
+            "title": "Backtesting",
+            "summary": "Replay a strategy over historical data before risking any capital.",
+            "what": "Runs the exact live fill model (slippage + commission) over past data so "
+                    "results are directly comparable to paper and live trading.",
+            "how": [
+                "Pick symbols, a date range and one or more strategies, then Run.",
+                "Results show per-symbol and per-strategy trades, win rate, net P&L, avg R and profit factor.",
+                "The equity curve and stats appear when the run finishes.",
+                "Tick rows in the results to push those symbols into Engine Trade Selection.",
+            ],
+            "tips": [
+                "Test across different market conditions — a strategy that only works in a bull run is fragile.",
+            ],
+        },
+        {
+            "key": "selection",
+            "title": "Engine Trade Selection",
+            "summary": "Pin the engine to specific symbols, strategies and a minimum setup grade.",
+            "what": "Constrains what the automated engine is allowed to trade — typically set "
+                    "after reviewing a backtest — instead of scanning everything.",
+            "how": [
+                "Flip Status on to activate the selection; off returns the engine to fully automatic scanning.",
+                "Minimum grade filters setups: A only (strongest), B or better (default), or C or better (permissive).",
+                "Leave Strategies unchecked to allow all; leave Symbols empty to allow every watchlist symbol.",
+                "Tick backtest rows to add strong performers, then enter the admin password and Save.",
+                "Changes take effect on the engine's next scan cycle.",
+            ],
+            "tips": [
+                "Grades map from score: A ≥ 0.78 (full size), B ≥ 0.65 (75% size); C/F are normally skipped.",
+            ],
+        },
+        {
+            "key": "history",
+            "title": "Trade History & Analytics",
+            "summary": "Every closed trade with filters and aggregate performance analytics.",
+            "what": "The full record of what the engine has done, plus the analytics computed "
+                    "from those closed trades.",
+            "how": [
+                "Browse closed trades with entry/exit, P&L, R-multiple, strategy and grade.",
+                "Filter by symbol, strategy or date to focus a review.",
+                "Aggregate stats (win rate, profit factor, expectancy, drawdown) summarise the filtered set.",
+            ],
+            "tips": [
+                "Export the same data as CSV or PDF from the API, Export & Accounts section.",
+            ],
+        },
+        {
+            "key": "charts",
+            "title": "Performance Charts",
+            "summary": "Equity curve, drawdown and P&L visualised over time.",
+            "what": "Turns the trade history into charts so trends and drawdowns are obvious "
+                    "at a glance.",
+            "how": [
+                "The equity curve tracks account value trade by trade.",
+                "Drawdown shows how far equity has fallen from its peak — the key risk view.",
+                "Use the range/interval controls (if shown) to zoom the window.",
+            ],
+            "tips": [
+                "A smooth rising curve with shallow drawdowns matters more than a high final number.",
+            ],
+        },
+        {
+            "key": "activity",
+            "title": "Engine Activity",
+            "summary": "A cycle-by-cycle log of scans, gate rejections, trades and exits.",
+            "what": "The best answer to “why didn't the bot trade today?” — it shows every "
+                    "decision the engine made each cycle, including AI-veto reasoning.",
+            "how": [
+                "Recent Cycles lists each scan with signal count, gate rejections, trades placed and exits.",
+                "Each rejection names the gate that blocked it and the reason.",
+                "Elapsed shows how long the cycle took.",
+            ],
+            "tips": [
+                "If nothing is trading, read the rejection reasons here before changing settings.",
+            ],
+        },
+        {
+            "key": "alerts",
+            "title": "Alerts & Notifications",
+            "summary": "Configure Telegram, email and push channels and test they work.",
+            "what": "Controls where the bot sends trade, exit and risk notifications, and lets "
+                    "you fire a test message per channel.",
+            "how": [
+                "Each channel card shows whether it is configured; click Send test to verify delivery.",
+                "Enable or disable notification categories so you only get the alerts you want.",
+                "Configure channel credentials in .env / Settings; unconfigured channels are marked.",
+            ],
+            "tips": [
+                "Send a test after changing credentials so you know alerts will arrive during market hours.",
+            ],
+        },
+        {
+            "key": "memory",
+            "title": "AI Memory & Learning",
+            "summary": "The plain-English lessons the bot writes for itself after each trade.",
+            "what": "A read-only view of the reflection engine's memory: one lesson recorded "
+                    "per closed trade, consulted by guards before new entries.",
+            "how": [
+                "Stats summarise total lessons, active bindings and how often the guard acted on them.",
+                "Before a new entry the similar-setup and learnings guards check this memory.",
+                "A poor track record on a setup can block or demote (down-size) a new signal.",
+            ],
+            "tips": [
+                "Memory grows more useful over time — the longer the bot runs, the more it has learned.",
+            ],
+        },
+        {
+            "key": "risk",
+            "title": "Risk Dashboard",
+            "summary": "Gross exposure, sector concentration, correlation, drawdown and rolling P&L.",
+            "what": "The portfolio-level risk picture — how much is at stake and how "
+                    "concentrated or correlated the open book is.",
+            "how": [
+                "Gross exposure is total capital committed across open positions.",
+                "Sector concentration flags too much weight in one sector.",
+                "Position correlation warns when several names are really one bet.",
+                "Daily / weekly / monthly P&L and drawdown track the risk trend.",
+            ],
+            "tips": [
+                "A book of highly correlated positions carries far more risk than the position count suggests.",
+            ],
+        },
+        {
+            "key": "engine",
+            "title": "Engine Control",
+            "summary": "Start, stop and monitor the automated trading engine.",
+            "what": "The on/off switch and live status for the background engine that scans, "
+                    "scores and places trades.",
+            "how": [
+                "Status shows whether the engine is running and when it last completed a cycle.",
+                "Use the controls to start or stop it; it only trades during US market hours (09:30–16:00 ET, weekdays).",
+                "Some controls require the admin password (DASHBOARD_PASSWORD).",
+            ],
+            "tips": [
+                "Stopping the engine leaves open positions untouched — manage those from the account section.",
+            ],
+        },
+        {
+            "key": "status",
+            "title": "System Status & Configuration",
+            "summary": "Broker mode, versions, feature flags and the switch to live trading.",
+            "what": "The system's overall health and configuration, plus the guarded switch "
+                    "between paper and live trading.",
+            "how": [
+                "Review broker mode (paper vs. live), data provider and key runtime settings.",
+                "Switch to Live pops a confirmation warning that REAL money is at risk and needs the admin password.",
+                "Switch to Paper (no password) sets BROKER=paper and restarts the engine.",
+                "Live trading needs a funded Interactive Brokers account with TWS/Gateway running.",
+            ],
+            "tips": [
+                "IBKR_PORT=7497 is IBKR's paper gateway — still paper. 7496 is live.",
+            ],
+        },
+        {
+            "key": "watchlist",
+            "title": "Watchlist Management",
+            "summary": "Curate the US, Canadian and ETF symbol lists the engine scans.",
+            "what": "Defines the pool of symbols the scanner and engine consider each cycle "
+                    "when no explicit trade selection is active.",
+            "how": [
+                "Add or remove symbols per list (US, Canada, ETFs).",
+                "Symbols here feed the Pre-Market Scanner, Earnings Calendar and automatic scanning.",
+                "Changes apply on the engine's next cycle.",
+            ],
+            "tips": [
+                "Keep the watchlist focused — a smaller, liquid list produces cleaner signals than a huge one.",
+            ],
+        },
+        {
+            "key": "universe",
+            "title": "Universe Browser",
+            "summary": "Browse the full tradable-symbol database and promote names to the watchlist.",
+            "what": "A searchable catalogue of every stock and ETF the bot knows about, built "
+                    "from a seedable universe database.",
+            "how": [
+                "If the universe is empty, click Seed Now to build the symbol database.",
+                "Switch between Indices, Scan pool and Promotions with the sub-tabs.",
+                "Filter and sort to find candidates, then promote strong names into the watchlist.",
+            ],
+            "tips": [
+                "Seeding can take a while the first time — it downloads the full symbol list.",
+            ],
+        },
+        {
+            "key": "trade",
+            "title": "Manual Trade Entry",
+            "summary": "Place a discretionary order outside the automated engine.",
+            "what": "Lets you enter a trade by hand — useful for testing, overrides or acting "
+                    "on a setup the engine didn't take.",
+            "how": [
+                "Enter the symbol, side, quantity and any stop/target, then submit.",
+                "The order uses the same fill model and journalling as engine trades.",
+                "The position then appears in the account and risk views like any other.",
+            ],
+            "tips": [
+                "Manual trades still count toward risk limits and analytics — size them accordingly.",
+            ],
+        },
+        {
+            "key": "scanner",
+            "title": "Pre-Market Scanner",
+            "summary": "Scan the watchlist for opening gaps and unusual volume.",
+            "what": "A quick pre-open scan that surfaces the symbols moving most and trading "
+                    "on abnormal volume.",
+            "how": [
+                "Click Run scan to score every watchlist symbol.",
+                "Gap is the % move from the previous close; Vol × is today's volume vs. its average.",
+                "The Signals column flags which setups the mover matches.",
+            ],
+            "tips": [
+                "Run it shortly before the open — gaps and volume are most meaningful pre-market.",
+            ],
+        },
+        {
+            "key": "earnings",
+            "title": "Earnings Calendar",
+            "summary": "Upcoming earnings dates for every watchlist symbol.",
+            "what": "Shows when each watchlist name reports, so you can avoid or plan around "
+                    "earnings-driven volatility.",
+            "how": [
+                "Click Load earnings to fetch dates (via yfinance).",
+                "Days away counts down to each report.",
+                "Cross-reference before entering — a position into earnings carries event risk.",
+            ],
+            "tips": [
+                "Many strategies avoid holding through earnings; the PEAD strategy deliberately trades the reaction after.",
+            ],
+        },
+        {
+            "key": "sectors",
+            "title": "Sector Rotation & Breadth",
+            "summary": "The 11 SPDR sector ETFs ranked by relative strength versus SPY.",
+            "what": "Shows which sectors are leading or lagging the market — the input the "
+                    "sector_rotation strategy uses to pick longs.",
+            "how": [
+                "Click Load sectors to rank each sector ETF by return and performance vs SPY.",
+                "Leaders (outperforming and above their 50-day average) are the rotation candidates.",
+                "The breadth box summarises how broad the market's participation is.",
+            ],
+            "tips": [
+                "Rotating into leading sectors and out of laggards is the core idea — confirm with breadth.",
+            ],
+        },
+        {
+            "key": "montecarlo",
+            "title": "Monte Carlo & Market Intelligence",
+            "summary": "Regime detection, adaptive thresholds and Monte Carlo equity projections.",
+            "what": "Higher-level market-intelligence tools: what regime we're in, how the bot "
+                    "is auto-tuning, and a probabilistic view of future equity.",
+            "how": [
+                "Market Regime classifies current conditions (trending, choppy, volatile).",
+                "Adaptive Thresholds shows how the engine auto-tunes its gates to the regime.",
+                "The Monte Carlo projection simulates many equity paths to show a likely range of outcomes.",
+            ],
+            "tips": [
+                "Treat the projection as a distribution of possibilities, not a forecast of one path.",
+            ],
+        },
+        {
+            "key": "notes",
+            "title": "Trade Journal Notes",
+            "summary": "Write and keep free-form notes about trades and market conditions.",
+            "what": "A simple journal for your own observations — the qualitative context that "
+                    "numbers alone don't capture.",
+            "how": [
+                "Add a note with your thoughts on a trade, setup or market day.",
+                "Notes are saved and listed so you can review your reasoning later.",
+            ],
+            "tips": [
+                "Journaling why you took (or skipped) a trade is one of the fastest ways to improve.",
+            ],
+        },
+        {
+            "key": "api",
+            "title": "API, Export & Accounts",
+            "summary": "Download CSV/PDF reports, use the REST API and manage dashboard accounts.",
+            "what": "Data-export and account-administration tools for the dashboard.",
+            "how": [
+                "Export trades and analytics as CSV or PDF with the download buttons.",
+                "The REST API (see /docs) exposes the same data programmatically.",
+                "Manage dashboard user accounts and access from here.",
+            ],
+            "tips": [
+                "Use the CSV exports to analyse performance in a spreadsheet or notebook.",
+            ],
+        },
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -636,6 +1000,9 @@ async def dashboard(request: Request, _user: str = Depends(require_auth)):
             "engine": _build_engine_status(),
             "backtest_options": _build_backtest_options(),
             "help": _build_help(),
+            "guides": _build_section_guides(),
+            "guides_map": {g["key"]: g for g in _build_section_guides()},
+            "help_anchor": HELP_SECTION_ANCHOR,
             "strategies": _build_strategies(),
             "strategy_comparison": _build_strategy_comparison(),
             "scores": _build_sample_scores(),
