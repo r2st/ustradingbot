@@ -268,6 +268,41 @@
     background: var(--surface-2); font-size: 12px; color: var(--text-muted); line-height: 1.5; }
   .help-guide-tips strong { color: var(--text); }
   .help-guide-doc { display: inline-block; margin-top: 8px; font-size: 12px; color: var(--accent); }
+  /* Quick-start callout at the top of each help card. */
+  .help-guide-quickstart {
+    margin: 0 0 10px; padding: 8px 10px 8px 12px; border-radius: 6px;
+    background: var(--accent-dim); border-left: 3px solid var(--accent);
+    font-size: 12.5px; color: var(--text); line-height: 1.5;
+  }
+  .help-guide-quickstart strong { color: var(--accent); text-transform: uppercase;
+    font-size: 10.5px; letter-spacing: 0.6px; display: block; margin-bottom: 2px; }
+  /* Small section label inside a help card ("How to use", "Examples", "Watch out for"). */
+  .help-guide-label {
+    font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px;
+    color: var(--text-muted); margin: 12px 0 4px;
+  }
+  .help-guide-label:first-of-type { margin-top: 0; }
+  /* Practical examples list — accent bullets. */
+  .help-guide-examples { list-style: none; padding: 0; margin: 0; }
+  .help-guide-examples li {
+    position: relative; padding: 4px 10px 4px 22px; margin-bottom: 3px;
+    font-size: 12.5px; color: var(--text-muted); line-height: 1.5;
+  }
+  .help-guide-examples li::before {
+    content: "▸"; position: absolute; left: 6px; top: 4px; color: var(--accent); font-size: 11px;
+  }
+  .help-guide-examples code { font-size: 11.5px; }
+  /* Common-mistakes box — amber-tinted warning. */
+  .help-guide-mistakes { margin: 4px 0 0; padding: 8px 10px; border-radius: 6px;
+    background: rgba(243, 156, 18, 0.10); border-left: 3px solid #f39c12; }
+  .help-guide-mistakes ul { list-style: none; padding: 0; margin: 0; }
+  .help-guide-mistakes li {
+    position: relative; padding: 3px 4px 3px 20px; font-size: 12px;
+    color: var(--text-muted); line-height: 1.5;
+  }
+  .help-guide-mistakes li::before {
+    content: "!"; position: absolute; left: 7px; top: 3px; color: #f39c12; font-weight: 700; font-size: 12px;
+  }
   .help-back-top { display: inline-block; margin-left: 8px; font-size: 11px; color: var(--text-muted); text-decoration: none; }
   .help-back-top:hover { color: var(--accent); }
 
@@ -1127,6 +1162,95 @@
     .uni-bulk-bar { flex-direction: column; align-items: stretch; }
     .uni-tier-cards { grid-template-columns: 1fr; }
   }
+
+  /* ═══════════════ UI refinement pass (nav v2) ═══════════════
+     Adds: scroll-spy active nav highlighting, a sticky breadcrumb / section
+     indicator, a floating back-to-top button, and collapsible section cards.
+     Purely additive — no existing selector is redefined. */
+
+  /* ── Active nav link (scroll-spy) ─────────────────────────────────── */
+  .section-nav a[href^="#"] {
+    position: relative; transition: background .15s, color .15s;
+  }
+  .section-nav a[href^="#"].active {
+    background: var(--accent-dim); color: #fff; font-weight: 600;
+  }
+  .section-nav a[href^="#"].active::before {
+    content: ""; position: absolute; left: 6px; top: 50%;
+    transform: translateY(-50%);
+    width: 3px; height: 16px; border-radius: 2px; background: var(--accent);
+  }
+  /* A category that contains the active link gets a subtle marker. */
+  .nav-cat.has-active > .nav-cat-toggle { color: var(--text); }
+
+  /* ── Breadcrumb / current-section indicator ───────────────────────── */
+  .section-indicator {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    margin-top: 12px; padding: 8px 4px 0;
+    border-top: 1px solid var(--border);
+    font-size: 13px; color: var(--text-muted);
+  }
+  .section-indicator .crumb-pin { color: var(--accent); font-size: 13px; }
+  .section-indicator .crumb-cat { font-weight: 600; }
+  .section-indicator .crumb-sep { color: var(--border); }
+  .section-indicator .crumb-section { color: var(--text); font-weight: 600; }
+  .section-indicator .crumb-jump {
+    margin-left: auto; background: none; border: none; cursor: pointer;
+    color: var(--accent); font-size: 12px; font-weight: 600; padding: 4px 6px;
+    border-radius: 6px;
+  }
+  .section-indicator .crumb-jump:hover { background: var(--surface-2); }
+
+  /* ── Floating back-to-top button ──────────────────────────────────── */
+  .back-to-top {
+    position: fixed; right: 20px; bottom: 20px; z-index: 180;
+    width: 46px; height: 46px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--accent); color: #fff; border: none;
+    font-size: 20px; line-height: 1; cursor: pointer;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+    opacity: 0; visibility: hidden; transform: translateY(12px);
+    transition: opacity .22s ease, transform .22s ease, visibility .22s;
+  }
+  .back-to-top.show { opacity: 1; visibility: visible; transform: translateY(0); }
+  .back-to-top:hover { background: var(--accent-dim); }
+  .back-to-top:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+
+  /* ── Collapsible section cards ────────────────────────────────────── */
+  /* The whole header is clickable to collapse (clicks on links/inputs are
+     ignored by the JS). A caret at the far right shows the state. */
+  .section[data-collapsible] > .section-header { cursor: pointer; user-select: none; }
+  .section[data-collapsible] > .section-header:hover { background: var(--surface); }
+  .section-collapse-caret {
+    flex: none; margin-left: 10px; color: var(--text-muted);
+    font-size: 12px; transition: transform .2s ease; pointer-events: none;
+  }
+  /* When a help link is present it already sits at margin-left:auto; keep the
+     caret hugging the right edge after it. */
+  .section-header .section-help-link + .section-collapse-caret,
+  .section-header .updated-stamp + .section-collapse-caret { margin-left: 8px; }
+  .section.collapsed > .section-header .section-collapse-caret { transform: rotate(-90deg); }
+  .section.collapsed > .section-body,
+  .section.collapsed > .bt-results,
+  .section.collapsed > .pos-head-row { display: none !important; }
+
+  /* ── Small visual-hierarchy refinements ───────────────────────────── */
+  .section { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18); transition: border-color .15s; }
+  :root[data-theme="light"] .section { box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06); }
+  .stat-card, .pos-card { transition: border-color .15s, transform .15s; }
+  .stat-card:hover { border-color: var(--surface-2); }
+  a:focus-visible, button:focus-visible,
+  select:focus-visible, input:focus-visible, textarea:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px;
+  }
+  /* Sticky-header offset accounts for the added breadcrumb row. */
+  .section { scroll-margin-top: 132px; }
+
+  @media (max-width: 768px) {
+    .back-to-top { right: 14px; bottom: 14px; width: 44px; height: 44px; }
+    .section-indicator { margin-top: 10px; font-size: 12px; }
+    .section { scroll-margin-top: 150px; }
+  }
 </style>
 </head>
 <body>
@@ -1200,6 +1324,15 @@
       <button type="button" class="nav-toggle" id="navToggle" aria-label="Toggle menu"
               aria-expanded="false" aria-controls="sectionNav" onclick="toggleNav()">☰</button>
     </div>
+  </div>
+  <!-- Breadcrumb / current-section indicator — kept in sync by the scroll-spy. -->
+  <div class="section-indicator" id="sectionIndicator" aria-live="polite">
+    <span class="crumb-pin" aria-hidden="true">📍</span>
+    <span class="crumb-cat" id="crumbCat">Trading</span>
+    <span class="crumb-sep" aria-hidden="true">›</span>
+    <span class="crumb-section" id="crumbSection">Overview</span>
+    <button type="button" class="crumb-jump" onclick="toggleNav()"
+            aria-label="Open section menu">Menu ▾</button>
   </div>
   <nav class="section-nav" id="sectionNav" aria-label="Dashboard sections">
     <div class="nav-drawer-head">
@@ -3384,10 +3517,28 @@
           <a class="help-back-top" href="#nav-{{ g.key }}"
              title="Go to the {{ g.title }} section">↑ open section</a>
         </div>
+        {% if g.quickstart %}
+        <div class="help-guide-quickstart">
+          <strong>Quick start</strong>{{ g.quickstart }}
+        </div>
+        {% endif %}
         <p class="help-guide-what">{{ g.what }}</p>
+        <div class="help-guide-label">Step by step</div>
         <ul class="help-list">
           {% for step in g.how %}<li>{{ step }}</li>{% endfor %}
         </ul>
+        {% if g.examples %}
+        <div class="help-guide-label">Examples</div>
+        <ul class="help-guide-examples">
+          {% for ex in g.examples %}<li>{{ ex }}</li>{% endfor %}
+        </ul>
+        {% endif %}
+        {% if g.mistakes %}
+        <div class="help-guide-label">Watch out for</div>
+        <div class="help-guide-mistakes">
+          <ul>{% for m in g.mistakes %}<li>{{ m }}</li>{% endfor %}</ul>
+        </div>
+        {% endif %}
         {% if g.tips %}
         <div class="help-guide-tips">
           <strong>Tips:</strong>
@@ -6890,6 +7041,169 @@
     loadUniversePromotions();
     loadWatchlists();
   })();
+</script>
+
+<!-- Floating back-to-top button (revealed after scrolling). -->
+<button type="button" class="back-to-top" id="backToTop" title="Back to top"
+        aria-label="Back to top" onclick="scrollToTop()">↑</button>
+
+<script>
+/* ═══════════════ Navigation UX v2 ═══════════════
+   Scroll-spy active highlighting, live breadcrumb, back-to-top button and
+   collapsible section cards. Self-contained; reads the section→category map
+   from the existing sidebar DOM so it needs no hard-coded list. */
+(function () {
+  "use strict";
+
+  // Smooth scroll to top — referenced by the floating button's onclick.
+  window.scrollToTop = function () {
+    var reduce = window.matchMedia &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    window.scrollTo({ top: 0, behavior: reduce ? "auto" : "smooth" });
+  };
+
+  var sections = Array.prototype.slice.call(
+    document.querySelectorAll('.section[id^="nav-"]'));
+  var navLinks = Array.prototype.slice.call(
+    document.querySelectorAll('.section-nav a[href^="#nav-"]'));
+
+  // Build id → { link, cat, label } from the sidebar so the breadcrumb and
+  // active-link logic stay in sync with whatever categories the nav declares.
+  var byId = {};
+  navLinks.forEach(function (a) {
+    var id = a.getAttribute("href").slice(1);
+    var catEl = a.closest(".nav-cat");
+    var catName = catEl
+      ? (catEl.querySelector(".nav-cat-toggle span") || {}).textContent || ""
+      : "";
+    byId[id] = {
+      link: a,
+      catEl: catEl,
+      cat: (catName || "").trim() || "Section",
+      label: (a.textContent || "").replace(/ /g, " ").trim()
+    };
+  });
+
+  var crumbCat = document.getElementById("crumbCat");
+  var crumbSection = document.getElementById("crumbSection");
+  var backToTop = document.getElementById("backToTop");
+
+  function setActive(id) {
+    var info = byId[id];
+    navLinks.forEach(function (a) { a.classList.remove("active"); });
+    document.querySelectorAll(".nav-cat.has-active").forEach(function (c) {
+      c.classList.remove("has-active");
+    });
+    if (!info) return;
+    info.link.classList.add("active");
+    if (info.catEl) info.catEl.classList.add("has-active");
+    if (crumbCat) crumbCat.textContent = info.cat;
+    if (crumbSection) crumbSection.textContent = info.label;
+  }
+
+  // ── Scroll-spy: the active section is the last one whose top has passed the
+  // line just below the sticky header. rAF-throttled for smoothness. ──
+  var HEADER_OFFSET = 150;
+  var ticking = false, currentId = null;
+
+  function updateSpy() {
+    ticking = false;
+    var probe = HEADER_OFFSET + 1;
+    var activeId = sections.length ? sections[0].id : null;
+    for (var i = 0; i < sections.length; i++) {
+      if (sections[i].getBoundingClientRect().top <= probe) {
+        activeId = sections[i].id;
+      } else {
+        break;
+      }
+    }
+    // Near the very bottom, force the last section active (short sections may
+    // never reach the probe line).
+    if (window.innerHeight + window.scrollY >=
+        document.body.scrollHeight - 4 && sections.length) {
+      activeId = sections[sections.length - 1].id;
+    }
+    if (activeId && activeId !== currentId) {
+      currentId = activeId;
+      setActive(activeId);
+    }
+    if (backToTop) {
+      backToTop.classList.toggle("show", window.scrollY > 400);
+    }
+  }
+
+  function onScroll() {
+    if (!ticking) {
+      ticking = true;
+      window.requestAnimationFrame(updateSpy);
+    }
+  }
+
+  window.addEventListener("scroll", onScroll, { passive: true });
+  window.addEventListener("resize", onScroll, { passive: true });
+  window.addEventListener("hashchange", function () {
+    // Let the browser jump, then refresh the indicator.
+    window.requestAnimationFrame(function () {
+      window.requestAnimationFrame(updateSpy);
+    });
+  });
+
+  // ── Collapsible section cards ──
+  var COLLAPSE_KEY = "ustb_sections_collapsed";
+  var collapsed;
+  try { collapsed = new Set(JSON.parse(localStorage.getItem(COLLAPSE_KEY) || "[]")); }
+  catch (e) { collapsed = new Set(); }
+
+  function persistCollapsed() {
+    try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(Array.from(collapsed))); }
+    catch (e) {}
+  }
+
+  sections.forEach(function (section) {
+    var header = section.querySelector(".section-header");
+    if (!header) return;
+    section.setAttribute("data-collapsible", "");
+
+    // Caret indicator at the far right of the header.
+    var caret = document.createElement("span");
+    caret.className = "section-collapse-caret";
+    caret.setAttribute("aria-hidden", "true");
+    caret.textContent = "▾"; // ▾
+    header.appendChild(caret);
+
+    var h2 = header.querySelector("h2");
+    if (h2 && h2.id === "" ) { /* leave ids untouched */ }
+    header.setAttribute("role", "button");
+    header.setAttribute("tabindex", "0");
+    header.setAttribute("aria-expanded",
+      collapsed.has(section.id) ? "false" : "true");
+
+    if (collapsed.has(section.id)) section.classList.add("collapsed");
+
+    function toggle() {
+      var isCollapsed = section.classList.toggle("collapsed");
+      header.setAttribute("aria-expanded", isCollapsed ? "false" : "true");
+      if (isCollapsed) collapsed.add(section.id); else collapsed.delete(section.id);
+      persistCollapsed();
+    }
+
+    header.addEventListener("click", function (e) {
+      // Ignore clicks on interactive children (help link, toggles, inputs…).
+      if (e.target.closest("a, button, select, input, textarea, label")) return;
+      toggle();
+    });
+    header.addEventListener("keydown", function (e) {
+      if ((e.key === "Enter" || e.key === " ") &&
+          !e.target.closest("a, button, select, input, textarea, label")) {
+        e.preventDefault();
+        toggle();
+      }
+    });
+  });
+
+  // Initial paint.
+  updateSpy();
+})();
 </script>
 
 <script src="/pwa/pwa.js" defer></script>

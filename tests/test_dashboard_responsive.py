@@ -57,3 +57,35 @@ def test_touch_target_sizing(client) -> None:
     html = client.get("/").text
     # Controls bumped to a >=44px minimum tap target on mobile.
     assert "min-height: 44px" in html
+
+
+def test_breadcrumb_section_indicator(client) -> None:
+    html = client.get("/").text
+    # Sticky breadcrumb / current-section indicator with live crumb targets.
+    assert 'id="sectionIndicator"' in html
+    assert 'id="crumbCat"' in html
+    assert 'id="crumbSection"' in html
+
+
+def test_back_to_top_button(client) -> None:
+    html = client.get("/").text
+    assert 'id="backToTop"' in html
+    assert 'class="back-to-top"' in html
+    assert "function scrollToTop" in html or "window.scrollToTop" in html
+
+
+def test_scroll_spy_wiring(client) -> None:
+    html = client.get("/").text
+    # The scroll-spy adds an active class to the matching nav link and keeps a
+    # rAF-throttled scroll listener.
+    assert ".section-nav a[href^=\"#\"].active" in html
+    assert "requestAnimationFrame" in html
+    assert 'addEventListener("scroll"' in html
+
+
+def test_collapsible_sections(client) -> None:
+    html = client.get("/").text
+    # Collapsible section cards + their persisted-state key.
+    assert "section-collapse-caret" in html
+    assert "ustb_sections_collapsed" in html
+    assert "data-collapsible" in html
