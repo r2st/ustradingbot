@@ -49,6 +49,22 @@ def test_guide_keys_are_unique() -> None:
     assert len(keys) == len(set(keys)), f"duplicate guide keys: {keys}"
 
 
+# The detailed-help fields every card now carries: a quick-start callout, a
+# fuller "what" write-up, worked examples and common-mistake warnings.
+DETAIL_LIST_FIELDS = ("examples", "mistakes")
+
+
+def test_guides_have_detailed_help_fields() -> None:
+    for g in dash._build_section_guides():
+        key = g["key"]
+        assert g.get("quickstart"), f"{key} missing quickstart callout"
+        # The "what" description is a 2-3 sentence explanation, not a fragment.
+        assert g.get("what") and g["what"].count(".") >= 2, f"{key} what too thin"
+        for field in DETAIL_LIST_FIELDS:
+            val = g.get(field)
+            assert isinstance(val, list) and val, f"{key} needs {field!r} bullets"
+
+
 # --- rendered-page contract -------------------------------------------------
 
 
@@ -92,6 +108,18 @@ def test_help_reference_grid_present(client: TestClient) -> None:
     assert "Section reference" in html
     # The Help section keeps its paper-trading walkthrough too.
     assert "Paper-trading walkthrough" in html
+
+
+def test_detailed_help_fields_render(client: TestClient) -> None:
+    html = _html(client)
+    # The quick-start callout, examples and mistakes blocks render once the
+    # guide carries the data (every card does).
+    assert html.count('class="help-guide-quickstart"') == len(dash._build_section_guides())
+    assert 'class="help-guide-examples"' in html
+    assert 'class="help-guide-mistakes"' in html
+    # A representative quick-start string reaches the page (HTML-escaped).
+    provider = next(g for g in dash._build_section_guides() if g["key"] == "provider")
+    assert str(escape(provider["quickstart"])) in html
 
 
 def test_no_unrendered_guide_placeholders(client: TestClient) -> None:

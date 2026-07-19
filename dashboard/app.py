@@ -624,27 +624,58 @@ def _build_section_guides() -> List[Dict[str, Any]]:
     anchor so the header's "?" link can deep-link to the matching card.
 
     Fields:
-      * ``key``     — matches the ``nav-<key>`` section id (and ``help-<key>`` card)
-      * ``title``   — human label (mirrors the section's ``<h2>``)
-      * ``summary`` — one line shown under the heading; keep it scannable
-      * ``what``    — a sentence on what the section is for
-      * ``how``     — ordered how-to / what-the-controls-mean bullets
-      * ``tips``    — optional best-practice bullets
-      * ``doc``     — optional {"label", "url"} "Learn more" link
+      * ``key``        — matches the ``nav-<key>`` section id (and ``help-<key>`` card)
+      * ``title``      — human label (mirrors the section's ``<h2>``)
+      * ``summary``    — one line shown under the heading; keep it scannable
+      * ``quickstart`` — optional one-liner for experienced users, rendered as a
+                         callout at the top of the card
+      * ``what``       — 2-3 sentences on what the section is for, why it matters
+                         and when to use it
+      * ``how``        — ordered how-to / what-each-control-means bullets
+      * ``examples``   — optional worked "to do X, …" examples
+      * ``mistakes``   — optional common-mistake / watch-out bullets
+      * ``tips``       — optional best-practice bullets
+      * ``doc``        — optional {"label", "url"} "Learn more" link
     """
     return [
         {
             "key": "provider",
             "title": "Market Data Provider",
             "summary": "Choose where live price data comes from and store each provider's API key.",
-            "what": "Selects the source the engine and dashboard pull quotes and history "
-                    "from, and lets you save provider API keys without editing files.",
+            "quickstart": "Stay on Yahoo Finance (free, no key) for paper trading. Want lower-latency "
+                          "realtime exits? Paste your Alpaca key/secret under API Keys and Save — the "
+                          "active provider switches to Alpaca automatically.",
+            "what": "This section picks the single source that both the engine and the dashboard use for "
+                    "every quote and every history request, and it lets you store each provider's API key "
+                    "without hand-editing files. It matters because the data feed drives every signal, stop "
+                    "and exit — a bad or throttled feed means missed or mispriced trades. Visit it when you "
+                    "first set up, when a provider starts rate-limiting you, or when you want realtime "
+                    "streaming instead of Yahoo's delayed snapshots.",
             "how": [
-                "Pick a source in “Select provider” and click Apply — the engine restarts on the new feed.",
-                "Yahoo Finance is the free default and needs no key; Alpaca and Polygon.io need one.",
-                "Each provider card shows Connected or Needs API key.",
-                "Paste a key under API Keys and Save — saving Alpaca keys auto-switches the active provider.",
-                "Keys are written only to your local .env and never leave this machine.",
+                "“Active provider” at the top shows which feed is live right now.",
+                "“Select provider” dropdown lists every source; the label shows “— needs API key” for any "
+                "provider you haven't configured and “(active)” next to the current one.",
+                "Click Apply after choosing — the engine restarts on the new feed within a few seconds; a "
+                "confirmation line appears just below the dropdown.",
+                "Yahoo Finance is the free default and needs no key. Alpaca and Polygon.io each need an API key.",
+                "The provider cards below show a green “Connected” pill or an amber “Needs API key” pill, plus "
+                "a “Get a key:” link to the provider's signup page.",
+                "Under API Keys, each provider has its own labelled fields (e.g. Alpaca key + secret). Fields "
+                "already stored show a “saved” pill and a “•••••••• (leave blank to keep)” placeholder.",
+                "Type the key(s) and click “Save <provider> keys”. Saving Alpaca keys also flips the active "
+                "provider to Alpaca. Keys are written only to your local .env and never leave this machine.",
+            ],
+            "examples": [
+                "To add Alpaca streaming: open API Keys → Alpaca, paste your API key and secret, click "
+                "“Save Alpaca keys”. The card turns green and the active provider becomes Alpaca.",
+                "To rotate a key without changing providers: leave the other fields blank (the "
+                "“leave blank to keep” placeholder), fill only the one field, and Save.",
+            ],
+            "mistakes": [
+                "Selecting a provider whose card still says “Needs API key” and clicking Apply — the feed "
+                "will fail. Save the key first.",
+                "Expecting Yahoo Finance to give tick-level realtime data — it returns delayed snapshots, "
+                "fine for paper trading but not for latency-sensitive live exits.",
             ],
             "tips": [
                 "Alpaca adds realtime websocket streaming for lower-latency exits.",
@@ -655,14 +686,42 @@ def _build_section_guides() -> List[Dict[str, Any]]:
             "key": "account",
             "title": "Trading Account",
             "summary": "Your live equity, today's P&L, cash balances and every open position.",
-            "what": "The at-a-glance state of the account the engine is trading — paper by "
-                    "default, live once you switch broker.",
+            "quickstart": "The stat cards up top are your scoreboard; the Open Positions list below is your "
+                          "live book. Use the ▦ Cards / ☰ Table toggle to switch views, and the Why? / TA "
+                          "Chart / Stop buttons on each position to inspect or close it.",
+            "what": "This is the at-a-glance state of the account the engine is trading — paper by default, "
+                    "live once you switch broker from the header. It matters because it's the single place "
+                    "that ties equity, realised and unrealised P&L, cash by currency and open risk together "
+                    "in real time. Check it first thing each session and whenever a trade opens or closes.",
             "how": [
-                "Account Equity = starting capital + realised P&L from closed trades.",
-                "Today's P&L sums the net P&L of trades that closed today; it updates in real time over a websocket.",
-                "Open Positions lists each live lot: entry, stop, target, cost basis and setup grade.",
-                "Toggle the Cards / Table view with the buttons in the header; your choice is remembered.",
-                "Balances show committed vs. available capital per currency (USD / CAD).",
+                "Stat cards read left to right: Starting Capital, Account Equity (starting + realised P&L), "
+                "Realized P&L, Today's P&L, Unrealized P&L (open positions marked to live price), Today "
+                "Total (open + closed), Open Positions, Closed Trades, Win Rate and Profit Factor.",
+                "Today's P&L and the Unrealized/Today-Total cards update in real time over a websocket; the "
+                "small timestamp in the header shows the last live update, and a mini intraday P&L chart "
+                "plots the day's path.",
+                "“Cash Balances” breaks down Allocated / Committed / Available capital per currency (USD and CAD).",
+                "Open Positions shows each live lot. Cards view gives a stop ◄─●─► target progress bar; Table "
+                "view adds columns for Qty, Entry, Stop, Target, Cost Basis and Opened time.",
+                "Use the ▦ Cards / ☰ Table toggle (top-right of the positions block) to switch layouts — your "
+                "choice is remembered in a cookie across reloads.",
+                "Each position has three buttons: “Why?” opens the AI rationale for the entry, “TA Chart” "
+                "shows the annotated technical chart, and the red “Stop” closes the position at market now "
+                "(admin password required).",
+                "“Recent Trade History” at the bottom lists the latest closed trades with entry, exit, exit "
+                "reason, net P&L and R-multiple.",
+            ],
+            "examples": [
+                "To review why a position was opened: find it in Open Positions and click “Why?” — the AI's "
+                "entry rationale (grade, indicators, setup) pops up.",
+                "To flatten a runaway position immediately: click the red “Stop” on its row, enter the admin "
+                "password, and it closes at market and moves to Recent Trade History.",
+            ],
+            "mistakes": [
+                "Confusing Realized P&L (closed trades only) with Unrealized P&L (open, marked-to-market) — "
+                "Today Total combines both.",
+                "Clicking the red “Stop” expecting it to just cancel the order — it closes the whole "
+                "position at market. Use it only when you really mean to exit now.",
             ],
             "tips": [
                 "A red banner and “LIVE” label mean real money is at risk; paper mode is labelled and safe.",
@@ -672,13 +731,33 @@ def _build_section_guides() -> List[Dict[str, Any]]:
             "key": "strategy",
             "title": "Strategy Performance Comparison",
             "summary": "Win rate, profit factor and expectancy broken down per strategy.",
-            "what": "Shows which edges are actually working by comparing every strategy's "
-                    "closed-trade statistics side by side.",
+            "quickstart": "Scan the table for the strategy with the highest Profit Factor and positive "
+                          "Expectancy over a decent Trades count — that's your working edge. The bar chart "
+                          "below ranks strategies by total P&L at a glance.",
+            "what": "This section shows which of the bot's edges are actually working by putting every "
+                    "strategy's closed-trade statistics side by side. It matters because total account P&L "
+                    "hides the fact that one strong strategy can be subsidising several losing ones. Use it "
+                    "when deciding which strategies to keep enabled in Engine Trade Selection.",
             "how": [
-                "Each row is one strategy (VCP, PEAD, momentum, swing, mean-reversion, …).",
-                "Profit Factor = gross wins ÷ gross losses; above 1.5 is healthy.",
-                "Expectancy is the average R-multiple per trade; positive means a real edge.",
-                "Win rate and average win/loss give context — a low win rate can still profit with big winners.",
+                "Each row is one strategy (VCP, PEAD, momentum, swing, mean-reversion, sector_rotation, …).",
+                "Trades is the closed-trade sample size — treat rows with only a handful of trades as noise.",
+                "Win Rate is the share of trades that closed green; Avg Win and Avg Loss are the mean "
+                "dollar outcome of each.",
+                "Profit Factor = gross wins ÷ gross losses; above 1.5 is healthy, below 1.0 loses money.",
+                "Expectancy is the average R-multiple per trade; positive means a real, repeatable edge.",
+                "Total P&L (last column) and the coloured bar chart underneath rank strategies by absolute "
+                "dollars earned or lost.",
+            ],
+            "examples": [
+                "To decide what to trade next month: sort your eye down the Profit Factor column, keep "
+                "strategies above ~1.5 with 20+ trades, and consider disabling anything below 1.0.",
+                "A strategy showing 40% Win Rate but Profit Factor 2.0 is a winner — its big wins outweigh "
+                "its frequent small losses; don't disable it for the low win rate alone.",
+            ],
+            "mistakes": [
+                "Judging a strategy on 3-5 trades — small samples swing wildly and mean nothing.",
+                "Chasing win rate instead of expectancy: a 70%-win strategy with tiny wins and huge losses "
+                "still bleeds money.",
             ],
             "tips": [
                 "Judge a strategy on dozens of closed trades, not a handful — small samples mislead.",
@@ -688,13 +767,48 @@ def _build_section_guides() -> List[Dict[str, Any]]:
             "key": "backtest",
             "title": "Backtesting",
             "summary": "Replay a strategy over historical data before risking any capital.",
-            "what": "Runs the exact live fill model (slippage + commission) over past data so "
-                    "results are directly comparable to paper and live trading.",
+            "quickstart": "Pick symbols (list or free-text), set a date range and strategies, choose a "
+                          "minimum grade and starting capital, then click Run Backtest. Read the equity "
+                          "curve, trades table and log; tick winning rows to push them into Engine Trade "
+                          "Selection.",
+            "what": "Backtesting replays the chosen strategies over historical daily bars using the exact "
+                    "same fill model (slippage + commission) the live and paper engine uses, so the results "
+                    "are directly comparable. It matters because it's how you validate an idea before "
+                    "risking capital or committing the engine to it. Run it whenever you change a strategy, "
+                    "add symbols, or want evidence before pinning a trade selection.",
             "how": [
-                "Pick symbols, a date range and one or more strategies, then Run.",
-                "Results show per-symbol and per-strategy trades, win rate, net P&L, avg R and profit factor.",
-                "The equity curve and stats appear when the run finishes.",
-                "Tick rows in the results to push those symbols into Engine Trade Selection.",
+                "“Symbols” is a multi-select list (Ctrl/⌘-click for several) capped at the shown maximum; "
+                "“Or type symbols” takes a comma/space-separated list (e.g. AAPL, MSFT, NVDA) merged with it.",
+                "“Start date” and “End date” bound the replay window; the defaults cover a recent span.",
+                "“Strategies” is a set of checkboxes — tick one or more. PEAD fetches live earnings data so "
+                "it runs noticeably slower than the others.",
+                "“Minimum grade” (A / B / C and better) filters which setups are allowed to trade, mirroring "
+                "the engine's grade gate.",
+                "“Starting capital ($)” sets the simulated account (minimum 1, steps of 100); use a realistic "
+                "figure so position sizing matches how you'd really trade.",
+                "Click Run Backtest — it runs in the background so the dashboard stays responsive; a status "
+                "line shows progress.",
+                "Results show metric cards, an equity curve, a per-trade table (entry/exit dates and prices, "
+                "stop, target, reason, qty, net P&L, R) and a chronological Backtest log.",
+                "The log toolbar filters events: All / Signals / Entries / Exits / Rejections — use "
+                "Rejections to see why candidate signals were skipped.",
+                "Each results row can be ticked to add that symbol to Engine Trade Selection (see the "
+                "Backtest performance table there).",
+            ],
+            "examples": [
+                "To test a momentum play on big tech: type “AAPL, MSFT, NVDA, AMZN, META”, set a 1-2 year "
+                "range, tick the momentum strategy, leave grade at B and better, Run, then read Profit "
+                "Factor and max drawdown from the metric cards.",
+                "To sanity-check a single name: leave the list empty, type just “NVDA”, tick every strategy, "
+                "and see which strategy produced the best R on it.",
+            ],
+            "mistakes": [
+                "Testing only a bull-market window — a strategy that only works in an uptrend is fragile. "
+                "Include a choppy or down period.",
+                "Reading a backtest with very few resulting trades as proof of an edge; widen the symbols or "
+                "date range for a meaningful sample.",
+                "Setting an unrealistic Starting capital, which distorts position sizes and makes the P&L "
+                "figures meaningless for your real account.",
             ],
             "tips": [
                 "Test across different market conditions — a strategy that only works in a bull run is fragile.",
@@ -704,14 +818,40 @@ def _build_section_guides() -> List[Dict[str, Any]]:
             "key": "selection",
             "title": "Engine Trade Selection",
             "summary": "Pin the engine to specific symbols, strategies and a minimum setup grade.",
-            "what": "Constrains what the automated engine is allowed to trade — typically set "
-                    "after reviewing a backtest — instead of scanning everything.",
+            "quickstart": "Flip Status on, set a minimum grade, optionally tick strategies and add symbols "
+                          "(empty = no restriction), enter the admin password and Save selection. Leave "
+                          "Status off to let the engine scan everything automatically.",
+            "what": "This section constrains what the automated engine is allowed to trade — pinning it to "
+                    "the symbols, strategies and minimum setup grade you choose, typically right after a "
+                    "backtest proves what works. It matters because it turns a validated backtest into the "
+                    "engine's live mandate instead of letting it scan the whole watchlist. Use it when you "
+                    "want the bot to focus, and turn it off to return to fully automatic scanning.",
             "how": [
-                "Flip Status on to activate the selection; off returns the engine to fully automatic scanning.",
-                "Minimum grade filters setups: A only (strongest), B or better (default), or C or better (permissive).",
-                "Leave Strategies unchecked to allow all; leave Symbols empty to allow every watchlist symbol.",
-                "Tick backtest rows to add strong performers, then enter the admin password and Save.",
-                "Changes take effect on the engine's next scan cycle.",
+                "“Status” is a toggle. On = the selection is active and the engine only trades what you "
+                "picked; off = “Selection inactive — engine trades everything” (fully automatic).",
+                "“Minimum grade” dropdown: A only (strongest setups), B or better (default), or C or better "
+                "(permissive) — it's the floor a setup must clear to be traded.",
+                "“Strategies” is a checkbox list — none checked means all strategies are allowed; tick some "
+                "to restrict to only those.",
+                "“Symbols”: type a ticker in “Add symbol” and click Add to build a chip list — an empty list "
+                "means every watchlist symbol is allowed.",
+                "“Backtest performance” table shows per-symbol results from your most recent backtest run; "
+                "tick a row's checkbox to add that symbol straight into the selection above.",
+                "Enter the admin password (required) and click Save selection. Changes take effect on the "
+                "engine's next scan cycle.",
+            ],
+            "examples": [
+                "To trade only your three best backtested names with the VCP strategy at grade A: turn "
+                "Status on, set Minimum grade to “A only”, tick VCP, add the three symbols, Save.",
+                "To temporarily stop the bot from opening anything new: leave Status on with a symbol list "
+                "and set the grade to “A only” so almost nothing qualifies — or just Stop the engine.",
+            ],
+            "mistakes": [
+                "Setting Status on but leaving both Strategies and Symbols empty, then wondering why nothing "
+                "narrowed — empty means “no restriction”, so it behaves like automatic scanning at your "
+                "chosen grade.",
+                "Forgetting the admin password field — the save silently fails without it.",
+                "Assuming changes are instant; they apply on the next scan cycle, not the moment you Save.",
             ],
             "tips": [
                 "Grades map from score: A ≥ 0.78 (full size), B ≥ 0.65 (75% size); C/F are normally skipped.",
@@ -721,12 +861,36 @@ def _build_section_guides() -> List[Dict[str, Any]]:
             "key": "history",
             "title": "Trade History & Analytics",
             "summary": "Every closed trade with filters and aggregate performance analytics.",
-            "what": "The full record of what the engine has done, plus the analytics computed "
-                    "from those closed trades.",
+            "quickstart": "Use the filter row (Strategy, Symbol, Exit reason, From/To dates) then Apply to "
+                          "narrow the table; click column headers to sort; page with ◀ Prev / Next ▶; and "
+                          "read the stat cards for aggregate hold times and streaks.",
+            "what": "This is the full, filterable record of every trade the engine has closed, plus the "
+                    "analytics computed from that record. It matters because reviewing real closed trades — "
+                    "not just the equity number — is how you find what's working and what to stop doing. Use "
+                    "it for periodic reviews and to answer questions like “how did my gap-fill trades do?”",
             "how": [
-                "Browse closed trades with entry/exit, P&L, R-multiple, strategy and grade.",
-                "Filter by symbol, strategy or date to focus a review.",
-                "Aggregate stats (win rate, profit factor, expectancy, drawdown) summarise the filtered set.",
+                "Stat cards up top: Avg Hold, Median Hold, Best Trade, Worst Trade and Current Streak "
+                "(consecutive wins or losses).",
+                "Filter row: Strategy dropdown, Symbol text box, Exit reason dropdown, and From / To date "
+                "pickers. Click Apply to run the filter; the table and (where shown) stats update to the "
+                "filtered set.",
+                "“Export CSV” downloads exactly the current view for spreadsheet analysis.",
+                "The table columns (Symbol, Strategy, Grade, Entry, Exit, Hold, P&L $, P&L %, R, Exit "
+                "reason, Closed) — several headers are clickable to sort; the arrow shows the sort column.",
+                "Use ◀ Prev / Next ▶ to page through long histories; the page indicator sits between them.",
+                "“Rolling Win Rate” chart at the bottom has a window dropdown (10 / 20 / 50 trades) — pick "
+                "the smoothing window to see how your hit rate is trending.",
+            ],
+            "examples": [
+                "To review every mean-reversion trade on NVDA last quarter: set Strategy = mean-reversion, "
+                "Symbol = NVDA, From/To to the quarter, Apply, then sort by R to find the outliers.",
+                "To check if you're on a losing streak: read the Current Streak card, then set the Rolling "
+                "Win Rate window to 10 trades to see the recent trend.",
+            ],
+            "mistakes": [
+                "Changing a filter but forgetting to click Apply — the table won't update until you do.",
+                "Reading the Rolling Win Rate on a tiny window (10) as a verdict; it's meant to show the "
+                "trend, not a stable statistic.",
             ],
             "tips": [
                 "Export the same data as CSV or PDF from the API, Export & Accounts section.",
@@ -736,12 +900,34 @@ def _build_section_guides() -> List[Dict[str, Any]]:
             "key": "charts",
             "title": "Performance Charts",
             "summary": "Equity curve, drawdown and P&L visualised over time.",
-            "what": "Turns the trade history into charts so trends and drawdowns are obvious "
-                    "at a glance.",
+            "quickstart": "Four charts render automatically from your closed trades: Equity Curve, Periodic "
+                          "Returns (switch Daily/Weekly/Monthly), Drawdown Over Time and Rolling Win Rate. "
+                          "Nothing to configure — just read them.",
+            "what": "This section turns the trade history into charts so trends, drawdowns and consistency "
+                    "are obvious at a glance instead of buried in a table. It matters because the shape of "
+                    "the equity curve — smooth vs. jagged — tells you more about an edge's durability than "
+                    "the final number. Use it after a batch of trades closes to gauge how healthy the run is.",
             "how": [
-                "The equity curve tracks account value trade by trade.",
-                "Drawdown shows how far equity has fallen from its peak — the key risk view.",
-                "Use the range/interval controls (if shown) to zoom the window.",
+                "Equity Curve tracks account value trade by trade — you want a steady rising line, not a "
+                "spike-and-crash.",
+                "Periodic Returns has a frequency dropdown (Daily / Weekly / Monthly) — switch it to see "
+                "whether green periods outnumber red at each timescale.",
+                "Drawdown Over Time shows how far equity has fallen from its running peak; the depth and "
+                "duration of the troughs are your key risk view.",
+                "Rolling Win Rate (20 trades) plots your recent hit rate so you can see it drifting up or down.",
+                "If there are no closed trades yet, the section shows an empty note — charts populate after "
+                "the first completed trade.",
+            ],
+            "examples": [
+                "To judge a strategy's risk: look at Drawdown Over Time — two shallow 5% dips are far "
+                "healthier than one 30% cliff, even at the same final equity.",
+                "To spot seasonality: switch Periodic Returns to Monthly and see if certain months are "
+                "consistently red.",
+            ],
+            "mistakes": [
+                "Fixating on the final equity value while ignoring a deep drawdown that would have been hard "
+                "to sit through live.",
+                "Expecting charts before any trade has closed — they only appear once there's realised data.",
             ],
             "tips": [
                 "A smooth rising curve with shallow drawdowns matters more than a high final number.",
@@ -751,12 +937,36 @@ def _build_section_guides() -> List[Dict[str, Any]]:
             "key": "activity",
             "title": "Engine Activity",
             "summary": "A cycle-by-cycle log of scans, gate rejections, trades and exits.",
-            "what": "The best answer to “why didn't the bot trade today?” — it shows every "
-                    "decision the engine made each cycle, including AI-veto reasoning.",
+            "quickstart": "Read the Recent Cycles table to see scans, rejections and trades per cycle, then "
+                          "use the Event Feed filter chips (All / Trades / Rejections / Exits / Errors) and "
+                          "the Symbol box to find exactly why a name did or didn't trade.",
+            "what": "This section is a cycle-by-cycle trace of every decision the engine made — scans run, "
+                    "each gate rejection with its reason (including AI-veto reasoning), trades placed and "
+                    "exits taken. It matters because it's the single best answer to “why didn't the bot "
+                    "trade today?” Check it whenever the engine's behaviour surprises you, before you touch "
+                    "any settings.",
             "how": [
-                "Recent Cycles lists each scan with signal count, gate rejections, trades placed and exits.",
-                "Each rejection names the gate that blocked it and the reason.",
-                "Elapsed shows how long the cycle took.",
+                "“Recent Cycles” table: one row per scan with Signals (candidates found), Rejected by gate, "
+                "Placed (trades opened), Exits and Elapsed (cycle duration).",
+                "The Event Feed below is the detailed stream. Filter chips restrict it: All, Trades, "
+                "Rejections, Exits, Errors.",
+                "The “Symbol” box filters the feed to one ticker as you type — handy for tracing a single "
+                "name across cycles.",
+                "Each rejection entry names the gate that blocked the signal and the reason (e.g. grade too "
+                "low, RSI overbought, AI veto, risk cap reached).",
+                "A “new” badge flags fresh events since you last looked.",
+            ],
+            "examples": [
+                "The bot didn't buy NVDA even though you expected it to: type NVDA in the Symbol box, click "
+                "the Rejections chip, and read the exact gate that blocked it.",
+                "Nothing traded all morning: check Recent Cycles — if Signals is 0, no setups qualified; if "
+                "Signals is high but Placed is 0, read the Rejections to see which gate is too tight.",
+            ],
+            "mistakes": [
+                "Loosening strategy or risk settings before reading the rejection reasons here — you may be "
+                "fixing the wrong thing.",
+                "Assuming an empty feed means a bug; outside market hours (09:30-16:00 ET, weekdays) the "
+                "engine doesn't run cycles.",
             ],
             "tips": [
                 "If nothing is trading, read the rejection reasons here before changing settings.",
@@ -766,12 +976,38 @@ def _build_section_guides() -> List[Dict[str, Any]]:
             "key": "alerts",
             "title": "Alerts & Notifications",
             "summary": "Configure Telegram, email and push channels and test they work.",
-            "what": "Controls where the bot sends trade, exit and risk notifications, and lets "
-                    "you fire a test message per channel.",
+            "quickstart": "Click “Send test” on each channel card (Telegram / Email / Push) to confirm "
+                          "delivery, then set per-event rules in the Rules table (which events fire, on "
+                          "which channels, at what threshold) and click Save rules.",
+            "what": "This section controls where the bot sends trade, exit and risk notifications and lets "
+                    "you fire a test message per channel. It matters because a live bot you're not watching "
+                    "is only as safe as its alerting — you want to hear about fills, stops and risk breaches "
+                    "immediately. Set it up once, then revisit whenever you change credentials.",
             "how": [
-                "Each channel card shows whether it is configured; click Send test to verify delivery.",
-                "Enable or disable notification categories so you only get the alerts you want.",
-                "Configure channel credentials in .env / Settings; unconfigured channels are marked.",
+                "“Channels” shows three cards — Telegram, Email and Push (PWA) — each with a status line and "
+                "a “Send test” button that fires a real message so you can confirm it arrives.",
+                "Channel credentials live in .env / Settings; an unconfigured channel is marked as such and "
+                "its test will fail until you add them.",
+                "“Rules” table: one row per event, with Enabled plus Telegram / Email / Push checkboxes to "
+                "pick channels, and a Threshold field where relevant.",
+                "Thresholds are numbers: drawdown and daily-loss are fractions (e.g. 0.05 = 5%), proximity "
+                "is a percentage. They decide when a threshold-based alert fires.",
+                "Click Save rules to apply — changes take effect on the engine's next dispatch, no restart "
+                "needed.",
+                "“Alert History” at the bottom lists what was actually sent; the Type dropdown filters it.",
+            ],
+            "examples": [
+                "To get a Telegram ping only on real trouble: in the Rules table enable the drawdown and "
+                "daily-loss rows, tick only Telegram, set the drawdown threshold to 0.05, Save.",
+                "After adding email SMTP credentials: click “Send test” on the Email card — a green result "
+                "confirms the credentials work before you rely on them.",
+            ],
+            "mistakes": [
+                "Enabling an event but leaving every channel checkbox unticked — the rule is on but has "
+                "nowhere to send.",
+                "Entering a drawdown threshold as 5 instead of 0.05 — thresholds are fractions, so 5 means "
+                "500% and never fires.",
+                "Trusting alerts you never tested; always Send test after changing credentials.",
             ],
             "tips": [
                 "Send a test after changing credentials so you know alerts will arrive during market hours.",
@@ -781,12 +1017,38 @@ def _build_section_guides() -> List[Dict[str, Any]]:
             "key": "memory",
             "title": "AI Memory & Learning",
             "summary": "The plain-English lessons the bot writes for itself after each trade.",
-            "what": "A read-only view of the reflection engine's memory: one lesson recorded "
-                    "per closed trade, consulted by guards before new entries.",
+            "quickstart": "Read-only. The stat cards and binding chips summarise what the bot has learned; "
+                          "the Learnings table, Reflections timeline and Guard Decisions log show the actual "
+                          "lessons and the entries they blocked or demoted.",
+            "what": "This is a read-only window into the reflection engine's memory: after every trade "
+                    "closes it writes one plain-English lesson, and before new entries the similar-setup and "
+                    "learnings guards consult those lessons. It matters because it's how the bot stops "
+                    "repeating losing setups — and it lets you audit that reasoning. Check it to understand "
+                    "why a plausible signal was blocked or down-sized.",
             "how": [
-                "Stats summarise total lessons, active bindings and how often the guard acted on them.",
-                "Before a new entry the similar-setup and learnings guards check this memory.",
-                "A poor track record on a setup can block or demote (down-size) a new signal.",
+                "Stat cards: Total Lessons, Active Bindings (lessons currently strong enough to act), Guard "
+                "Decisions (times a guard intervened) and Guard Hit Rate.",
+                "The binding chips show how many lessons sit at each level: avoid (rejects the trade), "
+                "require_confirm (restricts to grade A), prefer (annotates), observe (non-binding note).",
+                "“Learnings” table lists every lesson with its Binding level, Confidence and Support "
+                "(number of similar trades backing it). A lesson only binds once enough similar trades "
+                "support it and confidence clears the threshold.",
+                "“Trade Reflections Timeline” shows each closing trade and the lesson it produced, newest "
+                "first, with the outcome and pattern tags.",
+                "“Guard Decisions” log shows recent entry signals a guard acted on — a “block” skipped the "
+                "trade, a “demote” would have required grade A — with the signal's grade, RSI and volume "
+                "and the reason. Only rejections are logged; accepted signals pass silently.",
+            ],
+            "examples": [
+                "A grade-B signal on a name you expected to trade got skipped: find it in Guard Decisions, "
+                "read the reason, and trace back to the underlying lesson in the Learnings table.",
+                "To gauge how much the memory is steering the bot: compare Guard Decisions to total trades "
+                "and watch the binding-chip counts grow over weeks.",
+            ],
+            "mistakes": [
+                "Expecting rich memory on day one — lessons only accumulate as trades close, so an empty "
+                "table early on is normal, not a fault.",
+                "Trying to edit lessons here — the section is read-only by design; the engine manages it.",
             ],
             "tips": [
                 "Memory grows more useful over time — the longer the bot runs, the more it has learned.",
@@ -796,13 +1058,36 @@ def _build_section_guides() -> List[Dict[str, Any]]:
             "key": "risk",
             "title": "Risk Dashboard",
             "summary": "Gross exposure, sector concentration, correlation, drawdown and rolling P&L.",
-            "what": "The portfolio-level risk picture — how much is at stake and how "
-                    "concentrated or correlated the open book is.",
+            "quickstart": "Read the four top cards (Gross Exposure, Current & Max Drawdown, Top "
+                          "Correlation) and the Daily Loss Budget bar first. Green bar = room to trade; "
+                          "amber/red = you're near or over today's loss limit. Everything else is detail.",
+            "what": "This is the portfolio-level risk picture — how much capital is at stake, how much you "
+                    "could lose if every stop hit, and how concentrated or correlated the open book is. It "
+                    "matters because position count hides real risk: five correlated tech names are one big "
+                    "bet, not five small ones. Check it before adding exposure and whenever drawdown deepens.",
             "how": [
-                "Gross exposure is total capital committed across open positions.",
-                "Sector concentration flags too much weight in one sector.",
-                "Position correlation warns when several names are really one bet.",
-                "Daily / weekly / monthly P&L and drawdown track the risk trend.",
+                "Top cards: Gross Exposure (total capital committed), Current Drawdown, Max Drawdown and "
+                "Top Correlation (the most-correlated open pair).",
+                "“Open Risk” shows $ At Risk to Stops (what you'd lose if every open stop hit), % of "
+                "Capital at Risk, and Daily Loss Budget Used with a coloured progress bar (green → amber → "
+                "red as you approach the limit). The pill toggles between “cost basis” and “marked to "
+                "market” depending on whether live prices are available.",
+                "Sector Concentration and the Sector/Industry Heat Map flag too much weight in one sector.",
+                "Position Correlations and the Correlation Matrix (green = positively correlated, red = "
+                "inversely) warn when several names really move together.",
+                "P&L Breakdown gives Today / This Week / This Month; Exposure by Currency shows committed vs "
+                "allocated per USD/CAD.",
+            ],
+            "examples": [
+                "Before opening a sixth tech position: check the Correlation Matrix — if the new name is "
+                "0.8+ correlated with names you already hold, you're doubling one bet, not diversifying.",
+                "To know when to stop for the day: watch the Daily Loss Budget bar — when it turns red "
+                "you've used your loss budget and the engine will stop opening new risk.",
+            ],
+            "mistakes": [
+                "Judging risk by number of positions instead of correlation and sector concentration.",
+                "Reading “$ At Risk to Stops” as a guaranteed loss — it's the worst case if every stop "
+                "fills exactly, before any gap risk.",
             ],
             "tips": [
                 "A book of highly correlated positions carries far more risk than the position count suggests.",
@@ -812,12 +1097,39 @@ def _build_section_guides() -> List[Dict[str, Any]]:
             "key": "engine",
             "title": "Engine Control",
             "summary": "Start, stop and monitor the automated trading engine.",
-            "what": "The on/off switch and live status for the background engine that scans, "
-                    "scores and places trades.",
+            "quickstart": "Enter the admin password, then use Start / Stop / Restart. Watch the state badge "
+                          "and the phase/last-scan/next-scan cards for health, and load the engine logs "
+                          "below (with optional Auto-tail) to see what it's doing.",
+            "what": "This is the on/off switch and live status for the background engine that scans, scores "
+                    "and places trades. It matters because it's how you take manual control — pausing the "
+                    "bot before news, restarting it after a config change, or confirming it's actually "
+                    "running. Use it whenever you need to change or verify the engine's run state.",
             "how": [
-                "Status shows whether the engine is running and when it last completed a cycle.",
-                "Use the controls to start or stop it; it only trades during US market hours (09:30–16:00 ET, weekdays).",
-                "Some controls require the admin password (DASHBOARD_PASSWORD).",
+                "The state badge (with coloured dot) shows running / stopped / stale; a “stale” hint appears "
+                "if it hasn't checked in recently.",
+                "Status cards: Current phase, Market (open/closed), Last scan, Next scan, Open positions and "
+                "Process (PID).",
+                "Enter the admin password (DASHBOARD_PASSWORD) in the field — it's required for Start, Stop "
+                "and Restart.",
+                "Buttons: Start (launch the engine), Stop (halt scanning), Restart (stop then start, e.g. "
+                "after a settings change), and Refresh status (re-poll without changing anything — no "
+                "password needed).",
+                "It only trades during US market hours (09:30-16:00 ET, weekdays); outside those hours it "
+                "idles even when running.",
+                "“Engine logs” loads recent output — pick 100 / 200 / 500 lines, click Refresh, or tick "
+                "Auto-tail to keep it live-updating.",
+            ],
+            "examples": [
+                "After changing risk settings: enter the password and click Restart so the engine picks up "
+                "the new config on a clean cycle.",
+                "To confirm the bot is alive without changing anything: click Refresh status and read the "
+                "state badge and Last scan time.",
+            ],
+            "mistakes": [
+                "Clicking Start/Stop without the admin password — the action is rejected.",
+                "Assuming a stopped engine also closed your positions — Stop only halts scanning; open "
+                "positions stay live and must be managed from the Trading Account section.",
+                "Panicking that nothing trades after hours — the engine only acts during market hours.",
             ],
             "tips": [
                 "Stopping the engine leaves open positions untouched — manage those from the account section.",
@@ -826,14 +1138,38 @@ def _build_section_guides() -> List[Dict[str, Any]]:
         {
             "key": "status",
             "title": "System Status & Configuration",
-            "summary": "Broker mode, versions, feature flags and the switch to live trading.",
-            "what": "The system's overall health and configuration, plus the guarded switch "
-                    "between paper and live trading.",
+            "summary": "Broker mode, versions, configuration and the current watchlists.",
+            "quickstart": "This is a read-out of the running configuration — broker mode, IBKR connection, "
+                          "capital split, scan interval, universe size and the live watchlists. To actually "
+                          "switch between paper and live, use the “Switch to Live / Switch to Paper” button "
+                          "in the page header.",
+            "what": "This section is the system's overall configuration and health at a glance: what broker "
+                    "and mode are active, how capital is split across USD/CAD, the scan interval and market "
+                    "hours, the universe size, and the current US / Canadian / ETF watchlists. It matters "
+                    "because it's the fastest way to confirm the bot is wired up the way you think. Check it "
+                    "after any deploy or config change.",
             "how": [
-                "Review broker mode (paper vs. live), data provider and key runtime settings.",
-                "Switch to Live pops a confirmation warning that REAL money is at risk and needs the admin password.",
-                "Switch to Paper (no password) sets BROKER=paper and restarts the engine.",
-                "Live trading needs a funded Interactive Brokers account with TWS/Gateway running.",
+                "The key/value grid lists Bot Version, Trading Mode (paper shows “(simulated)”), Broker, "
+                "IBKR Connection (host:port) and Client ID, Total / USD / CAD capital, Scan Interval, "
+                "Market Hours, Universe Size (US / CA / ETF breakdown) and Log Level.",
+                "Below the grid, the US, Canadian and ETF watchlists are shown as pill lists so you can see "
+                "exactly what the engine scans.",
+                "This section is read-only. The paper↔live switch is the header button: “Switch to Live” "
+                "pops a confirmation warning that REAL money is at risk and requires the admin password; "
+                "“Switch to Paper” sets BROKER=paper and restarts the engine.",
+                "Live trading needs a funded Interactive Brokers account with TWS or IB Gateway running and "
+                "reachable at the IBKR host:port shown here.",
+            ],
+            "examples": [
+                "After a deploy, confirm you're still in paper: check Trading Mode shows “Paper "
+                "(simulated)” and the header badge is the paper colour before doing anything else.",
+                "To verify the live gateway is targeted correctly: read IBKR Connection — port 7497 is the "
+                "paper gateway (still simulated), 7496 is live.",
+            ],
+            "mistakes": [
+                "Hunting for a live/paper switch inside this section — it isn't here; use the header button.",
+                "Seeing IBKR_PORT 7497 and assuming it means live — that's the paper gateway; only 7496 is "
+                "real-money.",
             ],
             "tips": [
                 "IBKR_PORT=7497 is IBKR's paper gateway — still paper. 7496 is live.",
@@ -842,13 +1178,39 @@ def _build_section_guides() -> List[Dict[str, Any]]:
         {
             "key": "watchlist",
             "title": "Watchlist Management",
-            "summary": "Curate the US, Canadian and ETF symbol lists the engine scans.",
-            "what": "Defines the pool of symbols the scanner and engine consider each cycle "
-                    "when no explicit trade selection is active.",
+            "summary": "Curate the named symbol lists the engine scans.",
+            "quickstart": "Type a ticker, pick a list in “To list”, click Add. Create new lists with “New "
+                          "list name” → Create list. The Watchlist Monitor below shows live price, day "
+                          "change and each symbol's status in the latest scan.",
+            "what": "This section organises symbols into named lists — the pool the scanner and engine "
+                    "consider each cycle when no explicit trade selection is active. It matters because a "
+                    "focused, liquid watchlist produces cleaner signals than a sprawling one, and disabling "
+                    "a list parks it without deleting it. Use it to keep the engine pointed at names you "
+                    "actually want it trading.",
             "how": [
-                "Add or remove symbols per list (US, Canada, ETFs).",
-                "Symbols here feed the Pre-Market Scanner, Earnings Calendar and automatic scanning.",
-                "Changes apply on the engine's next cycle.",
+                "“Add symbol”: type a ticker (e.g. NVDA), choose the target list in the “To list” dropdown, "
+                "and click Add.",
+                "“New list name” + Create list makes a fresh named list (e.g. “AI Leaders”) you can then "
+                "add symbols to.",
+                "The lists below let you remove symbols and enable/disable each list — the engine scans "
+                "every enabled list; a disabled list is kept but skipped.",
+                "These symbols feed the Pre-Market Scanner, the Earnings Calendar and automatic scanning; "
+                "changes apply on the engine's next cycle.",
+                "“Watchlist Monitor” shows, per symbol: which Lists it's in, live Price, Day %, and its "
+                "Status in the latest scan (signal / near entry / held / rejected / excluded) with a Detail "
+                "column — a preview of what the bot might do next.",
+            ],
+            "examples": [
+                "To build a themed list: type “AI Leaders” into New list name → Create list, then add NVDA, "
+                "AMD, AVGO, SMCI one at a time via Add symbol → To list = AI Leaders.",
+                "To pause a list without losing it: disable it in the lists panel — the engine stops "
+                "scanning it but the symbols stay saved.",
+            ],
+            "mistakes": [
+                "Piling hundreds of illiquid names in — it dilutes scan quality and slows cycles. Keep it "
+                "tight and liquid.",
+                "Adding a symbol but leaving the wrong list selected in “To list”, so it lands in a list the "
+                "engine isn't scanning.",
             ],
             "tips": [
                 "Keep the watchlist focused — a smaller, liquid list produces cleaner signals than a huge one.",
@@ -858,12 +1220,46 @@ def _build_section_guides() -> List[Dict[str, Any]]:
             "key": "universe",
             "title": "Universe Browser",
             "summary": "Browse the full tradable-symbol database and promote names to the watchlist.",
-            "what": "A searchable catalogue of every stock and ETF the bot knows about, built "
-                    "from a seedable universe database.",
+            "quickstart": "If it says “not initialized”, click Seed Now once. Then search/filter the table, "
+                          "tick symbols and use the bulk bar to add them to a watchlist. The Tiered Scanning "
+                          "panel and sub-tabs (Index Membership / Scan Pool / Auto-Promotions) show how the "
+                          "engine prioritises names.",
+            "what": "This is a searchable catalogue of every stock and ETF the bot knows about, built from a "
+                    "seedable universe database, plus the tiered-scanning model that decides how often each "
+                    "name is evaluated. It matters because it's how you discover new candidates beyond your "
+                    "watchlist and understand why some names are scanned every cycle and others only weekly. "
+                    "Use it to find and promote names, or to inspect index membership.",
             "how": [
-                "If the universe is empty, click Seed Now to build the symbol database.",
-                "Switch between Indices, Scan pool and Promotions with the sub-tabs.",
-                "Filter and sort to find candidates, then promote strong names into the watchlist.",
+                "If the universe is empty, an “Universe not initialized” panel appears — click Seed Now to "
+                "download the full symbol list (this takes a while the first time; a progress bar tracks it).",
+                "Once seeded, a stats bar shows totals by exchange (NYSE / NASDAQ / AMEX / TSX) and last-"
+                "updated time.",
+                "Search by ticker or company name; the Filters row narrows by Exchange, Sector, Asset Type "
+                "(Stocks / ETFs), and minimum Price / Volume / Market Cap.",
+                "Tick rows (or “Select All on Page”) to reveal the bulk bar, choose a watchlist in its "
+                "dropdown, and click Add to promote them all at once. Table headers sort; pager moves "
+                "between pages.",
+                "“Tiered Scanning” explains the index-based model: Tier 1 Active Trading (scanned every "
+                "cycle), Tier 2 Scan Pool (top S&P 500 by volume×market-cap, scanned daily), Tier 3 "
+                "Universe (full S&P 500 ∪ NASDAQ-100, swept weekly).",
+                "Sub-tabs: Index Membership (filter S&P 500 / NASDAQ-100 / Both), Scan Pool (the ranked "
+                "Tier-2 list with a Liquidity Score), and Auto-Promotions (symbols bumped to Tier 1 after "
+                "firing a signal, until their TTL lapses).",
+                "The Quick-Add Templates seed a watchlist from a preset (S&P 500 Large Cap, Tech Large Cap, "
+                "Canadian Energy, All ETFs, or a chosen Sector). “Rebuild Universe Database” re-fetches "
+                "everything from source.",
+            ],
+            "examples": [
+                "To find liquid healthcare stocks over $20: set Sector = Healthcare, Asset Type = Stocks, "
+                "Min Price = 20, sort by Avg Volume, tick the top names and bulk-add them to a watchlist.",
+                "To seed a starter watchlist fast: click the “Tech Large Cap” quick-add template instead of "
+                "adding names one by one.",
+            ],
+            "mistakes": [
+                "Clicking “Rebuild Universe Database” casually — it's a heavy full re-fetch; only do it when "
+                "the data is genuinely stale.",
+                "Filtering so tightly (high min market cap + volume + price) that the table comes back empty "
+                "and assuming the universe is broken.",
             ],
             "tips": [
                 "Seeding can take a while the first time — it downloads the full symbol list.",
@@ -873,12 +1269,40 @@ def _build_section_guides() -> List[Dict[str, Any]]:
             "key": "trade",
             "title": "Manual Trade Entry",
             "summary": "Place a discretionary order outside the automated engine.",
-            "what": "Lets you enter a trade by hand — useful for testing, overrides or acting "
-                    "on a setup the engine didn't take.",
+            "quickstart": "Enter Symbol, Side, Quantity and Entry price; add one or more stop-loss and "
+                          "profit-target levels (absolute price OR Δ% from entry, plus % of position); "
+                          "enter the admin password and click Place trade.",
+            "what": "This section lets you enter a trade by hand — buy (long) or sell (short) any symbol, "
+                    "with laddered stop-loss and profit-target levels for partial exits. It matters as an "
+                    "override: for testing, or to act on a setup the engine didn't take, while still using "
+                    "the same fill model, journalling and risk accounting as automated trades. Use it "
+                    "sparingly and deliberately — it's real (paper or live) exposure.",
             "how": [
-                "Enter the symbol, side, quantity and any stop/target, then submit.",
-                "The order uses the same fill model and journalling as engine trades.",
-                "The position then appears in the account and risk views like any other.",
+                "Top row: Symbol (e.g. AAPL), Side (Buy = long, Sell = short), Quantity (shares, min 1), "
+                "and Entry price.",
+                "“Stop-loss levels” and “Profit-target levels” are ladders. Each level takes a Price OR a "
+                "Δ% from entry (fill either, not both) and a “% of position” that slice exits.",
+                "Click “+ Add stop level” / “+ Add target level” for partial exits (e.g. stop 1 at −3% for "
+                "33%, stop 2 at −5% for 33%, stop 3 at −8% for the rest). The last level in each ladder "
+                "takes whatever remains.",
+                "Enter the admin password (required) and click Place trade.",
+                "Multi-level ladders and short orders run on the paper broker; a simple long (one stop + one "
+                "target) also works on IBKR.",
+                "Once filled, the position appears in the Trading Account and Risk views like any other and "
+                "is journalled for analytics.",
+            ],
+            "examples": [
+                "Scale out of a long: Buy 300 AAPL at 190, target 1 = +5% for 33%, target 2 = +10% for "
+                "33%, target 3 = (leave last) for the rest; stop = −4% for 100%.",
+                "A quick short: Side = Sell, 100 shares, one stop at +5% (Δ%) for 100% and one target at "
+                "−8% for 100%.",
+            ],
+            "mistakes": [
+                "Filling both Price and Δ% on the same level — give one or the other.",
+                "Letting the ladder's slice percentages exceed 100%, or forgetting the last level should "
+                "cover the remainder.",
+                "Forgetting a manual trade still counts toward risk limits and analytics — size it like a "
+                "real position.",
             ],
             "tips": [
                 "Manual trades still count toward risk limits and analytics — size them accordingly.",
@@ -888,12 +1312,31 @@ def _build_section_guides() -> List[Dict[str, Any]]:
             "key": "scanner",
             "title": "Pre-Market Scanner",
             "summary": "Scan the watchlist for opening gaps and unusual volume.",
-            "what": "A quick pre-open scan that surfaces the symbols moving most and trading "
-                    "on abnormal volume.",
+            "quickstart": "Click “Run scan”. The table ranks watchlist symbols by opening Gap and Volume "
+                          "multiple, and flags which setups each mover matches in the Signals column.",
+            "what": "This is a quick pre-open scan that surfaces the watchlist symbols moving the most and "
+                    "trading on abnormal volume. It matters because gaps and volume spikes are where the "
+                    "day's opportunities and risks concentrate — it's your morning shortlist. Run it shortly "
+                    "before the open, when pre-market prints are most informative.",
             "how": [
-                "Click Run scan to score every watchlist symbol.",
-                "Gap is the % move from the previous close; Vol × is today's volume vs. its average.",
-                "The Signals column flags which setups the mover matches.",
+                "Click “Run scan” to score every watchlist symbol against the previous close.",
+                "Columns: Prev (previous close), Last (latest price), Gap (% move from the previous close), "
+                "Vol × (today's volume vs. its average) and Signals.",
+                "The Signals column flags which of the bot's setups the mover currently matches.",
+                "It only covers your watchlist, so curate that list (Watchlist Management) for the scan to be "
+                "useful.",
+            ],
+            "examples": [
+                "Before the open, Run scan and sort your attention to rows with a large Gap and Vol × above "
+                "~2 — those are the names most likely to trigger a setup at the bell.",
+                "A symbol showing +6% Gap but Vol × near 1 is a thin, unconfirmed move — treat it more "
+                "cautiously than the same gap on 3× volume.",
+            ],
+            "mistakes": [
+                "Running it mid-afternoon and expecting “pre-market” meaning — the gap/volume read is most "
+                "meaningful near the open.",
+                "Acting on a big gap with weak volume; low Vol × means the move isn't backed by "
+                "participation.",
             ],
             "tips": [
                 "Run it shortly before the open — gaps and volume are most meaningful pre-market.",
@@ -902,13 +1345,35 @@ def _build_section_guides() -> List[Dict[str, Any]]:
         {
             "key": "earnings",
             "title": "Earnings Calendar",
-            "summary": "Upcoming earnings dates for every watchlist symbol.",
-            "what": "Shows when each watchlist name reports, so you can avoid or plan around "
-                    "earnings-driven volatility.",
+            "summary": "Upcoming earnings dates, plus who's reporting today with beat/miss and the move.",
+            "quickstart": "Click “Load earnings” for upcoming report dates per watchlist symbol. Click "
+                          "“Load today” to see who reports today with EPS beat/miss, surprise % and the "
+                          "pre/post-market move.",
+            "what": "This section shows when each watchlist name reports earnings and, for today, how those "
+                    "reports came in. It matters because earnings are scheduled volatility events — holding "
+                    "into one is an event bet, and the reaction after a report is itself a tradable edge. "
+                    "Use it to avoid unwanted event risk or to plan around it.",
             "how": [
-                "Click Load earnings to fetch dates (via yfinance).",
-                "Days away counts down to each report.",
-                "Cross-reference before entering — a position into earnings carries event risk.",
+                "“Upcoming”: click Load earnings to fetch report dates (via yfinance); the table shows each "
+                "Symbol, its Earnings date and Days away (a countdown).",
+                "“Reporting today”: click Load today to see who reports today with Session (pre/after "
+                "market), Est EPS, Actual, Surprise %, the Pre/Post move and Sector. A contagion box "
+                "highlights knock-on effects on related names.",
+                "A live pre/post-market move needs extended-hours data enabled on your provider.",
+                "Cross-reference before entering — a position held into earnings carries event risk the "
+                "engine's normal stops can't contain across a gap.",
+            ],
+            "examples": [
+                "Before letting a swing trade run over the weekend: Load earnings and check Days away — if "
+                "the name reports Monday, you may want to exit or size down first.",
+                "To fish for PEAD setups: Load today, sort by Surprise %, and look at how the biggest "
+                "beats/misses are moving pre/post-market.",
+            ],
+            "mistakes": [
+                "Holding a position into an earnings date you didn't check — a gap can blow through your "
+                "stop.",
+                "Expecting a live Pre/Post move without extended-hours data enabled — the column will be "
+                "blank.",
             ],
             "tips": [
                 "Many strategies avoid holding through earnings; the PEAD strategy deliberately trades the reaction after.",
@@ -918,12 +1383,32 @@ def _build_section_guides() -> List[Dict[str, Any]]:
             "key": "sectors",
             "title": "Sector Rotation & Breadth",
             "summary": "The 11 SPDR sector ETFs ranked by relative strength versus SPY.",
-            "what": "Shows which sectors are leading or lagging the market — the input the "
-                    "sector_rotation strategy uses to pick longs.",
+            "quickstart": "Click “Load sectors”. Leaders (outperforming SPY and above their 50-DMA) are the "
+                          "rotation longs; the breadth box tells you how broad — and trustworthy — the "
+                          "current move is.",
+            "what": "This section ranks the 11 SPDR sector ETFs by relative strength versus SPY and "
+                    "summarises market breadth. It matters because money rotates between sectors, and being "
+                    "long the leaders while breadth is healthy is the core of the sector_rotation strategy. "
+                    "Use it to see where strength is concentrated and whether the broad market confirms it.",
             "how": [
-                "Click Load sectors to rank each sector ETF by return and performance vs SPY.",
-                "Leaders (outperforming and above their 50-day average) are the rotation candidates.",
-                "The breadth box summarises how broad the market's participation is.",
+                "Click Load sectors to rank each sector ETF; columns show Return, vs SPY (relative "
+                "strength), Above 50-DMA, a composite Score and a Leader flag.",
+                "Leaders — outperforming SPY and trading above their 50-day average — are the candidates the "
+                "sector_rotation strategy goes long.",
+                "The breadth box summarises how broad participation is; strong breadth backs a rotation "
+                "signal, weak/narrow breadth is a caution flag.",
+            ],
+            "examples": [
+                "To align with rotation: Load sectors, note the top 2-3 Leaders (e.g. XLK, XLE), and favour "
+                "longs in those sectors while avoiding the laggards at the bottom.",
+                "If only one sector is green and breadth is weak, treat a “leader” cautiously — the move "
+                "isn't broadly supported.",
+            ],
+            "mistakes": [
+                "Chasing a leader while breadth is deteriorating — narrow leadership often precedes a "
+                "pullback.",
+                "Reading raw Return alone; “vs SPY” and Above-50-DMA are what define a true relative-"
+                "strength leader.",
             ],
             "tips": [
                 "Rotating into leading sectors and out of laggards is the core idea — confirm with breadth.",
@@ -933,12 +1418,38 @@ def _build_section_guides() -> List[Dict[str, Any]]:
             "key": "montecarlo",
             "title": "Monte Carlo & Market Intelligence",
             "summary": "Regime detection, adaptive thresholds and Monte Carlo equity projections.",
-            "what": "Higher-level market-intelligence tools: what regime we're in, how the bot "
-                    "is auto-tuning, and a probabilistic view of future equity.",
+            "quickstart": "The left column auto-loads Market Regime and Adaptive Thresholds. For the "
+                          "projection, set Runs and Horizon (trades) and click Run — the fan chart and "
+                          "cards show the range of likely equity outcomes.",
+            "what": "This section holds the higher-level market-intelligence tools: what regime the market "
+                    "is in, how the engine is auto-tuning its gates to that regime, and a probabilistic "
+                    "projection of future equity. It matters because it frames expectations — the same edge "
+                    "behaves differently in a trending vs. choppy market, and the projection shows a range, "
+                    "not a promise. Use it to set realistic expectations and sanity-check risk.",
             "how": [
-                "Market Regime classifies current conditions (trending, choppy, volatile).",
-                "Adaptive Thresholds shows how the engine auto-tunes its gates to the regime.",
-                "The Monte Carlo projection simulates many equity paths to show a likely range of outcomes.",
+                "“Market Regime” classifies current conditions (e.g. trending, choppy, volatile) — it "
+                "loads automatically.",
+                "“Adaptive Thresholds” shows how the engine is auto-tuning its gates to the current regime.",
+                "“Monte Carlo Projection”: set Runs (number of simulated paths — default 1000, min 100, "
+                "steps of 100) and Horizon (how many future trades to simulate — default 50, min 5, steps "
+                "of 5), then click Run.",
+                "It resamples your historical trade outcomes across many random orderings; the fan chart "
+                "shows the spread of equity paths and the cards summarise the likely range (and downside "
+                "risk).",
+                "More Runs = a smoother, more stable distribution but a slightly slower computation; a "
+                "longer Horizon projects further out with wider uncertainty.",
+            ],
+            "examples": [
+                "To gauge realistic downside: run 5000 runs over a 50-trade horizon and read the worst-case "
+                "band of the fan — that's roughly how bad a run of bad luck could look.",
+                "Before pushing size, check Market Regime: if it says “choppy/volatile”, expect the "
+                "engine's adaptive thresholds to tighten and fewer trades to qualify.",
+            ],
+            "mistakes": [
+                "Treating the projection as a forecast of one path — it's a distribution of possibilities "
+                "built from past trades, and assumes the future resembles the past.",
+                "Running it with only a handful of historical trades — the resampled paths just echo that "
+                "tiny sample and mean little.",
             ],
             "tips": [
                 "Treat the projection as a distribution of possibilities, not a forecast of one path.",
@@ -947,12 +1458,35 @@ def _build_section_guides() -> List[Dict[str, Any]]:
         {
             "key": "notes",
             "title": "Trade Journal Notes",
-            "summary": "Write and keep free-form notes about trades and market conditions.",
-            "what": "A simple journal for your own observations — the qualitative context that "
-                    "numbers alone don't capture.",
+            "summary": "Attach searchable notes and tags to trades by trade ID.",
+            "quickstart": "Enter a Trade ID (from the history table), write a Note, add comma-separated "
+                          "Tags, and Save. Later, use Search text / Filter tag (or click a tag in the "
+                          "cloud) to find notes.",
+            "what": "This is a searchable journal that attaches free-form notes and tags to specific trades "
+                    "by their ID. It matters because the qualitative context — why you took or skipped a "
+                    "trade, what you saw, what you'd do differently — is exactly what the numbers don't "
+                    "capture, and it's one of the fastest ways to improve. Use it right after a trade while "
+                    "the reasoning is fresh.",
             "how": [
-                "Add a note with your thoughts on a trade, setup or market day.",
-                "Notes are saved and listed so you can review your reasoning later.",
+                "“Trade ID” references a trade from the Trade History table (e.g. 12); “Note” is your "
+                "free-form text; “Tags (comma-sep)” are labels like “mistake, gap-up”. Click Save.",
+                "To review: type a keyword in “Search text” and/or a tag in “Filter tag”, then click Search "
+                "— matching notes list in the table (Trade, Note, Tags, Updated).",
+                "A tag cloud shows your most-used tags; click one to filter to it quickly.",
+                "Notes persist so you can build a personal record of lessons over time.",
+            ],
+            "examples": [
+                "After a stopped-out trade: find its ID in Trade History, note “entered late, chased the "
+                "gap”, tag it “mistake, chased”, and Save — then periodically Search “chased” to see the "
+                "pattern.",
+                "To tag your best setups: add the tag “A+setup” to trades that worked, then Filter tag = "
+                "A+setup to study what they had in common.",
+            ],
+            "mistakes": [
+                "Guessing a Trade ID — use the exact ID shown in the Trade History table or the note won't "
+                "attach to the right trade.",
+                "Never revisiting your notes; the value is in periodically searching them for recurring "
+                "mistakes.",
             ],
             "tips": [
                 "Journaling why you took (or skipped) a trade is one of the fastest ways to improve.",
@@ -961,12 +1495,38 @@ def _build_section_guides() -> List[Dict[str, Any]]:
         {
             "key": "api",
             "title": "API, Export & Accounts",
-            "summary": "Download CSV/PDF reports, use the REST API and manage dashboard accounts.",
-            "what": "Data-export and account-administration tools for the dashboard.",
+            "summary": "Download CSV/PDF reports, manage REST API keys and browser notifications.",
+            "quickstart": "Download Trades/Analytics as CSV or PDF from the Export bar. Create a REST API "
+                          "key (Key name → Create key) for scripts. Enable browser push and manage it from "
+                          "the 🔔 bell in the header.",
+            "what": "This section bundles the dashboard's data-export, API-access and notification-"
+                    "administration tools. It matters because it's how you get data out (for spreadsheets "
+                    "or your own analysis), automate against the bot programmatically, and control real-time "
+                    "browser alerts. Use it for reporting, integrations, and setting up notifications.",
             "how": [
-                "Export trades and analytics as CSV or PDF with the download buttons.",
-                "The REST API (see /docs) exposes the same data programmatically.",
-                "Manage dashboard user accounts and access from here.",
+                "“Export Data”: four one-click downloads — Trades CSV, Trades PDF, Analytics CSV, Analytics "
+                "PDF.",
+                "“Notifications”: real-time browser push for trades executed, stops hit, targets reached and "
+                "AI alerts. Click “Enable notifications” to grant permission, “Open notifications” to review "
+                "recent ones; the 🔔 bell in the header is where you enable and pick which categories notify "
+                "you.",
+                "“REST API Keys”: type a Key name (e.g. my-script) and Create key — the raw key is shown "
+                "once, so copy it immediately. Authenticate calls with the header "
+                "Authorization: Bearer <key>; docs live at /api/v1.",
+                "“User Accounts”: multi-user support is off by default; set MULTI_USER_ENABLED=true to allow "
+                "separate accounts with their own strategies, capital and watchlists.",
+            ],
+            "examples": [
+                "To analyse performance in a spreadsheet: click “Analytics CSV”, open it in Excel/Sheets, "
+                "and pivot by strategy or month.",
+                "To pull live positions from a script: Create key, copy it, then call the API with "
+                "`Authorization: Bearer <key>` per the /api/v1 docs.",
+            ],
+            "mistakes": [
+                "Navigating away after creating an API key without copying it — the raw key is shown only "
+                "once and can't be retrieved later.",
+                "Expecting push notifications to work without clicking “Enable notifications” and granting "
+                "the browser permission first.",
             ],
             "tips": [
                 "Use the CSV exports to analyse performance in a spreadsheet or notebook.",
