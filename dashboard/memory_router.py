@@ -42,7 +42,7 @@ from journal.learnings import (
 
 log = structlog.get_logger(__name__)
 
-router = APIRouter(tags=["memory"])
+router = APIRouter(tags=["AI"])
 
 # The gates whose rejections originate in the memory & learning layer.  Anything
 # else in the rejected-signal log came from a different entry gate.

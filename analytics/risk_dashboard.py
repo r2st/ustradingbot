@@ -29,6 +29,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 import numpy as np
 import pandas as pd
+import structlog
 
 from analytics.performance import (
     build_equity_curve,
@@ -37,6 +38,8 @@ from analytics.performance import (
 )
 from config.settings import EASTERN
 from config.universe import get_sector
+
+log = structlog.get_logger(__name__)
 
 
 @dataclass
@@ -53,6 +56,8 @@ class RiskReport:
     open_risk: Dict[str, Any] = field(default_factory=dict)
     daily_loss_budget: Dict[str, Any] = field(default_factory=dict)
     marked_to_market: bool = False
+    # P3f — portfolio beta vs SPY + market-relative drawdown (additive).
+    beta: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -65,6 +70,7 @@ class RiskReport:
             "open_risk": self.open_risk,
             "daily_loss_budget": self.daily_loss_budget,
             "marked_to_market": self.marked_to_market,
+            "beta": self.beta,
         }
 
 
@@ -311,6 +317,111 @@ def returns_from_ohlcv(df: pd.DataFrame, lookback: int = 60) -> Optional[pd.Seri
 
 
 # ---------------------------------------------------------------------------
+# Portfolio beta vs SPY (P3f)
+# ---------------------------------------------------------------------------
+
+
+def portfolio_beta(
+    returns_by_symbol: Dict[str, pd.Series],
+    weights: Dict[str, float],
+    market_returns: Optional[pd.Series],
+    min_overlap: int = 20,
+    benchmark: str = "SPY",
+) -> Dict[str, Any]:
+    """Portfolio beta vs the market (SPY) from aligned daily returns.
+
+    Each position's beta is ``cov(asset, market) / var(market)`` over the
+    overlapping window; the portfolio beta is the market-value-weighted sum of
+    the per-position betas.  Positions with fewer than *min_overlap* overlapping
+    observations (or where the market has zero variance) get a ``None`` beta and
+    are excluded from the weighted sum, with the remaining weights renormalised
+    so the portfolio beta always reflects the covered book.
+    """
+    empty = {
+        "portfolio_beta": None,
+        "per_position": [],
+        "observations": 0,
+        "benchmark": benchmark,
+    }
+    if market_returns is None or len(market_returns) < min_overlap:
+        return empty
+    if float(market_returns.std()) == 0.0:
+        return empty
+
+    total_weight = sum(max(0.0, float(w)) for w in weights.values())
+    per_position: List[Dict[str, Any]] = []
+    covered: List[tuple] = []  # (symbol, beta, raw_weight)
+    max_obs = 0
+
+    for symbol, series in returns_by_symbol.items():
+        raw_w = max(0.0, float(weights.get(symbol, 0.0)))
+        weight = round(raw_w / total_weight, 4) if total_weight > 0 else 0.0
+        joined = pd.concat([series, market_returns], axis=1, join="inner").dropna()
+        beta: Optional[float] = None
+        if len(joined) >= min_overlap:
+            asset = joined.iloc[:, 0].to_numpy()
+            market = joined.iloc[:, 1].to_numpy()
+            # Compute cov and var with the same (population) normalisation so the
+            # ratio is exact — mixing np.cov (ddof=1) with np.var (ddof=0) would
+            # bias beta by N/(N-1).
+            m_mean = float(np.mean(market))
+            var = float(np.mean((market - m_mean) ** 2))
+            if var > 0:
+                cov = float(np.mean((asset - np.mean(asset)) * (market - m_mean)))
+                b = cov / var
+                if not np.isnan(b):
+                    beta = round(b, 3)
+                    max_obs = max(max_obs, int(len(joined)))
+        per_position.append({"symbol": symbol, "beta": beta, "weight": weight})
+        if beta is not None and raw_w > 0:
+            covered.append((symbol, beta, raw_w))
+
+    covered_weight = sum(w for _, _, w in covered)
+    if covered_weight > 0:
+        port_beta = round(
+            sum(beta * (w / covered_weight) for _, beta, w in covered), 3
+        )
+    else:
+        port_beta = None
+
+    per_position.sort(key=lambda r: (r["beta"] is None, -(r["weight"] or 0.0)))
+    return {
+        "portfolio_beta": port_beta,
+        "per_position": per_position,
+        "observations": max_obs,
+        "benchmark": benchmark,
+    }
+
+
+def market_relative_drawdown(
+    portfolio_equities: Sequence[float],
+    benchmark_equities: Sequence[float],
+) -> Dict[str, Any]:
+    """Current drawdown of the book vs a benchmark buy-&-hold over the same span.
+
+    ``excess_drawdown_pct`` is the portfolio's current drawdown minus the
+    benchmark's — positive means the book is deeper underwater than the market.
+    Robust to short/empty inputs (fields fall back to ``0.0``).
+    """
+    def _current_dd(equities: Sequence[float]) -> float:
+        vals = [float(v) for v in equities if v is not None]
+        if len(vals) < 1:
+            return 0.0
+        peak = max(vals)
+        if peak <= 0:
+            return 0.0
+        return round(max(0.0, (peak - vals[-1]) / peak), 4)
+
+    port_dd = _current_dd(portfolio_equities)
+    bench_dd = _current_dd(benchmark_equities)
+    return {
+        "portfolio_drawdown_pct": port_dd,
+        "benchmark_drawdown_pct": bench_dd,
+        "excess_drawdown_pct": round(port_dd - bench_dd, 4),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Drawdown
 # ---------------------------------------------------------------------------
 
@@ -452,8 +563,8 @@ def build_risk_report(
             from data.fetcher import fetch_ohlcv as ohlcv_fetcher  # type: ignore
         except Exception:  # noqa: BLE001
             ohlcv_fetcher = None
-    if ohlcv_fetcher is not None and len(positions) >= 2:
-        returns: Dict[str, pd.Series] = {}
+    returns: Dict[str, pd.Series] = {}
+    if ohlcv_fetcher is not None and len(positions) >= 1:
         for pos in positions:
             symbol = str(pos.get("symbol", ""))
             if not symbol:
@@ -465,7 +576,32 @@ def build_risk_report(
                 series = None
             if series is not None and not series.empty:
                 returns[symbol] = series
-        correlations = position_correlations(returns)
+        if len(positions) >= 2:
+            correlations = position_correlations(returns)
+
+    # P3f — portfolio beta vs SPY (best-effort; never breaks the report).
+    beta: Dict[str, Any] = {"portfolio_beta": None, "per_position": [],
+                            "observations": 0, "benchmark": "SPY"}
+    if ohlcv_fetcher is not None and returns:
+        try:
+            spy_df = ohlcv_fetcher("SPY")
+            market_returns = returns_from_ohlcv(spy_df) if spy_df is not None else None
+            weights: Dict[str, float] = {}
+            for pos in positions:
+                symbol = str(pos.get("symbol", ""))
+                if not symbol:
+                    continue
+                try:
+                    qty = int(float(pos.get("quantity", 0) or 0))
+                    px = prices.get(symbol) if prices else None
+                    mark = float(px) if px else float(pos.get("entry_price", 0) or 0)
+                except (ValueError, TypeError):
+                    continue
+                weights[symbol] = weights.get(symbol, 0.0) + mark * qty
+            beta = portfolio_beta(returns, weights, market_returns)
+        except Exception as exc:  # noqa: BLE001 -- additive; degrade gracefully
+            log.warning("risk.beta_failed", error=str(exc),
+                        error_type=type(exc).__name__)
 
     breakdown = pnl_breakdown(trades, now=now)
     marked = bool(prices) and any(
@@ -488,6 +624,7 @@ def build_risk_report(
                             total_capital=starting_capital),
         daily_loss_budget=budget,
         marked_to_market=marked,
+        beta=beta,
     )
     return report
 

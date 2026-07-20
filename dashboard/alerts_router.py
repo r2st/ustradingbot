@@ -17,16 +17,14 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from agent import alert_config
 from dashboard.auth import get_settings, require_auth
+from dashboard.http_util import parse_json_body
 
-router = APIRouter(prefix="/api/alerts", tags=["alerts"])
+router = APIRouter(prefix="/api/alerts", tags=["Notifications"])
 
 
 async def _body(request: Request) -> Dict[str, Any]:
-    try:
-        data = await request.json()
-    except (ValueError, TypeError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    """Parse a JSON object body, 422 on malformed JSON (see B7)."""
+    return await parse_json_body(request)
 
 
 @router.get("/rules")

@@ -26,7 +26,7 @@ from fastapi import APIRouter, Depends
 
 from dashboard.auth import get_settings, require_auth
 
-router = APIRouter(prefix="/api/live", tags=["live"])
+router = APIRouter(prefix="/api/live", tags=["Analytics"])
 
 ET = ZoneInfo("America/New_York")
 INTRADAY_FILE = "pnl_intraday.jsonl"

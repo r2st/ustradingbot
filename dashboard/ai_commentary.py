@@ -125,7 +125,8 @@ def compute_indicators(df) -> Optional[Dict[str, Any]]:
             signal_line = macd_line.ewm(span=9, adjust=False).mean()
             hist = macd_line - signal_line
             prev_hist = float(hist.iloc[-2])
-        except Exception:  # noqa: BLE001 -- direction flag is a nice-to-have
+        except Exception as exc:  # noqa: BLE001 -- direction flag is a nice-to-have
+            log.debug("commentary.macd_direction_failed", error=str(exc))
             prev_hist = None
 
         return {
@@ -469,7 +470,8 @@ def build_position_facts(settings) -> List[Dict[str, Any]]:
         df = None
         try:
             df = _fetch_bars(sym, settings)
-        except Exception:  # noqa: BLE001 -- a bad symbol never fails the panel
+        except Exception as exc:  # noqa: BLE001 -- a bad symbol never fails the panel
+            log.debug("commentary.position_bars_failed", symbol=sym, error=str(exc))
             df = None
         ind = compute_indicators(df)
         row["indicators"] = ind
@@ -503,7 +505,9 @@ def build_watchlist_facts(settings) -> List[Dict[str, Any]]:
         if i < limit:
             try:
                 df = _fetch_bars(str(row.get("symbol", "")), settings)
-            except Exception:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 -- best-effort per-symbol
+                log.debug("commentary.watchlist_bars_failed",
+                          symbol=str(row.get("symbol", "")), error=str(exc))
                 df = None
             ind = compute_indicators(df)
             strategy = (row.get("signal") or {}).get("strategy") or "momentum"
@@ -558,7 +562,8 @@ def build_market_facts(settings) -> Dict[str, Any]:
         # Fall back to the shared benchmark path (also neutral-on-error).
         try:
             market["spy"] = current_regime(settings).to_dict()
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            log.warning("commentary.spy_regime_failed", error=str(exc))
             market["spy"] = {}
 
     # Benchmark quotes for the header chips.
@@ -569,8 +574,8 @@ def build_market_facts(settings) -> Dict[str, Any]:
             market.setdefault(sym.lower(), {})
             market[sym.lower()]["last_price"] = q.get("price")
             market[sym.lower()]["change_pct"] = q.get("change_pct")
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        log.warning("commentary.benchmark_quotes_failed", error=str(exc))
 
     # VIX regime — ^VIX daily close bucketed; realized-vol proxy as fallback.
     vix: Dict[str, Any] = {"value": None, "bucket": None, "source": "vix"}
@@ -609,7 +614,8 @@ def build_market_facts(settings) -> Dict[str, Any]:
                     then_c = float(df["Close"].iloc[-6])
                     if then_c > 0:
                         change_5d = round((now_c - then_c) / then_c * 100.0, 2)
-            except Exception:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 -- best-effort per-sector
+                log.debug("commentary.sector_5d_failed", symbol=sym, error=str(exc))
                 change_5d = None
             sectors.append({
                 "symbol": sym,

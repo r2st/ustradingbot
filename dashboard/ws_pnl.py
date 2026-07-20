@@ -39,7 +39,7 @@ from starlette.concurrency import run_in_threadpool
 from dashboard.auth import get_settings, require_auth
 from dashboard.live_router import build_pnl_snapshot
 
-router = APIRouter(tags=["realtime"])
+router = APIRouter(tags=["Analytics"])
 
 # Push cadence (seconds).  Module-level so tests can shrink them if needed.
 PNL_PUSH_INTERVAL_OPEN = 5.0

@@ -14,9 +14,10 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 
 from config.settings import get_settings
 from dashboard.auth import require_auth
+from dashboard.http_util import parse_json_body
 from users.accounts import AccountError, UserProfile, get_user_store
 
-router = APIRouter(prefix="/api/users", tags=["users"])
+router = APIRouter(prefix="/api/users", tags=["Users"])
 
 
 def _store():
@@ -29,11 +30,8 @@ def _require_multi_user() -> None:
 
 
 async def _body(request: Request) -> Dict[str, Any]:
-    try:
-        data = await request.json()
-    except (ValueError, TypeError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    """Parse a JSON object body, 422 on malformed JSON (see B7)."""
+    return await parse_json_body(request)
 
 
 def _current_user(x_user_token: Optional[str]) -> str:

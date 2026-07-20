@@ -1,0 +1,43 @@
+# USTradingBot — trading engine (scanner + trade loop).
+#
+# Writes the data_store/ snapshots the dashboard reads (open_positions.json,
+# engine_status.json heartbeat, trades.csv).  Without this unit running, the
+# dashboard's data never moves — the classic "static data" symptom.  Separate
+# process from the dashboard on purpose (see docs/deployment.md).
+#
+# Install:
+#   sudo cp deploy/systemd/ustradingbot-engine.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now ustradingbot-engine
+#
+# The dashboard's Engine Control panel starts/stops/restarts THIS unit by name
+# (ustradingbot-engine.service) via systemctl, gated by the admin password.
+
+[Unit]
+Description=USTradingBot trading engine (scanner + trade loop)
+Documentation=file:///opt/USTradingBot/docs/deployment.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/USTradingBot
+EnvironmentFile=/opt/USTradingBot/.env
+ExecStart=/opt/USTradingBot/.venv/bin/python engine.py
+Restart=always
+RestartSec=5
+# The engine uses an interruptible between-cycle sleep so stop/restart returns
+# fast; keep the stop timeout short so operator actions feel responsive.
+TimeoutStopSec=20
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ustradingbot-engine
+
+# --- Light hardening ---
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

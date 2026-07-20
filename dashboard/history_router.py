@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends
 
 from dashboard.auth import get_settings, require_auth
 
-router = APIRouter(prefix="/api/history", tags=["history"])
+router = APIRouter(prefix="/api/history", tags=["Analytics"])
 
 _SORTABLE = {
     "exit_time", "entry_time", "symbol", "strategy", "pnl_net", "pnl_pct",

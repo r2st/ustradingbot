@@ -1,0 +1,43 @@
+# USTradingBot — FastAPI dashboard (read-only view over data_store/ snapshots).
+#
+# Deliberately a SEPARATE process from the engine so a provider/mode switch can
+# restart the engine without dropping the dashboard.  See docs/deployment.md.
+#
+# Install:
+#   sudo cp deploy/systemd/ustradingbot.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now ustradingbot
+#
+# Adjust User/WorkingDirectory/paths if you deploy somewhere other than
+# /opt/USTradingBot running as root (the current Hetzner layout).
+
+[Unit]
+Description=USTradingBot dashboard (FastAPI/uvicorn)
+Documentation=file:///opt/USTradingBot/docs/deployment.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/USTradingBot
+# .env in the app dir carries DASHBOARD_PASSWORD, provider keys, etc.
+EnvironmentFile=/opt/USTradingBot/.env
+ExecStart=/opt/USTradingBot/.venv/bin/uvicorn dashboard.app:app --host 0.0.0.0 --port 8501
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+# Structured logs go to stderr → journald (journalctl -u ustradingbot).
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ustradingbot
+
+# --- Light hardening (safe for a Python venv app writing under its own dir) ---
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+# The app persists runtime state under data_store/ inside the app dir, so do
+# NOT set ProtectHome/ReadOnlyPaths that would block those writes.
+
+[Install]
+WantedBy=multi-user.target

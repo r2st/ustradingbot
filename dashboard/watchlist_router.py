@@ -15,8 +15,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from config.settings import get_settings
 from config.watchlist import WatchlistError, get_watchlist_store
 from dashboard.auth import require_auth
+from dashboard.http_util import parse_json_body
 
-router = APIRouter(prefix="/api/watchlist", tags=["watchlist"])
+router = APIRouter(prefix="/api/watchlist", tags=["Configuration"])
 
 
 def _store():
@@ -38,11 +39,8 @@ def _payload() -> Dict[str, Any]:
 
 
 async def _body(request: Request) -> Dict[str, Any]:
-    try:
-        data = await request.json()
-    except (ValueError, TypeError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    """Parse a JSON object body, 422 on malformed JSON (see B7)."""
+    return await parse_json_body(request)
 
 
 @router.get("")

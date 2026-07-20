@@ -8,36 +8,30 @@ body as ``admin_password``.
 
 from __future__ import annotations
 
-from typing import Any, Dict
-
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from starlette.concurrency import run_in_threadpool
 
 from config.settings import get_settings
 from dashboard.auth import require_auth, verify_admin_password
+from dashboard.rate_limit import rate_limit
+from dashboard.schemas import PositionStopRequest
 
-router = APIRouter(prefix="/api/positions", tags=["positions"])
+router = APIRouter(prefix="/api/positions", tags=["Trading"])
 
 
-@router.post("/stop")
-async def stop_position(request: Request, _user: str = Depends(require_auth)):
+@router.post("/stop", dependencies=[Depends(rate_limit("position_stop"))])
+async def stop_position(
+    payload: PositionStopRequest, _user: str = Depends(require_auth)
+):
     """Close an open position at market (admin password required).
 
-    Body: ``{symbol, admin_password}``.
+    Body: ``{symbol, admin_password}``.  Symbol/type validation → 422; the admin
+    password gate follows.  Rate-limited per client IP (money path).
     """
-    try:
-        body: Dict[str, Any] = await request.json()
-    except (ValueError, TypeError):
-        body = {}
-    if not isinstance(body, dict):
-        body = {}
-
-    if not verify_admin_password(str(body.get("admin_password", ""))):
+    if not verify_admin_password(payload.admin_password):
         raise HTTPException(status_code=403, detail="Admin password required.")
 
-    symbol = str(body.get("symbol", "")).strip().upper()
-    if not symbol:
-        raise HTTPException(status_code=400, detail="A symbol is required.")
+    symbol = payload.symbol.strip().upper()
 
     from execution.stop_trade import stop_open_position
 

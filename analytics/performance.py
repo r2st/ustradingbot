@@ -23,9 +23,10 @@ peak equity.
 from __future__ import annotations
 
 import math
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -81,6 +82,25 @@ class PerformanceReport:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# mtime-guarded cache for the journal CSV (audit B14)
+# ---------------------------------------------------------------------------
+# The trade journal is read on nearly every dashboard poll (analytics summary,
+# by-strategy, by-symbol, equity curve, recent trades, risk report, CSV/PDF
+# export).  Re-parsing the whole CSV each time is wasteful when the file hasn't
+# changed.  We memoise the parsed frame keyed on (resolved path, mtime_ns,
+# size); any write to the file changes mtime/size and invalidates the entry.
+# A copy is returned on every hit so callers can never mutate the cached frame.
+_CACHE_LOCK = threading.Lock()
+_TRADES_CACHE: Dict[str, Tuple[Tuple[int, int], pd.DataFrame]] = {}
+
+
+def clear_trades_cache() -> None:
+    """Drop the memoised journal frames (tests / after a known rewrite)."""
+    with _CACHE_LOCK:
+        _TRADES_CACHE.clear()
+
+
 def load_completed_trades(csv_path: str | Path) -> pd.DataFrame:
     """Load completed trades from ``trades.csv`` into a numeric DataFrame.
 
@@ -88,9 +108,33 @@ def load_completed_trades(csv_path: str | Path) -> pd.DataFrame:
     columns are coerced; unparseable values become ``NaN``.
 
     Returns an empty DataFrame (with no rows) when the file is missing,
-    empty, or has no completed trades.
+    empty, or has no completed trades.  Results are cached per file and reused
+    while the file's mtime and size are unchanged (B14).
     """
     path = Path(csv_path)
+    key = str(path.resolve() if path.exists() else path)
+    try:
+        stat = path.stat()
+        stamp = (stat.st_mtime_ns, stat.st_size)
+    except OSError:
+        stamp = None
+
+    if stamp is not None:
+        with _CACHE_LOCK:
+            cached = _TRADES_CACHE.get(key)
+        if cached is not None and cached[0] == stamp:
+            return cached[1].copy()
+
+    frame = _load_completed_trades_uncached(path)
+
+    if stamp is not None:
+        with _CACHE_LOCK:
+            _TRADES_CACHE[key] = (stamp, frame)
+    return frame.copy()
+
+
+def _load_completed_trades_uncached(path: Path) -> pd.DataFrame:
+    """The actual CSV parse (see :func:`load_completed_trades`)."""
     try:
         df = pd.read_csv(path, dtype=str)
     except (FileNotFoundError, pd.errors.EmptyDataError):

@@ -14,14 +14,45 @@ Basic Auth guard without importing the app module (which would be circular).
 from __future__ import annotations
 
 import secrets
+from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import Depends, HTTPException, status
+import structlog
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
+
+log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # auto_error=False so we can honour DASHBOARD_AUTH_ENABLED=False (allow with no
 # header) and still return a proper 401 challenge when auth is on.
 _security = HTTPBasic(auto_error=False)
+
+
+def _client_ip(request: Optional[Request]) -> str:
+    """Best-effort client IP for audit logging.
+
+    Honours ``X-Forwarded-For`` (the dashboard is meant to run behind a
+    TLS-terminating reverse proxy) before falling back to the socket peer.
+    """
+    if request is None:
+        return "unknown"
+    fwd = request.headers.get("x-forwarded-for", "")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    client = request.client
+    return client.host if client else "unknown"
+
+
+def _log_auth_failure(request: Optional[Request], reason: str, username: str = "") -> None:
+    """Emit a WARN-level audit record for a rejected dashboard login."""
+    log.warning(
+        "auth.failure",
+        reason=reason,
+        username=username or None,
+        ip=_client_ip(request),
+        path=request.url.path if request is not None else None,
+        timestamp=datetime.now(timezone.utc).isoformat(),
+    )
 
 
 def get_settings():
@@ -43,6 +74,7 @@ def get_settings():
 
 
 def require_auth(
+    request: Request,
     credentials: Optional[HTTPBasicCredentials] = Depends(_security),
 ) -> str:
     """Validate HTTP Basic credentials against the configured dashboard user.
@@ -66,17 +98,28 @@ def require_auth(
     if not settings.DASHBOARD_AUTH_ENABLED:
         return credentials.username if credentials else "anonymous"
 
+    # Brute-force lockout: reject clients that have exhausted their failed-login
+    # budget before we even look at the presented credentials.  Lazy import
+    # keeps dashboard.rate_limit (which imports this module) cycle-free.
+    from dashboard.rate_limit import LoginGuard, client_key
+
+    ckey = client_key(request)
+    LoginGuard.check_locked(ckey)
+
     expected_user = settings.DASHBOARD_USERNAME
     expected_pass = settings.DASHBOARD_PASSWORD
 
     if not expected_pass:
         # Fail closed: never serve protected content without a real password.
+        # A misconfiguration, not a brute-force attempt — don't count it.
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Dashboard auth is enabled but DASHBOARD_PASSWORD is not set.",
         )
 
     if credentials is None:
+        _log_auth_failure(request, "missing_credentials")
+        LoginGuard.record_failure(ckey)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
@@ -90,21 +133,26 @@ def require_auth(
         credentials.password.encode("utf-8"), expected_pass.encode("utf-8")
     )
     if not (user_ok and pass_ok):
+        _log_auth_failure(request, "invalid_credentials", username=credentials.username)
+        LoginGuard.record_failure(ckey)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
             headers={"WWW-Authenticate": "Basic"},
         )
+    LoginGuard.record_success(ckey)
     return credentials.username
 
 
 def verify_admin_password(password: str) -> bool:
     """Return ``True`` when *password* matches the configured admin password.
 
+    Uses the dedicated ``DASHBOARD_ADMIN_PASSWORD`` when set, falling back to
+    ``DASHBOARD_PASSWORD`` (see :attr:`config.settings.Settings.admin_password`).
     Constant-time comparison.  Returns ``False`` (never raises) when no admin
     password is configured, so admin-gated actions fail closed.
     """
-    expected = get_settings().DASHBOARD_PASSWORD
+    expected = get_settings().admin_password
     if not expected:
         return False
     return secrets.compare_digest(

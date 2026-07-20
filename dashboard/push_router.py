@@ -15,9 +15,10 @@ from fastapi.responses import Response
 
 from config.settings import get_settings
 from dashboard.auth import require_auth
+from dashboard.http_util import parse_json_body
 from dashboard.push import CATEGORIES, get_push_store, _normalize_category
 
-router = APIRouter(tags=["pwa"])
+router = APIRouter(tags=["Notifications"])
 
 
 def _store():
@@ -149,11 +150,8 @@ async def pwa_client():
 
 
 async def _body(request: Request) -> Dict[str, Any]:
-    try:
-        data = await request.json()
-    except (ValueError, TypeError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    """Parse a JSON object body, 422 on malformed JSON (see B7)."""
+    return await parse_json_body(request)
 
 
 @router.get("/api/push/status")

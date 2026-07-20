@@ -47,7 +47,33 @@ from signals.signal_types import Grade
 # ---------------------------------------------------------------------------
 # App & templates
 # ---------------------------------------------------------------------------
-app = FastAPI(title="US Trading Bot Dashboard", version="0.1.0")
+from dashboard.middleware import OPENAPI_TAGS  # noqa: E402
+from dashboard.middleware import install as _install_middleware  # noqa: E402
+
+app = FastAPI(
+    title="US Trading Bot Dashboard",
+    version="0.1.0",
+    description=(
+        "Control panel and JSON API for the US/CA equity trading bot: paper/live "
+        "mode, manual trades, engine control, analytics, risk, backtests, and the "
+        "AI analyst & memory layer. All endpoints except `/health` require HTTP "
+        "Basic auth; money-moving actions additionally require the admin password."
+    ),
+    openapi_tags=OPENAPI_TAGS,
+    # B1 — the interactive docs (Swagger UI / ReDoc) and the raw OpenAPI schema
+    # leak the full API surface, so the built-in *unauthenticated* routes are
+    # disabled here and re-served below behind the same HTTP Basic auth guard as
+    # every other page.
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+)
+
+# Cross-cutting middleware + error handling (security headers, request logging
+# with a correlation id, and a consistent global exception envelope).  Stack
+# traces are only echoed to the client on an interactive TTY (local dev); in
+# production the client gets a generic message and the detail is logged.
+_install_middleware(app, debug=sys.stderr.isatty())
 
 _TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
@@ -66,6 +92,56 @@ if _STATIC_DIR.is_dir():
 # The implementation lives in dashboard.auth so the feature routers can share
 # the exact same guard without importing this module (which would be circular).
 from dashboard.auth import require_auth  # noqa: E402
+from dashboard.http_util import parse_json_body  # noqa: E402
+from dashboard.rate_limit import rate_limit  # noqa: E402
+from dashboard.schemas import (  # noqa: E402
+    BacktestRunRequest,
+    EngineControlRequest,
+    ModeSwitchRequest,
+    ProviderKeysRequest,
+    ProviderSelectRequest,
+)
+
+
+# ---------------------------------------------------------------------------
+# B1 — auth-gated API documentation
+# ---------------------------------------------------------------------------
+# The default Swagger UI / ReDoc / openapi.json routes were disabled on the app
+# above (docs_url=None, …); re-serve them here behind the same require_auth
+# guard so the interactive docs and the machine-readable schema are only
+# reachable with valid dashboard credentials.
+from fastapi.openapi.docs import (  # noqa: E402
+    get_redoc_html,
+    get_swagger_ui_html,
+)
+from fastapi.openapi.utils import get_openapi  # noqa: E402
+
+
+@app.get("/openapi.json", include_in_schema=False)
+async def _openapi(_user: str = Depends(require_auth)) -> Dict[str, Any]:
+    """The OpenAPI schema — auth-gated (was publicly reachable before B1)."""
+    return get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+        tags=app.openapi_tags,
+    )
+
+
+@app.get("/docs", include_in_schema=False)
+async def _swagger_ui(_user: str = Depends(require_auth)) -> HTMLResponse:
+    """Swagger UI — auth-gated.  Fetches /openapi.json with the same creds."""
+    return get_swagger_ui_html(
+        openapi_url="/openapi.json", title=f"{app.title} — API docs"
+    )
+
+
+@app.get("/redoc", include_in_schema=False)
+async def _redoc(_user: str = Depends(require_auth)) -> HTMLResponse:
+    """ReDoc — auth-gated."""
+    return get_redoc_html(openapi_url="/openapi.json", title=f"{app.title} — API docs")
+
 
 # ---------------------------------------------------------------------------
 # Helpers — build data dicts consumed by the template
@@ -1539,7 +1615,7 @@ def _build_section_guides() -> List[Dict[str, Any]]:
 # Routes
 # ---------------------------------------------------------------------------
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/", response_class=HTMLResponse, tags=["System"])
 async def dashboard(request: Request, _user: str = Depends(require_auth)):
     """Render the main dashboard page (requires HTTP Basic Auth)."""
     # Open-positions view preference (cards vs. table). Cards are the default;
@@ -1600,7 +1676,7 @@ def _build_backtest_options() -> Dict[str, Any]:
     return options()
 
 
-@app.get("/health")
+@app.get("/health", tags=["System"])
 async def health():
     """Simple health-check endpoint (also reports the trading mode)."""
     settings = get_settings()
@@ -1617,7 +1693,7 @@ async def health():
 # ---------------------------------------------------------------------------
 
 
-@app.get("/api/mode")
+@app.get("/api/mode", tags=["System"])
 async def api_mode():
     """Report the current trading mode (public — safe, read-only)."""
     settings = get_settings()
@@ -1630,22 +1706,24 @@ async def api_mode():
     }
 
 
-@app.post("/api/mode/switch")
-async def api_mode_switch(request: Request, _user: str = Depends(require_auth)):
+@app.post(
+    "/api/mode/switch",
+    tags=["Trading"],
+    dependencies=[Depends(rate_limit("mode_switch", control=True))],
+)
+async def api_mode_switch(
+    payload: ModeSwitchRequest, _user: str = Depends(require_auth)
+):
     """Switch paper ⇄ live (admin password required to go live).
 
     Persists the new broker to ``.env`` and requests an engine restart.  The
     settings cache is cleared so the dashboard immediately reflects the new
-    mode, and a best-effort mode-switch alert is dispatched.
+    mode, and a best-effort mode-switch alert is dispatched.  Rate-limited.
     """
     from dashboard.mode_control import switch_mode
 
-    try:
-        body = await request.json()
-    except (ValueError, TypeError):
-        body = {}
-    target = str(body.get("target", "")).strip()
-    admin_password = str(body.get("admin_password", ""))
+    target = payload.target.strip()
+    admin_password = payload.admin_password
 
     settings = get_settings()
     old_mode = settings.TRADING_MODE
@@ -1677,7 +1755,7 @@ async def api_mode_switch(request: Request, _user: str = Depends(require_auth)):
 # ---------------------------------------------------------------------------
 
 
-@app.get("/api/providers")
+@app.get("/api/providers", tags=["Market Data"])
 async def api_providers(_user: str = Depends(require_auth)):
     """List market-data providers with active/connected status (no secrets)."""
     from dashboard.provider_control import provider_status
@@ -1685,16 +1763,18 @@ async def api_providers(_user: str = Depends(require_auth)):
     return provider_status(get_settings())
 
 
-@app.post("/api/providers/select")
-async def api_provider_select(request: Request, _user: str = Depends(require_auth)):
+@app.post(
+    "/api/providers/select",
+    tags=["Market Data"],
+    dependencies=[Depends(rate_limit("provider_select", control=True))],
+)
+async def api_provider_select(
+    payload: ProviderSelectRequest, _user: str = Depends(require_auth)
+):
     """Switch the active market-data provider (persists to .env + restarts)."""
     from dashboard.provider_control import switch_provider
 
-    try:
-        body = await request.json()
-    except (ValueError, TypeError):
-        body = {}
-    result = switch_provider(str(body.get("provider", "")), get_settings())
+    result = switch_provider(payload.provider, get_settings())
     if result.ok and hasattr(get_settings, "cache_clear"):
         get_settings.cache_clear()
     return {
@@ -1705,15 +1785,18 @@ async def api_provider_select(request: Request, _user: str = Depends(require_aut
     }
 
 
-@app.post("/api/providers/keys")
-async def api_provider_keys(request: Request, _user: str = Depends(require_auth)):
+@app.post(
+    "/api/providers/keys",
+    tags=["Market Data"],
+    dependencies=[Depends(rate_limit("provider_keys", control=True))],
+)
+async def api_provider_keys(
+    payload: ProviderKeysRequest, _user: str = Depends(require_auth)
+):
     """Save provider API keys to .env (auto-selects Alpaca when keys complete)."""
     from dashboard.provider_control import save_api_keys
 
-    try:
-        body = await request.json()
-    except (ValueError, TypeError):
-        body = {}
+    body = payload.model_dump(exclude_none=True)
     keys = body.get("keys", body)  # accept {"keys": {...}} or a flat dict
     if not isinstance(keys, dict):
         keys = {}
@@ -1730,27 +1813,27 @@ async def api_provider_keys(request: Request, _user: str = Depends(require_auth)
     }
 
 
-@app.get("/api/paper/summary")
+@app.get("/api/paper/summary", tags=["Analytics"])
 async def api_paper_summary(_user: str = Depends(require_auth)):
     """Paper account balance, realized/today P&L, and headline stats."""
     paper = _build_paper_trading()
     return {k: v for k, v in paper.items() if k not in ("positions", "recent_trades")}
 
 
-@app.get("/api/paper/positions")
+@app.get("/api/paper/positions", tags=["Analytics"])
 async def api_paper_positions(_user: str = Depends(require_auth)):
     """Current open paper positions."""
     paper = _build_paper_trading()
     return {"open_count": paper["open_count"], "positions": paper["positions"]}
 
 
-@app.get("/api/paper/trades")
+@app.get("/api/paper/trades", tags=["Analytics"])
 async def api_paper_trades(_user: str = Depends(require_auth)):
     """Recent completed paper trades."""
     return {"trades": _build_paper_trading()["recent_trades"]}
 
 
-@app.get("/api/paper/account")
+@app.get("/api/paper/account", tags=["Analytics"])
 async def api_paper_account(_user: str = Depends(require_auth)):
     """Full account snapshot: summary stats, balances, positions, trades.
 
@@ -1773,25 +1856,25 @@ def _analytics_report():
     return analyze_journal(csv_path, settings.TOTAL_CAPITAL)
 
 
-@app.get("/api/analytics/summary")
+@app.get("/api/analytics/summary", tags=["Analytics"])
 async def analytics_summary(_user: str = Depends(require_auth)):
     """Portfolio-wide performance metrics (win rate, profit factor, Sharpe…)."""
     return _analytics_report().summary
 
 
-@app.get("/api/analytics/by-strategy")
+@app.get("/api/analytics/by-strategy", tags=["Analytics"])
 async def analytics_by_strategy(_user: str = Depends(require_auth)):
     """Per-strategy performance breakdown."""
     return {"by_strategy": _analytics_report().by_strategy}
 
 
-@app.get("/api/analytics/by-symbol")
+@app.get("/api/analytics/by-symbol", tags=["Analytics"])
 async def analytics_by_symbol(_user: str = Depends(require_auth)):
     """Per-symbol performance breakdown."""
     return {"by_symbol": _analytics_report().by_symbol}
 
 
-@app.get("/api/analytics/equity-curve")
+@app.get("/api/analytics/equity-curve", tags=["Analytics"])
 async def analytics_equity_curve(
     granularity: str = "trade", _user: str = Depends(require_auth)
 ):
@@ -1834,13 +1917,13 @@ async def analytics_equity_curve(
     return {"equity_curve": out, "granularity": granularity}
 
 
-@app.get("/api/analytics/trades")
+@app.get("/api/analytics/trades", tags=["Analytics"])
 async def analytics_trades(_user: str = Depends(require_auth)):
     """Most recent completed trades."""
     return {"trades": _analytics_report().recent_trades}
 
 
-@app.get("/api/analytics/report")
+@app.get("/api/analytics/report", tags=["Analytics"])
 async def analytics_report(_user: str = Depends(require_auth)):
     """Full analytics payload (summary + breakdowns + curve + recent trades)."""
     return _analytics_report().to_dict()
@@ -1882,25 +1965,25 @@ def _risk_report():
     )
 
 
-@app.get("/api/risk/report")
+@app.get("/api/risk/report", tags=["Analytics"])
 async def risk_report(_user: str = Depends(require_auth)):
     """Full portfolio risk payload (exposure, sectors, correlation, drawdown, P&L)."""
     return _risk_report().to_dict()
 
 
-@app.get("/api/risk/exposure")
+@app.get("/api/risk/exposure", tags=["Analytics"])
 async def risk_exposure(_user: str = Depends(require_auth)):
     """Real-time portfolio exposure per currency and overall."""
     return _risk_report().exposure
 
 
-@app.get("/api/risk/sectors")
+@app.get("/api/risk/sectors", tags=["Analytics"])
 async def risk_sectors(_user: str = Depends(require_auth)):
     """Sector / industry concentration of the open book."""
     return {"sector_concentration": _risk_report().sector_concentration}
 
 
-@app.get("/api/risk/correlations")
+@app.get("/api/risk/correlations", tags=["Analytics"])
 async def risk_correlations(_user: str = Depends(require_auth)):
     """Pairwise correlation between open positions."""
     report = _risk_report()
@@ -1910,13 +1993,13 @@ async def risk_correlations(_user: str = Depends(require_auth)):
     }
 
 
-@app.get("/api/risk/drawdown")
+@app.get("/api/risk/drawdown", tags=["Analytics"])
 async def risk_drawdown(_user: str = Depends(require_auth)):
     """Current and maximum drawdown tracking."""
     return _risk_report().drawdown
 
 
-@app.get("/api/risk/pnl-breakdown")
+@app.get("/api/risk/pnl-breakdown", tags=["Analytics"])
 async def risk_pnl_breakdown(_user: str = Depends(require_auth)):
     """Daily / weekly / monthly realised-P&L breakdown."""
     return _risk_report().pnl_breakdown
@@ -1927,7 +2010,7 @@ async def risk_pnl_breakdown(_user: str = Depends(require_auth)):
 # ---------------------------------------------------------------------------
 
 
-@app.get("/api/engine/status")
+@app.get("/api/engine/status", tags=["Trading"])
 async def engine_status_api(_user: str = Depends(require_auth)):
     """Live engine status: systemd state + activity heartbeat.
 
@@ -1939,25 +2022,27 @@ async def engine_status_api(_user: str = Depends(require_auth)):
     return await run_in_threadpool(engine_status, get_settings())
 
 
-@app.post("/api/engine/control")
-async def engine_control_api(request: Request, _user: str = Depends(require_auth)):
-    """Start / stop / restart the trading engine (admin password required)."""
+@app.post(
+    "/api/engine/control",
+    tags=["Trading"],
+    dependencies=[Depends(rate_limit("engine_control", control=True))],
+)
+async def engine_control_api(
+    payload: EngineControlRequest, _user: str = Depends(require_auth)
+):
+    """Start / stop / restart the trading engine (admin password required).
+
+    Rate-limited per client IP.
+    """
     from dashboard.engine_control import control_engine
 
-    try:
-        body = await request.json()
-    except (ValueError, TypeError):
-        body = {}
-    action = str(body.get("action", ""))
-    admin_password = str(body.get("admin_password", ""))
-
     result = await run_in_threadpool(
-        control_engine, action, admin_password, get_settings()
+        control_engine, payload.action, payload.admin_password, get_settings()
     )
     return result
 
 
-@app.get("/api/engine/logs")
+@app.get("/api/engine/logs", tags=["Trading"])
 async def engine_logs_api(lines: int = 200, _user: str = Depends(require_auth)):
     """Return the last *lines* of engine logs from journald."""
     from dashboard.engine_control import engine_logs
@@ -1970,7 +2055,7 @@ async def engine_logs_api(lines: int = 200, _user: str = Depends(require_auth)):
 # ---------------------------------------------------------------------------
 
 
-@app.get("/api/backtest/options")
+@app.get("/api/backtest/options", tags=["Backtesting"])
 async def backtest_options_api(_user: str = Depends(require_auth)):
     """Symbol / strategy / date choices for the backtest form."""
     from dashboard.backtest_control import options
@@ -1978,21 +2063,24 @@ async def backtest_options_api(_user: str = Depends(require_auth)):
     return options()
 
 
-@app.post("/api/backtest/run")
-async def backtest_run_api(request: Request, _user: str = Depends(require_auth)):
-    """Validate parameters and kick off a background backtest run."""
+@app.post(
+    "/api/backtest/run",
+    tags=["Backtesting"],
+    dependencies=[Depends(rate_limit("backtest_run", control=True))],
+)
+async def backtest_run_api(
+    payload: BacktestRunRequest, _user: str = Depends(require_auth)
+):
+    """Validate parameters and kick off a background backtest run.
+
+    Rate-limited per client IP.
+    """
     from dashboard.backtest_control import start_backtest
 
-    try:
-        body = await request.json()
-    except (ValueError, TypeError):
-        body = {}
-    if not isinstance(body, dict):
-        body = {}
-    return start_backtest(body)
+    return start_backtest(payload.model_dump(exclude_none=True))
 
 
-@app.get("/api/backtest/latest")
+@app.get("/api/backtest/latest", tags=["Backtesting"])
 async def backtest_latest_api(_user: str = Depends(require_auth)):
     """The most recently started backtest job, so the UI can resume after
     a page reload instead of losing the run/results."""
@@ -2002,7 +2090,7 @@ async def backtest_latest_api(_user: str = Depends(require_auth)):
     return {"ok": True, "job": job}
 
 
-@app.get("/api/backtest/status/{job_id}")
+@app.get("/api/backtest/status/{job_id}", tags=["Backtesting"])
 async def backtest_status_api(job_id: str, _user: str = Depends(require_auth)):
     """Poll a backtest job: state, message, and results when complete."""
     from dashboard.backtest_control import get_job
@@ -2039,6 +2127,8 @@ from dashboard.positions_router import router as _positions_router  # noqa: E402
 from dashboard.earnings_router import router as _earnings_router  # noqa: E402
 from dashboard.memory_router import router as _memory_router  # noqa: E402
 from dashboard.ws_pnl import router as _ws_pnl_router  # noqa: E402
+from dashboard.tax_router import router as _tax_router  # noqa: E402
+from dashboard.price_alerts_router import router as _price_alerts_router  # noqa: E402
 
 for _r in (
     _universe_router,
@@ -2062,5 +2152,7 @@ for _r in (
     _earnings_router,
     _memory_router,
     _ws_pnl_router,
+    _tax_router,
+    _price_alerts_router,
 ):
     app.include_router(_r)

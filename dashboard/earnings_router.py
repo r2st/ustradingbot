@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import structlog
 from fastapi import APIRouter, Depends
 from starlette.concurrency import run_in_threadpool
 
@@ -22,7 +23,9 @@ from config.settings import EASTERN, get_settings
 from config.watchlist import get_watchlist_store
 from dashboard.auth import require_auth
 
-router = APIRouter(prefix="/api", tags=["earnings-tracker"])
+log = structlog.get_logger(__name__)
+
+router = APIRouter(prefix="/api", tags=["Market Data"])
 
 
 def _record_history(settings, reporters) -> None:
@@ -45,13 +48,16 @@ async def earnings_today(_user: str = Depends(require_auth)):
     symbols = get_watchlist_store(settings.DATA_DIR).all_symbols()
     try:
         reporters = await run_in_threadpool(todays_earnings, symbols, settings)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 -- fail-open, but make it visible
+        log.warning("earnings.today_failed", error=str(exc),
+                    error_type=type(exc).__name__)
         reporters = []
     if reporters:
         try:
             await run_in_threadpool(_record_history, settings, reporters)
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001 -- history is best-effort
+            log.warning("earnings.record_history_failed", error=str(exc),
+                        error_type=type(exc).__name__)
     return {
         "as_of": datetime.now(tz=EASTERN).isoformat(timespec="seconds"),
         "reporters": [d.to_dict() for d in reporters],
@@ -83,7 +89,9 @@ async def earnings_contagion(_user: str = Depends(require_auth)):
 
     try:
         alerts = await run_in_threadpool(_compute)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 -- fail-open, but make it visible
+        log.warning("earnings.contagion_failed", error=str(exc),
+                    error_type=type(exc).__name__)
         alerts = []
     return {
         "as_of": datetime.now(tz=EASTERN).isoformat(timespec="seconds"),
@@ -100,7 +108,9 @@ async def earnings_history(symbol: str, _user: str = Depends(require_auth)):
     settings = get_settings()
     try:
         rows = await run_in_threadpool(symbol_history, settings.DATA_DIR, symbol)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 -- fail-open, but make it visible
+        log.warning("earnings.history_failed", symbol=str(symbol),
+                    error=str(exc), error_type=type(exc).__name__)
         rows = []
     return {
         "symbol": str(symbol).upper(),

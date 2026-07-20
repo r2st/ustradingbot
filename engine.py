@@ -645,6 +645,19 @@ class TradingEngine:
             open_positions=open_positions,
         )
 
+        # ── User-defined price alerts (P2f) ───────────────────────────
+        # Check any armed price-cross alerts against live prices and fire
+        # notifications for those that crossed.  Best-effort — a data hiccup
+        # here must never break the trading cycle.
+        try:
+            from alerts.price_alerts import check_price_alerts
+
+            fired = await asyncio.to_thread(check_price_alerts, self.settings)
+            if fired:
+                log.info("engine.price_alerts_fired", count=len(fired))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("engine.price_alerts_failed", error=str(exc))
+
     def _run_short_scan(self, scan_symbols, selection) -> List[Signal]:
         """Run the short-strategy scan for this cycle (empty when disabled).
 

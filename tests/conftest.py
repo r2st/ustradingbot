@@ -29,6 +29,17 @@ def _isolate_env(monkeypatch: pytest.MonkeyPatch) -> None:
     # Keep Settings independent of the developer's loose keys/ files (e.g.
     # keys/polygon_api_key) so provider tests are hermetic.
     monkeypatch.setenv("USTB_SKIP_KEY_FILES", "1")
+    # Disable the in-process rate limiter / brute-force login lockout so a test
+    # that exercises many auth failures from the same client key (the constant
+    # "testclient" IP) is never throttled, and reset any state a prior test left
+    # behind.  A dedicated rate-limit test re-enables it locally.
+    monkeypatch.setenv("RATE_LIMIT_ENABLED", "false")
+    try:
+        from dashboard import rate_limit
+
+        rate_limit.reset()
+    except Exception:  # noqa: BLE001 -- module optional / import-time issues
+        pass
 
 
 # ---------------------------------------------------------------------------

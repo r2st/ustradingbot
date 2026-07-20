@@ -9,7 +9,8 @@ lets the dashboard:
   heartbeat the engine writes to ``data_store/engine_status.json`` each loop
   (current phase, last scan, next scan, open positions);
 * **control** the engine (start / stop / restart), guarded by the admin
-  password (``DASHBOARD_PASSWORD``, constant-time compared); and
+  password (``DASHBOARD_ADMIN_PASSWORD``, falling back to ``DASHBOARD_PASSWORD``;
+  constant-time compared); and
 * **tail** recent engine logs from journald.
 
 Everything degrades gracefully off the production host: when systemd or the
@@ -239,7 +240,7 @@ def control_engine(
     if action not in VALID_ACTIONS:
         return {"ok": False, "message": f"Unknown action: {action!r}."}
 
-    expected = settings.DASHBOARD_PASSWORD or ""
+    expected = settings.admin_password or ""
     if not expected:
         return {
             "ok": False,

@@ -171,9 +171,11 @@ def test_stop_endpoint_requires_admin_password(client):
 
 
 def test_stop_endpoint_requires_symbol(client):
+    # `symbol` is a required, pattern-validated body field now, so omitting it
+    # is a request-validation error (422), caught before the broker is touched.
     r = client.post("/api/positions/stop",
                     json={"admin_password": "adminpw"})
-    assert r.status_code == 400
+    assert r.status_code == 422
 
 
 def test_stop_endpoint_closes_position(client, monkeypatch):

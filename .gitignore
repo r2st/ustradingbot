@@ -67,3 +67,6 @@ data_store/__pycache__/
 /*.csv
 open_positions.json
 rejected.jsonl
+
+# Session scratch (Claude Code temp working files)
+scratchpad/

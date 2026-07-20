@@ -23,7 +23,7 @@ from dashboard.auth import require_auth
 
 log = structlog.get_logger(__name__)
 
-router = APIRouter(tags=["ai-commentary"])
+router = APIRouter(tags=["AI"])
 
 _TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 _templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))

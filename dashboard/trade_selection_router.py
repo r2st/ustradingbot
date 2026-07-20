@@ -10,9 +10,7 @@ control and manual trades).
 
 from __future__ import annotations
 
-from typing import Any, Dict
-
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 
 from config.settings import get_settings
 from config.trade_selection import (
@@ -23,8 +21,10 @@ from config.trade_selection import (
     save_trade_selection,
 )
 from dashboard.auth import require_auth, verify_admin_password
+from dashboard.rate_limit import rate_limit
+from dashboard.schemas import TradeSelectionRequest
 
-router = APIRouter(prefix="/api/trade-selection", tags=["trade-selection"])
+router = APIRouter(prefix="/api/trade-selection", tags=["Configuration"])
 
 
 @router.get("")
@@ -39,21 +39,21 @@ async def get_selection(_user: str = Depends(require_auth)):
     }
 
 
-@router.post("")
-async def set_selection(request: Request, _user: str = Depends(require_auth)):
+@router.post("", dependencies=[Depends(rate_limit("trade_selection", control=True))])
+async def set_selection(
+    payload: TradeSelectionRequest, _user: str = Depends(require_auth)
+):
     """Replace the selection (admin password required).
 
-    Body: ``{enabled, symbols, strategies, min_grade, admin_password}``.
+    Body: ``{enabled, symbols, strategies, min_grade, admin_password}``.  The
+    domain validation (valid strategies / grades) stays in
+    ``save_trade_selection``.  Rate-limited per client IP.
     """
-    try:
-        body: Dict[str, Any] = await request.json()
-    except (ValueError, TypeError):
-        body = {}
-    if not isinstance(body, dict):
-        body = {}
-
-    if not verify_admin_password(str(body.get("admin_password", ""))):
+    if not verify_admin_password(payload.admin_password):
         raise HTTPException(status_code=403, detail="Admin password required.")
+
+    body = payload.model_dump(exclude_none=True)
+    body.pop("admin_password", None)
 
     settings = get_settings()
     try:

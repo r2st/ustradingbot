@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import structlog
 from fastapi import APIRouter, Depends
 from starlette.concurrency import run_in_threadpool
 
@@ -18,7 +19,9 @@ from config.settings import EASTERN, get_settings
 from config.watchlist import get_watchlist_store
 from dashboard.auth import require_auth
 
-router = APIRouter(prefix="/api", tags=["insights"])
+log = structlog.get_logger(__name__)
+
+router = APIRouter(prefix="/api", tags=["Analytics"])
 
 
 @router.get("/montecarlo")
@@ -62,7 +65,9 @@ async def earnings(_user: str = Depends(require_auth)):
     symbols = get_watchlist_store(settings.DATA_DIR).all_symbols()
     try:
         entries = await run_in_threadpool(upcoming_earnings, symbols)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 -- fail-open, but make it visible
+        log.warning("insights.earnings_failed", error=str(exc),
+                    error_type=type(exc).__name__)
         entries = []
     return {
         "as_of": datetime.now(tz=EASTERN).isoformat(timespec="seconds"),
@@ -85,7 +90,9 @@ async def sectors(_user: str = Depends(require_auth)):
 
     try:
         ranks, breadth = await run_in_threadpool(_compute)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 -- fail-open, but make it visible
+        log.warning("insights.sectors_failed", error=str(exc),
+                    error_type=type(exc).__name__)
         ranks, breadth = [], None
     top_n = int(getattr(settings, "SECTOR_ROTATION_TOP_N", 3))
     leaders = [r.etf for r in ranks if r.rel_strength > 0 and r.above_ma50][:top_n]
@@ -107,7 +114,9 @@ async def premarket(_user: str = Depends(require_auth)):
     symbols = get_watchlist_store(settings.DATA_DIR).scan_symbols()
     try:
         hits = await run_in_threadpool(scan, symbols, settings)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 -- fail-open, but make it visible
+        log.warning("insights.premarket_failed", error=str(exc),
+                    error_type=type(exc).__name__)
         hits = []
     return {
         "as_of": datetime.now(tz=EASTERN).isoformat(timespec="seconds"),

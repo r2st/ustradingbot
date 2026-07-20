@@ -36,7 +36,7 @@ from journal.rationale import _STRATEGY_PATTERN, find_rationale
 
 log = structlog.get_logger(__name__)
 
-router = APIRouter(prefix="/api/trade", tags=["ta"])
+router = APIRouter(prefix="/api/trade", tags=["Signals & TA"])
 
 #: TTL for recomputed chart payloads and live-indicator scalars (seconds).
 #: Daily bars only change once per trading day; 5 minutes keeps the modal

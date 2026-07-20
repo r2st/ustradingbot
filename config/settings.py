@@ -233,9 +233,43 @@ class Settings(BaseSettings):
     DASHBOARD_AUTH_ENABLED: bool = True
     DASHBOARD_USERNAME: str = "admin"
     DASHBOARD_PASSWORD: str = ""
+    # A *separate* password gating destructive / money-moving actions (manual
+    # trades, position stops, engine start/stop, going live).  Kept distinct
+    # from DASHBOARD_PASSWORD so read access and trade-execution authority can
+    # be handed out separately.  When empty it falls back to DASHBOARD_PASSWORD
+    # for backwards compatibility (deployments that never set it keep working).
+    DASHBOARD_ADMIN_PASSWORD: str = ""
     # Default bind host for the dashboard (documented for the run command).
     DASHBOARD_HOST: str = "127.0.0.1"
     DASHBOARD_PORT: int = 8501
+
+    # ── Rate limiting & brute-force lockout (dashboard) ─────────────────────
+    # In-process protection for money-moving / control endpoints and the login
+    # (HTTP Basic) path.  Disabled automatically under the test-suite via the
+    # RATE_LIMIT_ENABLED env override so hermetic tests never trip a limiter.
+    RATE_LIMIT_ENABLED: bool = True
+    # Max requests per client IP per minute for the money path (manual trades,
+    # position stops) — kept deliberately low; a human never trades this fast.
+    RATE_LIMIT_TRADE_PER_MIN: int = 20
+    # Max requests per client IP per minute for control endpoints (engine
+    # start/stop, mode switch, provider switch, backtest run).
+    RATE_LIMIT_CONTROL_PER_MIN: int = 30
+    # Failed-login attempts (per client IP) allowed before a temporary lockout.
+    RATE_LIMIT_LOGIN_MAX_FAILURES: int = 5
+    # How long (minutes) a client IP is locked out after exhausting the failed
+    # login budget above.
+    RATE_LIMIT_LOGIN_LOCKOUT_MINUTES: int = 15
+
+    @property
+    def admin_password(self) -> str:
+        """The effective admin password for destructive actions.
+
+        Prefers the dedicated :attr:`DASHBOARD_ADMIN_PASSWORD`; falls back to
+        :attr:`DASHBOARD_PASSWORD` when the dedicated one is unset so existing
+        deployments (which only ever configured ``DASHBOARD_PASSWORD``) keep
+        their admin gate working unchanged.
+        """
+        return self.DASHBOARD_ADMIN_PASSWORD or self.DASHBOARD_PASSWORD
 
     # ── Broker selection ────────────────────────────────────────────────────
     # PAPER TRADING IS THE DEFAULT.  "paper" runs the built-in simulated broker

@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends
 from dashboard.auth import get_settings, require_auth
 from journal.activity_log import cycles_summary, read_activity
 
-router = APIRouter(prefix="/api/activity", tags=["activity"])
+router = APIRouter(prefix="/api/activity", tags=["Journal"])
 
 
 @router.get("")

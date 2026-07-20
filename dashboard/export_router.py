@@ -21,7 +21,7 @@ from config.settings import EASTERN, get_settings
 from dashboard.auth import require_auth
 from dashboard.pdf_report import simple_pdf
 
-router = APIRouter(prefix="/api/export", tags=["export"])
+router = APIRouter(prefix="/api/export", tags=["Journal"])
 
 
 def _csv_response(rows: List[Dict[str, Any]], filename: str, columns: List[str] | None = None) -> Response:

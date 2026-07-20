@@ -10,8 +10,9 @@ sentinel it re-execs itself and picks up the new ``.env``.
 
 Guard rails:
 
-* Switching **to live** requires the admin password (``DASHBOARD_PASSWORD``),
-  compared in constant time.  If no dashboard password is configured, a live
+* Switching **to live** requires the admin password (``DASHBOARD_ADMIN_PASSWORD``,
+  falling back to ``DASHBOARD_PASSWORD``), compared in constant time.  If no
+  admin password is configured, a live
   switch is refused outright — real money is never armed without a credential.
 * ``ALLOW_MODE_SWITCH=false`` disables switching entirely.
 * Switching to paper never needs a password (de-risking is always allowed).
@@ -140,7 +141,7 @@ def switch_mode(
         return SwitchResult(False, settings.TRADING_MODE, str(exc))
 
     if mode == LIVE:
-        expected = settings.DASHBOARD_PASSWORD
+        expected = settings.admin_password
         if not expected:
             return SwitchResult(
                 False, settings.TRADING_MODE,

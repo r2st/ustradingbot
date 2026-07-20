@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from config.settings import get_settings
 from dashboard.api_keys import get_api_key_store
 from dashboard.auth import require_auth
+from dashboard.http_util import parse_json_body
 
 router = APIRouter(prefix="/api/v1", tags=["rest-api-v1"])
 
@@ -127,11 +128,8 @@ async def api_risk(_key: str = Depends(require_api_key)):
 
 
 async def _body(request: Request) -> Dict[str, Any]:
-    try:
-        data = await request.json()
-    except (ValueError, TypeError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    """Parse a JSON object body, 422 on malformed JSON (see B7)."""
+    return await parse_json_body(request)
 
 
 @router.get("/keys")

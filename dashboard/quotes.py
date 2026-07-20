@@ -74,7 +74,8 @@ def _prev_close(symbol: str) -> Optional[float]:
         df = _fetch_ohlcv(symbol)
         if df is not None and len(df) >= 2 and "Close" in df:
             value = float(df["Close"].iloc[-2])
-    except Exception:  # noqa: BLE001 -- prev-close is a nice-to-have
+    except Exception as exc:  # noqa: BLE001 -- prev-close is a nice-to-have
+        log.debug("quotes.prev_close_failed", symbol=symbol, error=str(exc))
         value = None
     with _lock:
         _prev_close_cache[symbol] = (value, now + _PREV_CLOSE_TTL)

@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends
 from dashboard.auth import get_settings, require_auth
 from journal.rationale import find_rationale, read_rationales
 
-router = APIRouter(prefix="/api/rationale", tags=["rationale"])
+router = APIRouter(prefix="/api/rationale", tags=["Signals & TA"])
 
 
 @router.get("")

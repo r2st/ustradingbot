@@ -52,6 +52,7 @@ pythonpath = ["."]
 include = [
     "config*",
     "data*",
+    "alerts*",
     "signals*",
     "ai*",
     "risk*",
