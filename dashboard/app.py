@@ -2037,6 +2037,31 @@ async def risk_sectors(_user: str = Depends(require_auth)):
     return {"sector_concentration": _risk_report().sector_concentration}
 
 
+@app.get("/api/economic-calendar", tags=["Analytics"])
+async def economic_calendar_api(
+    days: int = 21, _user: str = Depends(require_auth)
+):
+    """Upcoming macro events (FOMC/CPI/NFP/GDP) and the active blackout state."""
+    from data.economic_calendar import active_blackout, upcoming_events
+
+    settings = get_settings()
+    days = max(1, min(int(days), 120))
+    event_types = list(getattr(settings, "MACRO_BLACKOUT_EVENT_TYPES", []) or [])
+    active = active_blackout(
+        hours_before=settings.MACRO_BLACKOUT_HOURS_BEFORE,
+        hours_after=settings.MACRO_BLACKOUT_HOURS_AFTER,
+        data_dir=settings.DATA_DIR,
+        event_types=event_types or None,
+    )
+    return {
+        "events": upcoming_events(days=days, data_dir=settings.DATA_DIR),
+        "blackout_active": active.to_dict() if active else None,
+        "filter_mode": settings.MACRO_FILTER_MODE,
+        "hours_before": settings.MACRO_BLACKOUT_HOURS_BEFORE,
+        "hours_after": settings.MACRO_BLACKOUT_HOURS_AFTER,
+    }
+
+
 @app.get("/api/risk/var", tags=["Analytics"])
 async def risk_var(_user: str = Depends(require_auth)):
     """Portfolio Value-at-Risk / CVaR (parametric + historical) and the

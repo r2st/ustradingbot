@@ -747,6 +747,18 @@ class Settings(BaseSettings):
     # blackout still applies).  PEAD is always exempt (it trades the drift).
     EARNINGS_FILTER_MODE: str = "off"      # off | flag | block
     EARNINGS_BLOCK_DAYS: int = 2
+
+    # ── Macro / economic-calendar blackout (P1-5) ───────────────────────────
+    # Mirror of the earnings gate for market-wide events (FOMC / CPI / NFP /
+    # GDP).  ``block`` rejects new entries inside the blackout window around a
+    # scheduled event; ``flag`` annotates the signal; ``off`` disables the gate.
+    MACRO_FILTER_MODE: str = "off"          # off | flag | block
+    MACRO_BLACKOUT_HOURS_BEFORE: float = 24.0
+    MACRO_BLACKOUT_HOURS_AFTER: float = 12.0
+    # Which event types trigger a blackout (comma-separated or a list).
+    MACRO_BLACKOUT_EVENT_TYPES: list[str] = Field(
+        default_factory=lambda: ["fomc", "cpi", "nfp"]
+    )
     # Earnings *results* (beat/miss, EPS/revenue surprise) from Finnhub, used by
     # the beat-aware PEAD signal and the daily earnings tracker.  Fail-open.
     EARNINGS_RESULTS_ENABLED: bool = False

@@ -158,6 +158,12 @@ class TradingEngine:
 
         self.earnings_filter = EarningsEntryFilter(self.settings)
 
+        # Macro / economic-calendar blackout (P1-5) — off by default, fail-open.
+        # Blocks/flags entries around FOMC/CPI/NFP/GDP releases.
+        from signals.macro_filter import MacroEntryFilter
+
+        self.macro_filter = MacroEntryFilter(self.settings)
+
         # Ratings entry filter (Feature 5) — off by default, fail-open.
         from signals.ratings_filter import RatingsFilter
 
@@ -961,6 +967,18 @@ class TradingEngine:
             return False
         if earnings_check.mode == "flag":
             bound_log.info("engine.earnings_flag", reason=earnings_check.reason)
+
+        # (a1b) Macro / economic-calendar blackout gate (P1-5).  Blocks/flags
+        #       entries inside an FOMC/CPI/NFP/GDP blackout window.  Fail-open.
+        macro_check = self.macro_filter.check(sig)
+        if not macro_check.allowed:
+            bound_log.info(
+                "engine.rejected", gate="macro_filter", reason=macro_check.reason
+            )
+            self.rejected_logger.log_rejection(sig, "macro_filter", macro_check.reason)
+            return False
+        if macro_check.mode == "flag":
+            bound_log.info("engine.macro_flag", reason=macro_check.reason)
 
         # (a0) Operator / webhook veto gate (P0-3).  An external system or the
         #      dashboard may block new entries for a symbol; honour that before
