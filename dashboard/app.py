@@ -41,8 +41,11 @@ from analytics.performance import analyze_journal
 from config.settings import EASTERN, Settings, get_settings, momentum_weights, swing_weights
 from config.etf_universe import ALL_ETFS
 from config.universe import ALL_SYMBOLS, CA_WATCHLIST, US_WATCHLIST
+import structlog
 from fastapi.templating import Jinja2Templates
 from signals.signal_types import Grade
+
+log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # App & templates
@@ -1787,7 +1790,9 @@ async def api_mode_switch(
                 old_mode, result.mode, actor=_user
             )
         except Exception:  # noqa: BLE001 -- alerting must never fail the switch
-            pass
+            # The mode switch itself succeeded; only the notification failed.
+            # Log it so a broken alert channel is diagnosable (B-9).
+            log.warning("mode_switch.alert_failed", exc_info=True)
 
     return {
         "ok": result.ok,
@@ -2067,6 +2072,20 @@ async def engine_status_api(_user: str = Depends(require_auth)):
     from dashboard.engine_control import engine_status
 
     return await run_in_threadpool(engine_status, get_settings())
+
+
+@app.get("/api/engine/restart-status", tags=["Trading"])
+async def engine_restart_status_api(_user: str = Depends(require_auth)):
+    """Whether a requested engine restart is still pending or was acked (B-6).
+
+    After a mode/provider/key change drops the restart sentinel, the client can
+    poll this to confirm the running engine actually consumed it (``pending``
+    flips false and ``acked_at`` is set) rather than the signal silently
+    no-op-ing and leaving the UI claiming a change that never took effect.
+    """
+    from dashboard.mode_control import restart_status
+
+    return restart_status(get_settings().DATA_DIR)
 
 
 @app.post(

@@ -20,6 +20,8 @@ Guard rails:
 
 from __future__ import annotations
 
+import json
+import os
 import secrets
 from dataclasses import dataclass
 from datetime import datetime
@@ -83,6 +85,13 @@ def update_env_var(env_path: Path, updates: Dict[str, str]) -> None:
         out.append(f"{key}={value}")
 
     env_path.write_text("\n".join(out) + "\n", encoding="utf-8")
+    # The .env holds broker + LLM secrets in plaintext (documented trust model,
+    # see docs/security.md B-6); keep it owner-read/write only so a stray world
+    # or group read can't lift live credentials.
+    try:
+        os.chmod(env_path, 0o600)
+    except OSError:  # pragma: no cover — non-POSIX / permission quirk
+        log.debug("mode_control.env_chmod_failed", env_path=str(env_path))
 
 
 def request_restart(data_dir: Path, target_mode: str) -> None:
@@ -94,16 +103,66 @@ def request_restart(data_dir: Path, target_mode: str) -> None:
     )
 
 
+RESTART_ACK = "restart_ack.json"
+
+
 def consume_restart_request(data_dir: Path) -> bool:
-    """Return ``True`` (and delete the sentinel) if a restart was requested."""
+    """Return ``True`` (and delete the sentinel) if a restart was requested.
+
+    On consumption an ack file (:data:`RESTART_ACK`) is written so the dashboard
+    can confirm the running engine actually picked up the request rather than
+    the signal silently no-op-ing (audit B-6).
+    """
     sentinel = Path(data_dir) / RESTART_SENTINEL
     if sentinel.exists():
+        target = ""
+        try:
+            target = sentinel.read_text(encoding="utf-8").splitlines()[0].strip()
+        except (OSError, IndexError):
+            pass
         try:
             sentinel.unlink()
         except OSError:
             pass
+        try:
+            ack = Path(data_dir) / RESTART_ACK
+            ack.write_text(
+                json.dumps({
+                    "target": target,
+                    "acked_at": datetime.now(tz=EASTERN).isoformat(),
+                }),
+                encoding="utf-8",
+            )
+        except OSError:
+            log.debug("mode_control.restart_ack_write_failed")
         return True
     return False
+
+
+def restart_status(data_dir: str | Path) -> Dict[str, str | bool | None]:
+    """Report whether a requested restart is still pending or has been acked.
+
+    ``pending`` is ``True`` while the sentinel is present (the engine has not yet
+    re-execed); ``acked_at`` carries the timestamp of the last consumption.  A
+    request that stays pending indefinitely means the engine isn't polling —
+    exactly the silent config-drift the fire-and-forget signal risked (B-6).
+    """
+    data_dir = Path(data_dir)
+    pending = (data_dir / RESTART_SENTINEL).exists()
+    ack: Dict[str, str] = {}
+    ack_path = data_dir / RESTART_ACK
+    if ack_path.exists():
+        try:
+            loaded = json.loads(ack_path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                ack = loaded
+        except (ValueError, OSError):
+            ack = {}
+    return {
+        "pending": pending,
+        "acked_at": ack.get("acked_at"),
+        "target": ack.get("target"),
+    }
 
 
 def _normalise(target: str) -> str:

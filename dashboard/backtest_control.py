@@ -103,7 +103,9 @@ def _full_symbol_set() -> List[str]:
         store = get_watchlist_store(get_settings().DATA_DIR)
         combined |= set(store.all_symbols())
     except Exception:  # noqa: BLE001 — watchlist store is best-effort
-        pass
+        # Not fatal (the base symbol set still works) but log it so a broken
+        # watchlist store is diagnosable rather than silently dropped (B-9).
+        log.debug("backtest.watchlist_merge_failed", exc_info=True)
     return sorted(combined)
 
 

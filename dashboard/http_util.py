@@ -156,8 +156,15 @@ async def parse_json_body(
 def ok(data: Any = None, **extra: Any) -> Dict[str, Any]:
     """Build a success envelope: ``{"ok": true, "data": ...}``.
 
-    Opt-in for new endpoints; existing endpoints that return bare dicts keep
-    their shape for backward compatibility with the current UI.
+    **Deliberate split (audit B-8).**  *Error* responses are fully standardized
+    — every 4xx/5xx flows through :func:`error_body` via the exception handlers,
+    so the failure shape is uniform API-wide.  *Success* responses are
+    intentionally *not* retrofitted: this envelope is opt-in for new endpoints,
+    while existing read endpoints keep their bare-dict shape so the shipped UI
+    (which reads those fields directly) is never broken by a silent contract
+    change.  This is a documented back-compat choice, not accidental drift — a
+    future uniform-success migration would land behind an ``/api/v2`` version
+    bump.  See ``docs/api-conventions.md``.
     """
     body: Dict[str, Any] = {"ok": True}
     if data is not None:

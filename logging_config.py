@@ -4,6 +4,16 @@ Structured logging configuration using *structlog*.
 Call :func:`setup_logging` once at application startup.  In production the
 output is newline-delimited JSON; during development it uses a coloured
 console renderer for readability.
+
+**Log rotation (audit B-9).**  Logs are written to *stderr*, not a file sink.
+Under the shipped systemd units (``deploy/systemd/``) that stream goes to
+journald, which rotates and vacuums by size/age on its own — so a long-running
+bot never grows logs unbounded and there is nothing extra to configure.  If you
+redirect this stderr to a *file* instead (``… > bot.log``), that file will grow
+without bound: put it under ``logrotate`` (a ``copytruncate`` daily rule) or
+have the process manager cap it.  Do **not** add an in-process
+``RotatingFileHandler`` here — the stderr→journald model is deliberate so the
+app owns no log files.
 """
 
 from __future__ import annotations

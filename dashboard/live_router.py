@@ -22,9 +22,12 @@ from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 import pandas as pd
+import structlog
 from fastapi import APIRouter, Depends
 
 from dashboard.auth import get_settings, require_auth
+
+log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/api/live", tags=["Analytics"])
 
@@ -255,7 +258,9 @@ def _sample_intraday(data_dir: Path, totals: Dict[str, Any]) -> None:
         with open(path, "a", encoding="utf-8") as f:
             f.write(json.dumps(point) + "\n")
     except Exception:  # noqa: BLE001 -- sampling must never fail the endpoint
-        pass
+        # Persisting the intraday sample is best-effort, but log the failure so
+        # a broken/unwritable data dir is diagnosable (B-9).
+        log.debug("live.intraday_sample_failed", exc_info=True)
 
 
 def build_pnl_snapshot(settings) -> Dict[str, Any]:

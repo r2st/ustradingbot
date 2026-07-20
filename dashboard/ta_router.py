@@ -251,7 +251,9 @@ def _live_indicator_payload(symbol: str, settings) -> Dict[str, Any]:
             payload["price"] = round(float(quote["price"]), 4)
             payload["change_pct"] = quote.get("change_pct")
     except Exception:  # noqa: BLE001 -- daily close is a fine fallback
-        pass
+        # The daily close is a fine fallback, but log the live-quote failure so
+        # a persistently broken quote provider is visible (B-9).
+        log.debug("ta.live_quote_failed", symbol=symbol, exc_info=True)
 
     _cache_put(_indicator_cache, symbol, payload, INDICATOR_CACHE_TTL)
     return payload

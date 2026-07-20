@@ -28,6 +28,10 @@ from pathlib import Path
 from threading import RLock
 from typing import Any, Dict, List
 
+import structlog
+
+log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
+
 _FILENAME = "push_state.json"
 _MAX_NOTIFICATIONS = 100
 
@@ -273,4 +277,6 @@ def publish(
             return
         store.publish(title, body, category=category)
     except Exception:  # noqa: BLE001
-        pass
+        # Best-effort fan-out to the in-app feed; log so a broken push store is
+        # diagnosable rather than silently swallowing notifications (B-9).
+        log.debug("push.publish_failed", category=category, exc_info=True)

@@ -33,11 +33,14 @@ import secrets
 import time
 from typing import Optional
 
+import structlog
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from starlette.concurrency import run_in_threadpool
 
 from dashboard.auth import get_settings, require_auth
 from dashboard.live_router import build_pnl_snapshot
+
+log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 router = APIRouter(tags=["Analytics"])
 
@@ -160,7 +163,8 @@ async def ws_pnl(websocket: WebSocket) -> None:
     except WebSocketDisconnect:
         return
     except Exception:  # noqa: BLE001 — client gone / transient; close cleanly
+        log.debug("ws_pnl.stream_error", exc_info=True)
         try:
             await websocket.close()
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception:  # noqa: BLE001 — socket already gone; nothing to do
+            log.debug("ws_pnl.close_after_error_failed", exc_info=True)
