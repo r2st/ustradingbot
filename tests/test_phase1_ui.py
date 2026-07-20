@@ -107,7 +107,7 @@ def test_theme_toggle_still_present(html) -> None:
 # ───────────────────── 3. Collapsible sidebar nav ────────────────────────
 
 def test_sidebar_has_five_collapsible_categories(html) -> None:
-    for cat in ("trading", "analysis", "strategy", "activity", "system"):
+    for cat in ("trading", "analytics", "market", "ai", "settings"):
         assert f'data-cat="{cat}"' in html
     assert html.count('class="nav-cat"') == 5
     assert "function toggleNavCat" in html
@@ -124,14 +124,14 @@ def test_sidebar_preserves_hamburger_and_helpers(html) -> None:
 
 
 @pytest.mark.parametrize("label,anchor", [
-    ("Data", "nav-provider"), ("Account", "nav-account"),
-    ("Watchlist", "nav-watchlist"), ("Trade", "nav-trade"),
+    ("Data Provider", "nav-provider"), ("Positions &amp; P&amp;L", "nav-account"),
+    ("Watchlist", "nav-watchlist"), ("Manual Trade", "nav-trade"),
     ("Scanner", "nav-scanner"), ("Earnings", "nav-earnings"),
     ("Strategies", "nav-strategy"), ("Risk", "nav-risk"),
     ("Journal", "nav-notes"), ("API", "nav-api"), ("Help", "nav-help"),
 ])
 def test_nav_links_all_grouped(html, label, anchor) -> None:
-    # Every legacy anchor link survives the regrouping.
+    # Every anchor link survives the regrouping (labels updated in the overhaul).
     assert f'href="#{anchor}"' in html
     assert f">{label}</a>" in html
 
@@ -195,3 +195,43 @@ def test_positions_empty_state_preserved(client, monkeypatch, tmp_path) -> None:
     )
     html = client.get("/").text
     assert "No open positions yet" in html
+
+
+# ───────────────── 5. Navigation overhaul (sidebar/palette/mobile) ─────────
+
+def test_command_palette_scaffolding(html) -> None:
+    # Cmd/Ctrl-K quick-jump overlay, input and wiring.
+    assert 'id="cmdkOverlay"' in html
+    assert 'id="cmdkInput"' in html
+    assert "window.openCmdK" in html
+    assert "window.closeCmdK" in html
+    # Opens on the sidebar search affordance.
+    assert 'class="nav-search"' in html
+
+
+def test_command_palette_keyboard_shortcut_bound(html) -> None:
+    # Cmd/Ctrl-K binding plus single-key shortcuts guarded against typing.
+    assert "metaKey" in html and "ctrlKey" in html
+    assert "function isTyping" in html
+    assert "function scrollToSection" in html
+
+
+def test_mobile_bottom_nav(html) -> None:
+    assert 'id="bottomNav"' in html
+    assert 'class="bottom-nav"' in html
+    assert "window.bottomNavGo" in html
+    # One tab per top-level category.
+    for cat in ("trading", "analytics", "market", "ai", "settings"):
+        assert f'class="bn-item" data-cat="{cat}"' in html
+
+
+def test_persistent_sidebar_media_query(html) -> None:
+    # The drawer promotes to a fixed rail on wide screens.
+    assert "@media (min-width: 1080px)" in html
+    assert "--sidebar-w" in html
+
+
+def test_metric_tooltips_present(html) -> None:
+    # Contextual info tooltips on key P&L metrics.
+    assert 'class="info-tip"' in html
+    assert "data-tip=" in html
