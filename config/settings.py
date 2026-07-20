@@ -606,6 +606,29 @@ class Settings(BaseSettings):
     ETF_NOTIONAL_CAP_PCT: float = 0.15      # max notional per ETF (vs 0.10 stock)
     STOCK_NOTIONAL_CAP_PCT: float = 0.10    # explicit single-name notional cap
     MIN_ATR_PCT_ETF: float = 0.008          # 0.8 % ATR floor for ETFs
+
+    # ── Dynamic ETF recognition & fund fundamentals (Gap 1 / Gap 2) ─────────
+    # ``is_etf()`` no longer relies solely on the static 15-symbol list: it
+    # consults the universe DB's ``asset_type`` column, then the static list,
+    # then a live yfinance ``quoteType`` lookup as a last resort.  Both network
+    # paths are TTL-cached to avoid hammering yfinance and fail open.
+    ETF_DYNAMIC_DETECTION: bool = True       # allow the yfinance quoteType fallback
+    ETF_DETECT_TTL_MINUTES: float = 720.0    # quoteType lookup cache (12 h)
+    ETF_INFO_TTL_HOURS: float = 24.0         # fund-fundamentals cache (24 h)
+
+    # ── Leveraged / inverse ETF risk parameters (Gap 3) ─────────────────────
+    # Geared products (TQQQ, SQQQ, UVXY, SPXS, …) compound daily and move far
+    # more than the underlying, so they get a *shrunk* risk budget and notional
+    # cap instead of the standard 1.3×/15% a plain ETF receives.
+    LEVERAGED_2X_RISK_MODIFIER: float = 0.5
+    LEVERAGED_2X_NOTIONAL_CAP_PCT: float = 0.05
+    LEVERAGED_3X_RISK_MODIFIER: float = 0.33
+    LEVERAGED_3X_NOTIONAL_CAP_PCT: float = 0.03
+    INVERSE_RISK_MODIFIER: float = 0.7
+    INVERSE_NOTIONAL_CAP_PCT: float = 0.05
+    LEVERAGED_INVERSE_RISK_MODIFIER: float = 0.25
+    LEVERAGED_INVERSE_NOTIONAL_CAP_PCT: float = 0.02
+
     # Sector-rotation strategy: rank the 11 sector ETFs by relative strength vs
     # SPY and go long the top-N rotating leaders.  Off by default (a new
     # strategy competing for capital); also selectable from the Trade Selection

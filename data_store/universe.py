@@ -302,6 +302,39 @@ class UniverseDB:
         rows = self._conn.execute(sql, params).fetchall()
         return self._rows_to_dicts(rows)
 
+    def get_asset_type(self, ticker: str) -> str | None:
+        """Return the stored ``asset_type`` for *ticker* (``"etf"``/``"stock"``).
+
+        A fast primary-key lookup used by :func:`config.etf_universe.is_etf` as
+        its first, authoritative source.  Returns ``None`` when the symbol is
+        not in the table (or the value is blank), so the caller can fall through
+        to the static list / yfinance.
+        """
+        row = self._conn.execute(
+            "SELECT asset_type FROM symbols WHERE ticker = ? LIMIT 1",
+            (str(ticker or "").upper(),),
+        ).fetchone()
+        if row is None:
+            return None
+        val = row["asset_type"]
+        return str(val).lower() if val else None
+
+    def set_asset_type(self, ticker: str, asset_type: str) -> bool:
+        """Update the ``asset_type`` for an existing symbol row.
+
+        Returns ``True`` when a row was updated.  Used by the seeder's
+        enrichment pass and the universe router when a live yfinance
+        ``quoteType`` reclassifies a symbol.
+        """
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                "UPDATE symbols SET asset_type = ?, last_updated = ? WHERE ticker = ?",
+                (str(asset_type or "").lower(), self._now(), str(ticker or "").upper()),
+            )
+            self._conn.commit()
+            return cur.rowcount > 0
+
     def get_symbols_by_sector(self, sector: str, is_active: bool = True) -> list[dict]:
         """Get all symbols in a GICS sector.
 
@@ -574,7 +607,7 @@ class UniverseDB:
             return
         updatable = (
             "last_price", "avg_volume", "market_cap",
-            "sector", "industry", "exchange",
+            "sector", "industry", "exchange", "asset_type",
         )
         now = self._now()
         with self._lock:

@@ -126,6 +126,44 @@ class TestSeederETFs:
         assert rows[0]["country"] == "CA"
 
 
+class TestSeederEnrichmentAssetType:
+    def test_enrich_populates_asset_type_from_quotetype(
+        self, seeder: UniverseSeeder, monkeypatch
+    ) -> None:
+        """Enrichment reclassifies symbols from the live yfinance quoteType.
+
+        A symbol seeded provisionally as ``stock`` (VTI) is corrected to ``etf``
+        once enrichment reads its ``quoteType``.
+        """
+        import yfinance as yf
+
+        seeder.db.add_symbols(
+            [
+                {"ticker": "VTI", "exchange": "", "asset_type": "stock"},
+                {"ticker": "AAPL", "exchange": "", "asset_type": "stock"},
+            ]
+        )
+
+        class FakeTicker:
+            def __init__(self, sym: str) -> None:
+                self.sym = sym
+
+            @property
+            def info(self) -> dict:
+                return {
+                    "quoteType": "ETF" if self.sym == "VTI" else "EQUITY",
+                    "sector": "Technology",
+                }
+
+        monkeypatch.setattr(yf, "download", lambda *a, **k: None)
+        monkeypatch.setattr(yf, "Ticker", lambda sym: FakeTicker(sym))
+
+        enriched = seeder.enrich_batch(["VTI", "AAPL"])
+        assert enriched == 2
+        assert seeder.db.get_asset_type("VTI") == "etf"
+        assert seeder.db.get_asset_type("AAPL") == "stock"
+
+
 class TestSeederSECFetch:
     def test_fetch_sec_tickers_with_mock(self, seeder: UniverseSeeder) -> None:
         """Mock the HTTP call to SEC EDGAR."""

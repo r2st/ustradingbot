@@ -41,6 +41,30 @@ def _isolate_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _offline_etf_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep ETF metadata lookups offline and hermetic by default.
+
+    ``config.etf_universe.is_etf`` and the fund-fundamentals helpers fall back to
+    a live ``yfinance`` lookup as a last resort.  Stub that factory so the suite
+    never touches the network (a stubbed lookup raises → the callers fail open to
+    the static list), and clear the per-symbol TTL caches so no ETF-ness verdict
+    leaks between tests.  Dedicated ETF tests re-inject their own fake factory.
+    """
+    try:
+        from config import etf_universe
+        from data import etf_metadata
+
+        def _no_network(symbol: str):  # pragma: no cover - trivial stub
+            raise RuntimeError("yfinance disabled in tests")
+
+        monkeypatch.setattr(etf_metadata, "_ticker_factory", _no_network)
+        etf_metadata.clear_cache()
+        etf_universe.clear_etf_cache()
+    except Exception:  # pragma: no cover - modules optional in some suites
+        pass
+
+
+@pytest.fixture(autouse=True)
 def _reset_rate_limits() -> None:
     """Clear in-process rate-limit / lockout state before every test.
 

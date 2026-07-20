@@ -210,8 +210,63 @@ async def add_to_watchlist(
         raise HTTPException(status_code=400, detail="'list_name' is required.")
     if not isinstance(tickers, list) or not tickers:
         raise HTTPException(status_code=400, detail="'tickers' must be a non-empty list.")
+    # Ensure each ticker exists in the symbols table with a detected asset_type
+    # before adding it to the watchlist.  add_to_watchlist is FK-guarded, so an
+    # ETF the user types in (VTI, ARKK, SCHD, …) would otherwise be silently
+    # dropped and then mis-sized as a stock.
+    created = _ensure_symbols_with_asset_type(db, tickers)
     added = db.add_to_watchlist(list_name, tickers)
-    return {"ok": True, "list_name": list_name, "added": added}
+    return {"ok": True, "list_name": list_name, "added": added, "created": created}
+
+
+def _ensure_symbols_with_asset_type(db, tickers: list) -> int:
+    """Create ``symbols`` rows for unknown *tickers*, tagging asset_type.
+
+    For each ticker not already in the DB, a live yfinance ``quoteType`` lookup
+    (TTL-cached, fail-open) decides ``"etf"`` vs ``"stock"`` so it is sized with
+    the correct risk parameters and ATR thresholds from the moment it is added.
+    Symbols that already exist are left untouched.  Returns the number of new
+    rows created.
+    """
+    from config.etf_universe import clear_etf_cache, is_etf_static
+    from data.etf_metadata import detect_quote_type
+
+    new_rows: list[dict] = []
+    for raw in tickers:
+        ticker = str(raw or "").strip().upper()
+        if not ticker:
+            continue
+        if db.get_asset_type(ticker) is not None:
+            continue  # already known
+        # Static list first (offline), then live quoteType.
+        if is_etf_static(ticker):
+            asset_type = "etf"
+        else:
+            quote_type = detect_quote_type(ticker)
+            if quote_type == "ETF":
+                asset_type = "etf"
+            elif quote_type == "EQUITY":
+                asset_type = "stock"
+            else:
+                asset_type = "stock"  # fail-open default
+        new_rows.append(
+            {
+                "ticker": ticker,
+                "name": "",
+                "exchange": "TSX" if ticker.endswith(".TO") else "",
+                "country": "CA" if ticker.endswith(".TO") else "US",
+                "currency": "CAD" if ticker.endswith(".TO") else "USD",
+                "sector": "",
+                "asset_type": asset_type,
+            }
+        )
+    if not new_rows:
+        return 0
+    db.ensure_symbols(new_rows)
+    # Freshly-tagged symbols may have been cached as non-ETF by an earlier
+    # is_etf() miss — drop the resolution cache so sizing sees the new rows.
+    clear_etf_cache()
+    return len(new_rows)
 
 
 @router.delete("/watchlists/{list_name}")

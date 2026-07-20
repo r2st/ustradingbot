@@ -84,6 +84,24 @@ _LONG_COOLDOWN_REASONS: frozenset[ExitReason] = frozenset(
 _LONG_COOLDOWN = timedelta(hours=24)
 
 
+# ---------------------------------------------------------------------------
+# Leveraged / inverse ETF risk parameters
+# ---------------------------------------------------------------------------
+# Maps a config.etf_classification category to the (risk-modifier,
+# notional-cap-pct) Settings attribute names.  Geared products get a shrunk
+# budget vs the standard 1.3×/15% a plain ETF receives.  REGULAR ETFs are absent
+# here — they use the existing ETF_* settings.
+_LEVERAGE_RISK_SETTINGS: dict[str, tuple[str, str]] = {
+    "leveraged_2x": ("LEVERAGED_2X_RISK_MODIFIER", "LEVERAGED_2X_NOTIONAL_CAP_PCT"),
+    "leveraged_3x": ("LEVERAGED_3X_RISK_MODIFIER", "LEVERAGED_3X_NOTIONAL_CAP_PCT"),
+    "inverse": ("INVERSE_RISK_MODIFIER", "INVERSE_NOTIONAL_CAP_PCT"),
+    "leveraged_inverse": (
+        "LEVERAGED_INVERSE_RISK_MODIFIER",
+        "LEVERAGED_INVERSE_NOTIONAL_CAP_PCT",
+    ),
+}
+
+
 class RiskManager:
     """Central risk gatekeeper for the trading bot.
 
@@ -348,15 +366,30 @@ class RiskManager:
         # Asset-type branch: ETFs are diversified baskets (lower idiosyncratic
         # risk), so they get a larger risk budget than a single name at the same
         # capital.  Checked first so an ETF sector-rotation signal is sized as an
-        # ETF regardless of its strategy id.
+        # ETF regardless of its strategy id.  Leveraged / inverse ETFs are the
+        # dangerous exception — they compound daily and move 2×/3× the index, so
+        # they get a *shrunk* budget and notional cap instead (see
+        # ``_etf_risk_params``).
         from config.etf_universe import is_etf
 
         symbol_is_etf = is_etf(signal.symbol)
+        etf_modifier, etf_cap_pct, leverage_category = self._etf_risk_params(
+            signal.symbol
+        )
 
         # Strategy modifier
         strategy_lower = signal.strategy.lower()
         if symbol_is_etf:
-            strategy_modifier = float(getattr(self._settings, "ETF_RISK_MODIFIER", 1.3))
+            strategy_modifier = etf_modifier
+            if leverage_category != "regular":
+                self._log.warning(
+                    "build_order.leveraged_etf_sized",
+                    symbol=signal.symbol,
+                    leverage=leverage_category,
+                    risk_modifier=etf_modifier,
+                    notional_cap_pct=etf_cap_pct,
+                    strategy=signal.strategy,
+                )
         elif strategy_lower == "mean_reversion":
             strategy_modifier = 0.5
         elif strategy_lower.startswith("short_"):
@@ -386,13 +419,15 @@ class RiskManager:
         shares = int(max_risk_dollars / risk_per_share)
 
         # Notional cap: no single position exceeds its asset-type cap of the
-        # capital pool (ETFs get a larger cap than single names).
+        # capital pool.  Plain ETFs get a larger cap than single names; leveraged
+        # / inverse ETFs get a *smaller* one (from ``_etf_risk_params``).
         if signal.entry_price > 0:
-            cap_pct = float(
-                getattr(self._settings, "ETF_NOTIONAL_CAP_PCT", 0.15)
-                if symbol_is_etf
-                else getattr(self._settings, "STOCK_NOTIONAL_CAP_PCT", 0.10)
-            )
+            if symbol_is_etf:
+                cap_pct = etf_cap_pct
+            else:
+                cap_pct = float(
+                    getattr(self._settings, "STOCK_NOTIONAL_CAP_PCT", 0.10)
+                )
             notional_cap = int(capital_pool * cap_pct / signal.entry_price)
             shares = min(shares, notional_cap)
 
@@ -432,6 +467,50 @@ class RiskManager:
             strategy=signal.strategy,
         )
         return order
+
+    def _etf_risk_params(self, symbol: str) -> Tuple[float, float, str]:
+        """Return ``(risk_modifier, notional_cap_pct, leverage_category)`` for an ETF.
+
+        Classifies *symbol* into a leverage category
+        (:mod:`config.etf_classification`) and returns the matching risk
+        parameters:
+
+        * **regular** — the standard ``ETF_RISK_MODIFIER`` / ``ETF_NOTIONAL_CAP_PCT``
+          (1.3× / 15%).
+        * **leveraged / inverse** — the shrunk per-category settings
+          (e.g. 0.33× / 3% for a 3× fund).
+
+        Classification is pure/static (curated list + ticker heuristics), so this
+        stays safe to call from the sizing hot path.  The returned category is
+        ``"regular"`` for non-ETFs too, letting the caller decide how to use it.
+        """
+        try:
+            from config.etf_classification import (
+                REGULAR,
+                classify_leverage,
+            )
+
+            category = classify_leverage(symbol)
+        except Exception:  # noqa: BLE001 — never break sizing on a classify error
+            REGULAR = "regular"  # noqa: N806
+            category = REGULAR
+
+        default_modifier = float(getattr(self._settings, "ETF_RISK_MODIFIER", 1.3))
+        default_cap = float(getattr(self._settings, "ETF_NOTIONAL_CAP_PCT", 0.15))
+
+        attrs = _LEVERAGE_RISK_SETTINGS.get(category)
+        if attrs is None:
+            return default_modifier, default_cap, category
+
+        mod_attr, cap_attr = attrs
+        # Fall back to the classification module's defaults, then the plain-ETF
+        # values, if a setting is somehow absent.
+        from config.etf_classification import default_risk_params
+
+        fallback = default_risk_params(category) or (default_modifier, default_cap)
+        modifier = float(getattr(self._settings, mod_attr, fallback[0]))
+        cap_pct = float(getattr(self._settings, cap_attr, fallback[1]))
+        return modifier, cap_pct, category
 
     @staticmethod
     def _short_risk_modifier() -> float:

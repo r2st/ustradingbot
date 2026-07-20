@@ -504,7 +504,7 @@ class UniverseSeeder:
             except Exception:
                 log.exception("yf_download_failed", batch_start=i)
 
-            # --- Sector / industry via individual Ticker.info ---
+            # --- Sector / industry / asset-type via individual Ticker.info ---
             for symbol in batch:
                 try:
                     info = yf.Ticker(symbol).info or {}
@@ -517,6 +517,14 @@ class UniverseSeeder:
                         updates["market_cap"] = float(info["marketCap"])
                     if info.get("exchange"):
                         updates["exchange"] = info["exchange"]
+                    # Populate asset_type from the live quoteType so ETFs the
+                    # static list doesn't know about (VTI, ARKK, SCHD, …) are
+                    # tagged correctly for sizing / ATR thresholds.
+                    quote_type = info.get("quoteType")
+                    if quote_type:
+                        updates["asset_type"] = (
+                            "etf" if str(quote_type).upper() == "ETF" else "stock"
+                        )
                     if len(updates) > 1:  # more than just ticker
                         self.db.bulk_update([updates])
                         enriched += 1

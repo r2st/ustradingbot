@@ -176,6 +176,62 @@ class TestWatchlistEndpoints:
         data = resp.json()
         assert "watchlists" in data
 
+    def test_add_user_symbol_detects_etf_asset_type(
+        self, client: TestClient, tmp_db: UniverseDB, monkeypatch
+    ) -> None:
+        """A user-added ETF not yet in the DB is tagged ``etf`` via quoteType.
+
+        Otherwise the FK-guarded watchlist add would silently drop it (or size
+        it as a stock).  VTI is deliberately absent from both the static list
+        and the seeded DB, so this exercises the live-quoteType path.
+        """
+        from data import etf_metadata
+
+        class _T:
+            def __init__(self, sym):
+                self.sym = sym
+
+            @property
+            def info(self):
+                return {"quoteType": "ETF" if self.sym == "VTI" else "EQUITY"}
+
+        monkeypatch.setattr(etf_metadata, "_ticker_factory", _T)
+        etf_metadata.clear_cache()
+
+        assert tmp_db.get_asset_type("VTI") is None  # unknown beforehand
+        resp = client.post(
+            "/api/universe/watchlists",
+            json={"list_name": "Mine", "tickers": ["VTI"]},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["ok"] is True
+        assert body["created"] == 1
+        assert body["added"] == 1
+        # The symbol now exists, tagged as an ETF, and is on the watchlist.
+        assert tmp_db.get_asset_type("VTI") == "etf"
+        assert "VTI" in {r["ticker"] for r in tmp_db.get_watchlist("Mine")}
+
+    def test_add_user_symbol_static_etf_no_network(
+        self, client: TestClient, tmp_db: UniverseDB, monkeypatch
+    ) -> None:
+        """A statically-known ETF is tagged without any yfinance call."""
+        from data import etf_metadata
+
+        def _boom(sym):  # pragma: no cover - must never be reached
+            raise AssertionError("network hit for a static ETF")
+
+        monkeypatch.setattr(etf_metadata, "_ticker_factory", _boom)
+        etf_metadata.clear_cache()
+
+        # QQQ is in the static ETF list but not in the seeded tmp_db.
+        resp = client.post(
+            "/api/universe/watchlists",
+            json={"list_name": "Static", "tickers": ["QQQ"]},
+        )
+        assert resp.status_code == 200
+        assert tmp_db.get_asset_type("QQQ") == "etf"
+
     def test_delete_watchlist(self, client: TestClient, tmp_db: UniverseDB) -> None:
         tmp_db.add_to_watchlist("ToDelete", ["JPM"])
         resp = client.delete("/api/universe/watchlists/ToDelete")
