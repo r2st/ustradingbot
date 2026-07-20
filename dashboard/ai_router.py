@@ -20,6 +20,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from dashboard.auth import require_auth
+from dashboard.rate_limit import rate_limit
 
 log = structlog.get_logger(__name__)
 
@@ -57,7 +58,10 @@ async def ai_dashboard_page(request: Request, _user: str = Depends(require_auth)
     )
 
 
-@router.get("/api/ai/commentary")
+@router.get(
+    "/api/ai/commentary",
+    dependencies=[Depends(rate_limit("ai_commentary", ai=True))],
+)
 async def ai_commentary(_user: str = Depends(require_auth)) -> Dict[str, Any]:
     """All three panels' commentary (stale-while-revalidate).
 
@@ -73,7 +77,10 @@ async def ai_commentary(_user: str = Depends(require_auth)) -> Dict[str, Any]:
     return engine.payload_for_client()
 
 
-@router.get("/api/ai/market-overview")
+@router.get(
+    "/api/ai/market-overview",
+    dependencies=[Depends(rate_limit("ai_market_overview", ai=True))],
+)
 async def ai_market_overview(_user: str = Depends(require_auth)) -> Dict[str, Any]:
     """Market conditions only (regime, VIX bucket, sectors, bias, summary)."""
     engine = _engine()
@@ -89,7 +96,10 @@ async def ai_market_overview(_user: str = Depends(require_auth)) -> Dict[str, An
     }
 
 
-@router.post("/api/ai/refresh")
+@router.post(
+    "/api/ai/refresh",
+    dependencies=[Depends(rate_limit("ai_refresh", ai=True))],
+)
 async def ai_refresh(_user: str = Depends(require_auth)) -> Dict[str, Any]:
     """Force a commentary refresh outside the timer (still budget-checked).
 

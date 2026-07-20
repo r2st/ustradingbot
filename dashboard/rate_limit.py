@@ -91,18 +91,23 @@ def rate_limit(
     per_seconds: float = 60.0,
     *,
     control: bool = False,
+    ai: bool = False,
 ) -> Callable:
     """Build a FastAPI dependency enforcing a per-IP sliding-window cap.
 
     Args:
         bucket: A stable name isolating this endpoint's counters.
         limit: Explicit max hits per window.  When ``None`` the limit is read
-            from settings — ``RATE_LIMIT_CONTROL_PER_MIN`` if *control* else
+            from settings — ``RATE_LIMIT_AI_PER_MIN`` if *ai*,
+            ``RATE_LIMIT_CONTROL_PER_MIN`` if *control*, else
             ``RATE_LIMIT_TRADE_PER_MIN`` — so operators can tune it without code
             changes.
         per_seconds: Window length in seconds (default 60).
         control: Selects the control-endpoint default limit when *limit* is
             ``None``.
+        ai: Selects the AI/LLM-endpoint default limit when *limit* is ``None``
+            (takes precedence over *control*).  These endpoints drive paid
+            OpenRouter calls, so they get their own, tighter cap (audit B-1).
 
     The dependency is a no-op when ``RATE_LIMIT_ENABLED`` is false.
     """
@@ -113,11 +118,12 @@ def rate_limit(
             return
         effective = limit
         if effective is None:
-            effective = (
-                settings.RATE_LIMIT_CONTROL_PER_MIN
-                if control
-                else settings.RATE_LIMIT_TRADE_PER_MIN
-            )
+            if ai:
+                effective = getattr(settings, "RATE_LIMIT_AI_PER_MIN", 12)
+            elif control:
+                effective = settings.RATE_LIMIT_CONTROL_PER_MIN
+            else:
+                effective = settings.RATE_LIMIT_TRADE_PER_MIN
         allowed, retry_after = _check_bucket(
             bucket, _client_key(request), int(effective), per_seconds
         )

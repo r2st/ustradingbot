@@ -254,6 +254,11 @@ class Settings(BaseSettings):
     # Max requests per client IP per minute for control endpoints (engine
     # start/stop, mode switch, provider switch, backtest run).
     RATE_LIMIT_CONTROL_PER_MIN: int = 30
+    # Max requests per client IP per minute for the AI/LLM endpoints
+    # (commentary/market-overview polls and the forced refresh).  These drive
+    # paid OpenRouter calls, so the cap is deliberately low to bound cost/DoS
+    # exposure from a leaked or shared credential (audit B-1).
+    RATE_LIMIT_AI_PER_MIN: int = 12
     # Failed-login attempts (per client IP) allowed before a temporary lockout.
     RATE_LIMIT_LOGIN_MAX_FAILURES: int = 5
     # How long (minutes) a client IP is locked out after exhausting the failed
