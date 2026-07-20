@@ -5085,6 +5085,158 @@
 })();
 </script>
 
+<!-- ═══════════════════ PERFORMANCE ATTRIBUTION (P0-9) ═══════════════════ -->
+<div class="section lazy-pending" id="nav-attribution">
+  <div class="section-header">
+    <div class="section-icon icon-strategy">🧩</div>
+    <div class="section-titles">
+      <h2>Performance Attribution</h2>
+      <p class="section-sub">{{ guides_map.attribution.summary }}</p>
+    </div>
+    <a class="section-help-link" href="#help-attribution" title="How to use this section — opens the Help reference" aria-label="Help and how-to for Performance Attribution">?</a>
+  </div>
+  <div class="section-body">
+    <div class="stat-cards">
+      <div class="stat-card"><div class="label">Total Realized P&amp;L</div><div class="value" id="attrTotal">—</div></div>
+      <div class="stat-card"><div class="label">Portfolio Beta</div><div class="value small" id="attrBeta">—</div></div>
+      <div class="stat-card"><div class="label">Alpha (per period)</div><div class="value small" id="attrAlpha">—</div></div>
+      <div class="stat-card"><div class="label">Systematic P&amp;L</div><div class="value small" id="attrSys">—</div></div>
+      <div class="stat-card"><div class="label">Specific P&amp;L (α)</div><div class="value small" id="attrSpec">—</div></div>
+    </div>
+    <p class="muted-note" id="attrFactorNote"></p>
+
+    <h4 style="margin-top:16px;">Sector Attribution</h4>
+    <div id="attrSectorWaterfall" aria-live="polite"><div class="empty-note">Loading…</div></div>
+
+    <h4 style="margin-top:16px;">Strategy Attribution</h4>
+    <div class="table-wrap">
+      <table class="data-table"><caption class="sr-only">P&amp;L attribution by strategy</caption>
+        <thead><tr><th scope="col">Strategy</th><th scope="col">Trades</th><th scope="col">Win Rate</th>
+          <th scope="col">P&amp;L</th><th scope="col">Contribution</th></tr></thead>
+        <tbody id="attrStrategyRows"><tr><td colspan="5" class="empty-note">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  "use strict";
+  function ready(fn) { if (document.readyState !== "loading") fn(); else document.addEventListener("DOMContentLoaded", fn); }
+  function money(v) { if (v == null || isNaN(v)) return "—"; var n = Number(v); return (n < 0 ? "-$" : "$") + Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 2 }); }
+
+  function renderWaterfall(items, total) {
+    var el = document.getElementById("attrSectorWaterfall");
+    if (!items || !items.length) { el.innerHTML = '<div class="empty-note">No sector P&L yet.</div>'; return; }
+    // Running-total waterfall: each sector bar picks up where the last ended.
+    var running = 0, segs = [], lo = 0, hi = 0;
+    items.forEach(function (it) {
+      var start = running; running += it.value; var end = running;
+      lo = Math.min(lo, start, end); hi = Math.max(hi, start, end);
+      segs.push({ label: it.label, value: it.value, start: start, end: end });
+    });
+    var span = (hi - lo) || 1;
+    var rows = segs.map(function (s) {
+      var left = (Math.min(s.start, s.end) - lo) / span * 100;
+      var width = Math.max(1.5, Math.abs(s.value) / span * 100);
+      var cls = s.value >= 0 ? "drift-under" : "drift-over";
+      return '<div class="wf-row"><span>' + esc(s.label) + '</span>' +
+        '<div class="wf-track"><div class="wf-fill ' + cls + '" style="left:' + left.toFixed(1) + '%;width:' + width.toFixed(1) + '%;"></div></div>' +
+        '<span class="' + (s.value >= 0 ? "num-pos" : "num-neg") + '">' + money(s.value) + "</span></div>";
+    }).join("");
+    // Total bar spanning 0 -> total.
+    var tLeft = (Math.min(0, total) - lo) / span * 100;
+    var tWidth = Math.max(1.5, Math.abs(total) / span * 100);
+    rows += '<div class="wf-row" style="border-top:1px solid var(--border);margin-top:4px;padding-top:6px;">' +
+      '<span><strong>Total</strong></span><div class="wf-track"><div class="wf-fill" style="background:var(--text-muted);left:' +
+      tLeft.toFixed(1) + '%;width:' + tWidth.toFixed(1) + '%;"></div></div><span><strong>' + money(total) + "</strong></span></div>";
+    el.innerHTML = rows;
+  }
+
+  window.attrLoad = async function () {
+    renderSkeleton("attrSectorWaterfall", 3);
+    renderSkeleton("attrStrategyRows", 3);
+    try {
+      var d = await jget("/api/attribution", { key: "attribution", report: true, context: "Attribution" });
+      document.getElementById("attrTotal").textContent = money(d.total_pnl);
+      var f = d.factor || {};
+      document.getElementById("attrBeta").textContent = f.beta != null ? Number(f.beta).toFixed(2) : "—";
+      document.getElementById("attrAlpha").textContent = f.alpha != null ? (f.alpha * 100).toFixed(3) + "%" : "—";
+      document.getElementById("attrSys").textContent = money(f.systematic_pnl);
+      document.getElementById("attrSpec").textContent = money(f.specific_pnl);
+      document.getElementById("attrFactorNote").textContent = f.observations
+        ? ("Market-factor split from " + f.observations + " periods vs " + (d.benchmark || "SPY") + ". Positive specific P&L is alpha beyond market beta.")
+        : "Not enough aligned history for a market-factor split yet.";
+
+      var sectors = (d.by_sector || []).map(function (r) { return { label: r.sector, value: r.total_pnl }; });
+      renderWaterfall(sectors, d.total_pnl || 0);
+
+      var strat = d.by_strategy || [];
+      var tb = document.getElementById("attrStrategyRows");
+      tb.innerHTML = strat.length ? strat.map(function (r) {
+        return "<tr><td>" + esc(r.strategy) + "</td><td>" + (r.trades || 0) + "</td><td>" + ((r.win_rate || 0) * 100).toFixed(0) +
+          "%</td><td class='" + (r.total_pnl >= 0 ? "num-pos" : "num-neg") + "'>" + money(r.total_pnl) + "</td><td>" +
+          (r.contribution_pct != null ? r.contribution_pct.toFixed(1) + "%" : "—") + "</td></tr>";
+      }).join("") : '<tr><td colspan="5" class="empty-note">No closed trades to attribute yet.</td></tr>';
+    } catch (e) {
+      document.getElementById("attrSectorWaterfall").innerHTML = '<div class="empty-note">Could not load attribution.</div>';
+      document.getElementById("attrStrategyRows").innerHTML = '<tr><td colspan="5" class="empty-note">Could not load attribution.</td></tr>';
+    }
+  };
+
+  ready(function () { if (window.lazySection) window.lazySection("nav-attribution", window.attrLoad); else window.attrLoad(); });
+})();
+</script>
+
+<!-- ═══════════════════ STATEMENTS (P0-9) ═══════════════════ -->
+<div class="section lazy-pending" id="nav-statements">
+  <div class="section-header">
+    <div class="section-icon icon-provider">📄</div>
+    <div class="section-titles">
+      <h2>Statements</h2>
+      <p class="section-sub">{{ guides_map.statements.summary }}</p>
+    </div>
+    <a class="section-help-link" href="#help-statements" title="How to use this section — opens the Help reference" aria-label="Help and how-to for Statements">?</a>
+  </div>
+  <div class="section-body">
+    <div class="panel-toolbar">
+      <div class="form-field">
+        <label for="stmtPeriod">Period</label>
+        <select id="stmtPeriod" onchange="stmtLoad()">
+          <option value="monthly">Monthly</option>
+          <option value="quarterly">Quarterly</option>
+        </select>
+      </div>
+      <button type="button" class="btn-primary btn-sm" onclick="stmtLoad()">Generate</button>
+      <a class="chip" id="stmtDownload" href="#" style="cursor:pointer;">⬇ Download PDF</a>
+    </div>
+    <h4 id="stmtSubject" style="margin-top:8px;">—</h4>
+    <pre id="stmtBody" class="bt-log" style="white-space:pre-wrap;max-height:460px;overflow:auto;font-size:12.5px;">Loading…</pre>
+  </div>
+</div>
+<script>
+(function () {
+  "use strict";
+  function ready(fn) { if (document.readyState !== "loading") fn(); else document.addEventListener("DOMContentLoaded", fn); }
+
+  window.stmtLoad = async function () {
+    var period = document.getElementById("stmtPeriod").value;
+    document.getElementById("stmtDownload").setAttribute("href", "/api/statement?period=" + encodeURIComponent(period) + "&format=pdf");
+    var body = document.getElementById("stmtBody");
+    body.textContent = "Generating…";
+    try {
+      var d = await jget("/api/statement?period=" + encodeURIComponent(period), { key: "statement", report: true, context: "Statement" });
+      document.getElementById("stmtSubject").textContent = d.subject || "Statement";
+      var text = (d.lines && d.lines.length) ? d.lines.join("\n") : (d.body || "No statement content.");
+      body.textContent = text;
+    } catch (e) {
+      body.textContent = "Could not generate the statement.";
+    }
+  };
+
+  ready(function () { if (window.lazySection) window.lazySection("nav-statements", window.stmtLoad); else window.stmtLoad(); });
+})();
+</script>
+
 <!-- ═══════════════════ HELP: PAPER TRADING ═══════════════════ -->
 <div class="section" id="nav-help">
   <div class="section-header">
