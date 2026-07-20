@@ -4836,6 +4836,165 @@
 })();
 </script>
 
+<!-- ═══════════════════ CUSTOM INDICATOR ALERTS (P0-6) ═══════════════════ -->
+<div class="section lazy-pending" id="nav-indicator-alerts">
+  <div class="section-header">
+    <div class="section-icon icon-risk">📐</div>
+    <div class="section-titles">
+      <h2>Indicator Alerts</h2>
+      <p class="section-sub">{{ guides_map['indicator-alerts'].summary }}</p>
+    </div>
+    <a class="section-help-link" href="#help-indicator-alerts" title="How to use this section — opens the Help reference" aria-label="Help and how-to for Indicator Alerts">?</a>
+  </div>
+  <div class="section-body">
+    <h4>Rule Builder</h4>
+    <div class="form-row" style="flex-wrap:wrap;align-items:flex-end;">
+      <div class="form-field" style="width:150px;">
+        <label for="iaType">Indicator</label>
+        <select id="iaType" onchange="iaSyncFields()">
+          <option value="rsi_cross">RSI cross</option>
+          <option value="ma_cross">MA cross (golden/death)</option>
+          <option value="volume_spike">Volume spike</option>
+          <option value="drawdown">Drawdown</option>
+          <option value="daily_loss">Daily loss</option>
+        </select>
+      </div>
+      <div class="form-field ia-f ia-symbol" style="width:110px;"><label>Symbol</label><input type="text" id="iaSymbol" placeholder="AAPL"></div>
+      <div class="form-field ia-f ia-direction" style="width:120px;"><label>Comparator</label>
+        <select id="iaDirection"><option value="above">crosses above</option><option value="below">crosses below</option></select></div>
+      <div class="form-field ia-f ia-threshold" style="width:120px;"><label id="iaThreshLabel">Threshold</label><input type="number" id="iaThreshold" step="0.1" placeholder="30"></div>
+      <div class="form-field ia-f ia-kind" style="width:120px;"><label>Kind</label>
+        <select id="iaKind"><option value="golden">golden</option><option value="death">death</option></select></div>
+      <div class="form-field ia-f ia-fast" style="width:90px;"><label>Fast</label><input type="number" id="iaFast" value="50"></div>
+      <div class="form-field ia-f ia-slow" style="width:90px;"><label>Slow</label><input type="number" id="iaSlow" value="200"></div>
+      <div class="form-field ia-f ia-scope" style="width:120px;"><label>Scope</label>
+        <select id="iaScope" onchange="iaSyncFields()"><option value="portfolio">portfolio</option><option value="position">position</option></select></div>
+      <button type="button" class="btn-primary btn-sm" onclick="iaAddRule()" style="align-self:flex-end;">Add rule</button>
+    </div>
+    <div id="iaAddResult" class="modal-result"></div>
+
+    <div class="form-row" style="margin-top:8px;">
+      <button type="button" class="chip" onclick="iaCheckNow()">Check Now</button>
+      <span id="iaCheckResult" class="modal-result" aria-live="polite"></span>
+    </div>
+
+    <h4 style="margin-top:16px;">Active Rules</h4>
+    <div class="table-wrap">
+      <table class="data-table"><caption class="sr-only">Indicator alert rules</caption>
+        <thead><tr><th scope="col">Rule</th><th scope="col">Active</th><th scope="col">Last Value</th>
+          <th scope="col">Triggered</th><th scope="col"></th></tr></thead>
+        <tbody id="iaRuleRows"><tr><td colspan="5" class="empty-note">Loading…</td></tr></tbody>
+      </table>
+    </div>
+
+    <h4 style="margin-top:16px;">Alert History</h4>
+    <div id="iaHistory" style="font-size:13px;"><div class="empty-note">No alerts triggered yet.</div></div>
+  </div>
+</div>
+<script>
+(function () {
+  "use strict";
+  function ready(fn) { if (document.readyState !== "loading") fn(); else document.addEventListener("DOMContentLoaded", fn); }
+  var FIELDS = {
+    rsi_cross:    ["ia-symbol", "ia-direction", "ia-threshold"],
+    ma_cross:     ["ia-symbol", "ia-kind", "ia-fast", "ia-slow"],
+    volume_spike: ["ia-symbol", "ia-threshold"],
+    drawdown:     ["ia-scope", "ia-symbol", "ia-threshold"],
+    daily_loss:   ["ia-threshold"]
+  };
+
+  window.iaSyncFields = function () {
+    var type = document.getElementById("iaType").value;
+    var show = FIELDS[type] || [];
+    document.querySelectorAll(".ia-f").forEach(function (el) {
+      var cls = Array.prototype.filter.call(el.classList, function (c) { return c.indexOf("ia-") === 0 && c !== "ia-f"; })[0];
+      el.style.display = show.indexOf(cls) !== -1 ? "" : "none";
+    });
+    // drawdown + portfolio scope hides the symbol field
+    if (type === "drawdown" && document.getElementById("iaScope").value === "portfolio") {
+      document.querySelector(".ia-symbol").style.display = "none";
+    }
+    var lbl = document.getElementById("iaThreshLabel");
+    lbl.textContent = type === "rsi_cross" ? "RSI level" : type === "volume_spike" ? "% above avg" :
+      (type === "drawdown" || type === "daily_loss") ? "Threshold %" : "Threshold";
+  };
+
+  function ruleSummary(r) {
+    if (r.type === "rsi_cross") return "RSI " + esc(r.symbol) + " crosses " + esc(r.direction) + " " + r.threshold;
+    if (r.type === "ma_cross") return esc(r.symbol) + " " + esc(r.kind) + " cross (" + r.fast + "/" + r.slow + ")";
+    if (r.type === "volume_spike") return esc(r.symbol) + " volume +" + r.pct_above_avg + "% vs avg";
+    if (r.type === "drawdown") return "Drawdown " + esc(r.scope) + (r.symbol ? " " + esc(r.symbol) : "") + " > " + r.threshold_pct + "%";
+    if (r.type === "daily_loss") return "Daily loss > " + r.threshold_pct + "%";
+    return esc(r.type);
+  }
+
+  window.iaAddRule = async function () {
+    var type = document.getElementById("iaType").value;
+    var body = { type: type };
+    var sym = document.getElementById("iaSymbol").value.trim().toUpperCase();
+    var thr = parseFloat(document.getElementById("iaThreshold").value);
+    if (type === "rsi_cross") { body.symbol = sym; body.direction = document.getElementById("iaDirection").value; body.threshold = thr; }
+    else if (type === "ma_cross") { body.symbol = sym; body.kind = document.getElementById("iaKind").value; body.fast = parseInt(document.getElementById("iaFast").value, 10); body.slow = parseInt(document.getElementById("iaSlow").value, 10); }
+    else if (type === "volume_spike") { body.symbol = sym; body.pct_above_avg = thr; }
+    else if (type === "drawdown") { body.scope = document.getElementById("iaScope").value; if (body.scope === "position") body.symbol = sym; body.threshold_pct = thr; }
+    else if (type === "daily_loss") { body.threshold_pct = thr; }
+    try {
+      await jsend("POST", "/api/indicator-alerts", body, { context: "Add rule" });
+      setMsg("iaAddResult", "Rule added.", true);
+      iaLoadRules();
+    } catch (e) { /* jsend surfaces the error */ }
+  };
+
+  window.iaToggle = async function (id, active) {
+    try { await jsend("POST", "/api/indicator-alerts/" + encodeURIComponent(id) + "/active", { active: active }, { context: "Toggle rule" }); iaLoadRules(); }
+    catch (e) { /* surfaced */ }
+  };
+  window.iaDelete = async function (id) {
+    try { await jsend("DELETE", "/api/indicator-alerts/" + encodeURIComponent(id), null, { context: "Delete rule" }); iaLoadRules(); }
+    catch (e) { /* surfaced */ }
+  };
+
+  window.iaCheckNow = async function () {
+    setMsg("iaCheckResult", "Checking…", true);
+    try {
+      var r = await jsend("POST", "/api/indicator-alerts/check", null, { context: "Check alerts" });
+      setMsg("iaCheckResult", (r.count || 0) + " rule(s) triggered.", (r.count || 0) === 0);
+      iaLoadRules();
+    } catch (e) { setMsg("iaCheckResult", "Check failed.", false); }
+  };
+
+  window.iaLoadRules = async function () {
+    renderSkeleton("iaRuleRows", 3);
+    try {
+      var d = await jget("/api/indicator-alerts", { key: "ia-rules", report: true, context: "Indicator alerts" });
+      var rules = d.alerts || [];
+      var tb = document.getElementById("iaRuleRows");
+      tb.innerHTML = rules.length ? rules.map(function (r) {
+        var toggle = '<button type="button" class="chip" onclick="iaToggle(\'' + esc(r.id) + '\',' + (!r.active) + ')">' + (r.active ? "on" : "off") + "</button>";
+        return "<tr><td>" + ruleSummary(r) + "</td><td>" + toggle + "</td><td>" + (r.last_value != null ? r.last_value : "—") +
+          "</td><td>" + (r.triggered_at ? esc(r.triggered_at) : "—") + '</td><td><button type="button" class="chip mt-del" onclick="iaDelete(\'' +
+          esc(r.id) + '\')">Delete</button></td></tr>";
+      }).join("") : '<tr><td colspan="5" class="empty-note">No rules yet — build one above.</td></tr>';
+
+      var fired = rules.filter(function (r) { return r.triggered_at; });
+      var h = document.getElementById("iaHistory");
+      h.innerHTML = fired.length ? fired.map(function (r) {
+        return '<div class="mem-reflection" style="padding:8px 10px;"><strong>' + ruleSummary(r) + "</strong>" +
+          '<span class="mr-meta"> — fired ' + esc(r.triggered_at) + (r.last_value != null ? " @ " + r.last_value : "") + "</span></div>";
+      }).join("") : '<div class="empty-note">No alerts triggered yet.</div>';
+    } catch (e) {
+      document.getElementById("iaRuleRows").innerHTML = '<tr><td colspan="5" class="empty-note">Could not load rules.</td></tr>';
+    }
+  };
+
+  ready(function () {
+    window.iaSyncFields();
+    if (window.lazySection) window.lazySection("nav-indicator-alerts", window.iaLoadRules);
+    else window.iaLoadRules();
+  });
+})();
+</script>
+
 <!-- ═══════════════════ HELP: PAPER TRADING ═══════════════════ -->
 <div class="section" id="nav-help">
   <div class="section-header">
