@@ -1507,6 +1507,130 @@
     pointer-events: none;
   }
   .kbd-flash.show { opacity: 1; }
+
+  /* ═══════════════════════ DATA VISUALISATION ═══════════════════════════ */
+  /* Allocation donut + P&L timeline cards */
+  .viz-row {
+    display: grid; gap: 16px; margin: 6px 0 18px;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  }
+  .viz-card {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 16px;
+  }
+  .viz-card-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; margin-bottom: 10px; flex-wrap: wrap;
+  }
+  .viz-card-head h4 { font-size: 13px; font-weight: 600; }
+  .viz-donut-wrap { position: relative; height: 200px; }
+  .viz-empty {
+    position: absolute; inset: 0; display: flex; align-items: center;
+    justify-content: center; text-align: center; padding: 0 18px;
+    color: var(--text-muted); font-size: 13px;
+  }
+  .viz-legend {
+    display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px;
+    font-size: 12px; color: var(--text-muted);
+  }
+  .viz-legend .vl-item { display: flex; align-items: center; gap: 6px; }
+  .viz-legend .vl-dot { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+  .viz-legend .vl-pct { color: var(--text); font-variant-numeric: tabular-nums; }
+  /* Segmented period toggle */
+  .viz-seg {
+    display: inline-flex; border: 1px solid var(--border);
+    border-radius: 8px; overflow: hidden; background: var(--surface);
+  }
+  .viz-seg-btn {
+    background: none; border: none; color: var(--text-muted);
+    font: inherit; font-size: 12px; font-weight: 600; padding: 5px 12px;
+    cursor: pointer; min-height: 30px;
+  }
+  .viz-seg-btn + .viz-seg-btn { border-left: 1px solid var(--border); }
+  .viz-seg-btn:hover { color: var(--text); }
+  .viz-seg-btn.active { background: var(--accent); color: #fff; }
+
+  /* Inline P&L sparklines in the positions table / cards */
+  .pos-spark { display: inline-flex; margin-left: auto; }
+  .pos-spark svg, .spark-cell svg { display: block; }
+  .spark-cell { min-width: 70px; }
+  .spark { overflow: visible; }
+  .spark-line { fill: none; stroke-width: 1.6; vector-effect: non-scaling-stroke; }
+  .spark-area { opacity: 0.14; }
+  .spark-dot { r: 1.7; }
+  .spark-pos { stroke: var(--green); }
+  .spark-pos .spark-area, .spark-pos.spark-area { fill: var(--green); }
+  .spark-neg { stroke: var(--red); }
+  .spark-neg .spark-area, .spark-neg.spark-area { fill: var(--red); }
+  .spark-flat { color: var(--text-muted); font-size: 11px; }
+
+  /* Semicircular risk gauges */
+  .gauge-row {
+    display: grid; gap: 14px; margin: 2px 0 20px;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+  .gauge {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 12px 12px; text-align: center;
+  }
+  .gauge-svg { width: 100%; max-width: 150px; height: auto; }
+  .gauge-track { stroke: var(--surface-2); stroke-width: 10; stroke-linecap: round; }
+  .gauge-fill {
+    stroke: var(--accent); stroke-width: 10; stroke-linecap: round;
+    stroke-dasharray: 157.1; stroke-dashoffset: 157.1;
+    transition: stroke-dashoffset .6s ease, stroke .3s ease;
+  }
+  @media (prefers-reduced-motion: reduce) { .gauge-fill { transition: none; } }
+  .gauge-val {
+    font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums;
+    margin-top: -18px;
+  }
+  .gauge-label {
+    font-size: 11px; color: var(--text-muted); margin-top: 6px;
+    text-transform: uppercase; letter-spacing: 0.4px;
+  }
+  .gauge-ok .gauge-fill { stroke: var(--green); }
+  .gauge-warn .gauge-fill { stroke: var(--orange); }
+  .gauge-bad .gauge-fill { stroke: var(--red); }
+
+  /* ═══════════════════════ PERFORMANCE / TABLES ════════════════════════ */
+  /* Sticky first column on wide scrollable tables (mobile swipe-friendly) */
+  .table-wrap, .table-scroll { position: relative; }
+  .sticky-col th:first-child, .sticky-col td:first-child {
+    position: sticky; left: 0; z-index: 2;
+    background: var(--surface);
+    box-shadow: 1px 0 0 var(--border);
+  }
+  .sticky-col thead th:first-child { z-index: 3; background: var(--surface-2); }
+  /* Right-edge shadow hint shown while a table can still scroll horizontally */
+  .table-scroll.can-scroll-right::after {
+    content: ""; position: absolute; top: 0; right: 0; bottom: 0; width: 26px;
+    pointer-events: none; background: linear-gradient(90deg, transparent, rgba(2,6,23,.28));
+  }
+  :root[data-theme="light"] .table-scroll.can-scroll-right::after {
+    background: linear-gradient(90deg, transparent, rgba(15,23,42,.10));
+  }
+  .swipe-hint {
+    font-size: 11px; color: var(--text-muted); text-align: right;
+    margin: 2px 2px 0; display: none;
+  }
+  @media (max-width: 768px) { .swipe-hint.live { display: block; } }
+
+  /* "Updating…" stale-data indicator */
+  .updating-dot {
+    display: none; align-items: center; gap: 5px;
+    font-size: 11px; color: var(--text-muted);
+  }
+  .updating-dot.on { display: inline-flex; }
+  .updating-dot::before {
+    content: ""; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--accent); animation: updPulse 1s ease-in-out infinite;
+  }
+  @keyframes updPulse { 0%,100% { opacity: .3; } 50% { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .updating-dot::before { animation: none; } }
+  .stat-card.is-stale { opacity: .55; }
+  /* Lazy sections show a soft placeholder height before their first paint */
+  .lazy-pending { min-height: 120px; }
 </style>
 </head>
 <body>
@@ -1911,6 +2035,36 @@
     </div>
     <div style="max-width:820px; height:140px; margin:4px 0 10px;">
       <canvas id="pnlIntradayChart" height="140"></canvas>
+    </div>
+
+    <!-- Portfolio allocation donut + realised-P&L timeline (data-viz) -->
+    <div class="viz-row" id="accountVizRow">
+      <div class="viz-card">
+        <div class="viz-card-head">
+          <h4>Portfolio Allocation<span class="info-tip" tabindex="0" role="note"
+              data-tip="Share of invested capital in each open position, by cost basis. Cash is shown as the remaining slice.">i</span></h4>
+        </div>
+        <div class="viz-donut-wrap">
+          <canvas id="allocDonut" height="200" aria-label="Portfolio allocation by position"></canvas>
+          <div class="viz-empty" id="allocEmpty" hidden>No open positions — allocation appears once the bot fills a trade.</div>
+        </div>
+        <div class="viz-legend" id="allocLegend"></div>
+      </div>
+      <div class="viz-card">
+        <div class="viz-card-head">
+          <h4>Realised P&amp;L Timeline<span class="info-tip" tabindex="0" role="note"
+              data-tip="Net realised profit or loss grouped by period. Green bars are winning periods, red are losing.">i</span></h4>
+          <div class="viz-seg" role="group" aria-label="P&L timeline period">
+            <button type="button" class="viz-seg-btn active" data-freq="daily" onclick="setPnlTimelineFreq('daily',this)">Daily</button>
+            <button type="button" class="viz-seg-btn" data-freq="weekly" onclick="setPnlTimelineFreq('weekly',this)">Weekly</button>
+            <button type="button" class="viz-seg-btn" data-freq="monthly" onclick="setPnlTimelineFreq('monthly',this)">Monthly</button>
+          </div>
+        </div>
+        <div class="viz-donut-wrap">
+          <canvas id="pnlTimeline" height="200" aria-label="Realised P&L by period"></canvas>
+          <div class="viz-empty" id="pnlTimelineEmpty" hidden>No closed trades yet — the timeline fills in after the first exit.</div>
+        </div>
+      </div>
     </div>
 
     <!-- Cash balances per currency -->
@@ -2475,7 +2629,7 @@
       </div>
       <div class="form-field"><label>Symbol</label>
         <input type="text" id="actSymbol" placeholder="filter…" autocomplete="off"
-               oninput="loadActivity()"></div>
+               oninput="actFilterDebounced()"></div>
     </div>
     <div id="actFeed" style="max-height:420px;overflow-y:auto;font-size:13px;">
       <div class="empty-note">No activity yet.</div>
@@ -2749,6 +2903,36 @@
     <a class="section-help-link" href="#help-risk" title="How to use this section — opens the Help reference" aria-label="Help and how-to for Risk Dashboard">?</a>
   </div>
   <div class="section-body">
+    <!-- Risk gauges (data-viz): exposure, drawdown, concentration -->
+    <div class="gauge-row" id="riskGauges">
+      <div class="gauge" id="gaugeExposure">
+        <svg viewBox="0 0 120 74" class="gauge-svg" role="img" aria-label="Gross exposure gauge">
+          <path class="gauge-track" d="M10 68 A50 50 0 0 1 110 68" fill="none"/>
+          <path class="gauge-fill" d="M10 68 A50 50 0 0 1 110 68" fill="none"/>
+        </svg>
+        <div class="gauge-val">—</div>
+        <div class="gauge-label">Gross Exposure<span class="info-tip" tabindex="0" role="note"
+          data-tip="Committed capital as a share of total allocated capital. Higher means more of your book is deployed.">i</span></div>
+      </div>
+      <div class="gauge" id="gaugeDrawdown">
+        <svg viewBox="0 0 120 74" class="gauge-svg" role="img" aria-label="Drawdown gauge">
+          <path class="gauge-track" d="M10 68 A50 50 0 0 1 110 68" fill="none"/>
+          <path class="gauge-fill" d="M10 68 A50 50 0 0 1 110 68" fill="none"/>
+        </svg>
+        <div class="gauge-val">—</div>
+        <div class="gauge-label">Current Drawdown<span class="info-tip" tabindex="0" role="note"
+          data-tip="How far equity has fallen from its peak. 0% means you are at a new high-water mark.">i</span></div>
+      </div>
+      <div class="gauge" id="gaugeConcentration">
+        <svg viewBox="0 0 120 74" class="gauge-svg" role="img" aria-label="Concentration gauge">
+          <path class="gauge-track" d="M10 68 A50 50 0 0 1 110 68" fill="none"/>
+          <path class="gauge-fill" d="M10 68 A50 50 0 0 1 110 68" fill="none"/>
+        </svg>
+        <div class="gauge-val">—</div>
+        <div class="gauge-label">Concentration<span class="info-tip" tabindex="0" role="note"
+          data-tip="Largest single-sector share of the open book. A high value means the portfolio is really one concentrated bet.">i</span></div>
+      </div>
+    </div>
     <div class="stat-cards" id="riskStatCards">
       <div class="stat-card"><div class="label">Gross Exposure</div>
         <div class="value" id="riskGrossExposure">—</div></div>
@@ -5069,7 +5253,8 @@
       return '<div class="' + cardCls + '" data-symbol="' + esc(pos.symbol) + '">' +
         '<div class="pos-card-top"><span class="pos-ticker">' + esc(pos.symbol) + "</span>" +
           grade + shortChip + pnlPct + "</div>" +
-        '<div class="pos-strategy">' + esc(pos.strategy) + "</div>" +
+        '<div class="pos-strategy">' + esc(pos.strategy) +
+          '<span class="pos-spark">' + _spark(pos.symbol, live) + "</span></div>" +
         '<div class="pos-card-grid">' +
           '<div class="pcg-item"><span class="pcg-k">Shares</span><span class="pcg-v">' + esc(pos.quantity) + "</span></div>" +
           '<div class="pcg-item"><span class="pcg-k">Value</span><span class="pcg-v">' + _money(pos.cost_basis) + " " + esc(pos.currency) + "</span></div>" +
@@ -5120,6 +5305,7 @@
         '<td class="num">$' + Number(pos.entry_price || 0).toFixed(2) + "</td>" +
         '<td class="num">' + cur + "</td>" +
         '<td class="num">' + unreal + "</td>" +
+        '<td class="spark-cell">' + _spark(pos.symbol, live) + "</td>" +
         '<td class="num">$' + Number(stop || 0).toFixed(2) + "</td>" +
         '<td class="num">$' + Number(target || 0).toFixed(2) + "</td>" +
         "<td>" + _progressBar(live) + "</td>" +
@@ -5138,6 +5324,7 @@
       "<th scope='col'>Symbol</th><th scope='col'>Strategy</th><th scope='col'>Grade</th>" +
       '<th scope="col" class="num">Qty</th><th scope="col" class="num">Entry</th>' +
       '<th scope="col" class="num">Current</th><th scope="col" class="num">Unreal P&amp;L</th>' +
+      '<th scope="col">Trend</th>' +
       '<th scope="col" class="num">Stop</th><th scope="col" class="num">Target</th>' +
       "<th scope='col'>Stop ◄─● ─► Target</th>" +
       '<th scope="col" class="num">Cost Basis</th>' +
@@ -6422,6 +6609,10 @@
     return '<div style="padding:3px 6px;border-left:3px solid ' + _actColor(e.event) +
       ';margin:2px 0;"><span class="bt-hint">' + ts + "</span> " + main + "</div>";
   }
+  // Debounced symbol filter — avoid a fetch on every keystroke (P: debounce).
+  var actFilterDebounced = (window.debounce || function (f) { return f; })(
+    function () { loadActivity(); }, 300);
+  window.actFilterDebounced = actFilterDebounced;
   async function loadActivity() {
     try {
       var sym = document.getElementById("actSymbol").value;
@@ -6583,13 +6774,19 @@
   // ── Boot + polling for the monitoring sections ──
   (function () {
     loadHistoryMeta(); loadHistory(); loadWinRateTrend();
-    loadPerformanceCharts();
     loadActivity(); loadAlerts(); loadWlMonitor();
-    loadMemory();
+    // Defer the far-down heavy sections until they scroll into view (P: lazy).
+    var _perfStarted = false, _memStarted = false;
+    function _startPerf() { _perfStarted = true; loadPerformanceCharts(); }
+    function _startMem() { _memStarted = true; loadMemory(); }
+    if (window.lazySection) {
+      window.lazySection("nav-charts", _startPerf);
+      window.lazySection("nav-memory", _startMem);
+    } else { _startPerf(); _startMem(); }
     setInterval(function () { if (!document.hidden) loadActivity(); }, 20000);
     setInterval(function () { if (!document.hidden) loadWlMonitor(); }, 30000);
-    setInterval(function () { if (!document.hidden) loadMemory(); }, 60000);
-    setInterval(function () { if (!document.hidden) loadPerformanceCharts(); }, 300000);
+    setInterval(function () { if (!document.hidden && _memStarted) loadMemory(); }, 60000);
+    setInterval(function () { if (!document.hidden && _perfStarted) loadPerformanceCharts(); }, 300000);
   })();
 </script>
 <!-- ═══════════ TECHNICAL ANALYSIS CHART (TA1) — multi-pane SVG renderer ═══════════ -->
@@ -7935,6 +8132,364 @@
       document.addEventListener("DOMContentLoaded", init);
     } else { init(); }
   })();
+</script>
+
+<!-- ═══════════════════ DATA-VIZ · PERFORMANCE · TABLE UX ═══════════════════
+     Self-contained. Adds inline P&L sparklines, a portfolio-allocation donut,
+     a realised-P&L timeline, semicircular risk gauges, plus the performance
+     layer: IntersectionObserver lazy-loading, a debounce helper, a global
+     "updating…" indicator (wraps fetch), and sticky-first-column / swipe-hint
+     table behaviour. Reuses the page's global Chart.js. -->
+<script>
+(function () {
+  "use strict";
+
+  var reduce = window.matchMedia &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function themeColor(v) {
+    return getComputedStyle(document.documentElement).getPropertyValue(v).trim() || "#888";
+  }
+  var PALETTE = ["#3B82F6", "#22C55E", "#A855F7", "#F59E0B", "#06B6D4",
+                 "#EF4444", "#8B5CF6", "#14B8A6", "#EC4899", "#84CC16"];
+
+  // ── debounce (shared) ───────────────────────────────────────────────────
+  window.debounce = function (fn, ms) {
+    var t = null;
+    return function () {
+      var ctx = this, args = arguments;
+      clearTimeout(t);
+      t = setTimeout(function () { fn.apply(ctx, args); }, ms == null ? 250 : ms);
+    };
+  };
+
+  // ── Lazy-load: run a loader once, when its section nears the viewport ────
+  // Falls back to an immediate run where IntersectionObserver is unavailable.
+  var _lazyDone = {};
+  window.lazySection = function (id, loader, opts) {
+    if (_lazyDone[id]) return;
+    var el = document.getElementById(id);
+    if (!el || typeof IntersectionObserver === "undefined") {
+      _lazyDone[id] = true; try { loader(); } catch (e) {} return;
+    }
+    var io = new IntersectionObserver(function (entries) {
+      for (var i = 0; i < entries.length; i++) {
+        if (entries[i].isIntersecting) {
+          _lazyDone[id] = true;
+          io.disconnect();
+          el.classList.remove("lazy-pending");
+          try { loader(); } catch (e) {}
+          return;
+        }
+      }
+    }, { rootMargin: (opts && opts.rootMargin) || "300px 0px" });
+    io.observe(el);
+  };
+
+  // ── Global "updating…" indicator (wrap fetch, count in-flight) ──────────
+  var _inflight = 0, _syncEl = null, _syncTimer = null;
+  function _ensureSyncEl() {
+    if (_syncEl) return _syncEl;
+    _syncEl = document.createElement("span");
+    _syncEl.className = "updating-dot";
+    _syncEl.id = "globalSync";
+    _syncEl.textContent = "updating…";
+    var host = document.getElementById("sectionIndicator");
+    if (host) host.appendChild(_syncEl); else document.body.appendChild(_syncEl);
+    return _syncEl;
+  }
+  function _paintSync() {
+    var el = _ensureSyncEl();
+    // Debounce OFF so brief single requests don't flicker the indicator.
+    if (_inflight > 0) { el.classList.add("on"); }
+    else {
+      clearTimeout(_syncTimer);
+      _syncTimer = setTimeout(function () { if (_inflight === 0) el.classList.remove("on"); }, 200);
+    }
+  }
+  if (typeof window.fetch === "function" && !window.__fetchWrapped) {
+    var _origFetch = window.fetch.bind(window);
+    window.fetch = function () {
+      _inflight++; _paintSync();
+      var settle = function () { _inflight = Math.max(0, _inflight - 1); _paintSync(); };
+      var p;
+      try { p = _origFetch.apply(null, arguments); }
+      catch (e) { settle(); throw e; }
+      return p.then(function (r) { settle(); return r; },
+                    function (err) { settle(); throw err; });
+    };
+    window.__fetchWrapped = true;
+  }
+
+  // ── Inline P&L sparklines ───────────────────────────────────────────────
+  // A rolling per-symbol buffer of unrealised P&L, accumulated as live ticks
+  // re-render the positions. Seeded at 0 (entry baseline) so a line always
+  // shows; persisted for the session so it survives re-renders / view toggles.
+  var SPARK_KEY = "ustb_spark_buf", SPARK_MAX = 40, SPARK_MIN_MS = 4000;
+  var _sparkBuf = {}, _sparkStamp = {};
+  try { _sparkBuf = JSON.parse(sessionStorage.getItem(SPARK_KEY) || "{}") || {}; } catch (e) { _sparkBuf = {}; }
+  var _persistSpark = window.debounce(function () {
+    try { sessionStorage.setItem(SPARK_KEY, JSON.stringify(_sparkBuf)); } catch (e) {}
+  }, 1500);
+
+  window._spark = function (symbol, live) {
+    var v = (live && live.unrealized_pnl != null) ? Number(live.unrealized_pnl) : null;
+    var buf = _sparkBuf[symbol] || (_sparkBuf[symbol] = [0]);
+    if (v != null) {
+      var now = Date.now();
+      if (!_sparkStamp[symbol] || (now - _sparkStamp[symbol]) >= SPARK_MIN_MS ||
+          buf.length === 1) {
+        if (buf[buf.length - 1] !== v) {
+          buf.push(v);
+          if (buf.length > SPARK_MAX) buf.shift();
+          _sparkStamp[symbol] = now;
+          _persistSpark();
+        }
+      }
+    }
+    return _sparkSvg(buf, v);
+  };
+
+  function _sparkSvg(buf, last) {
+    if (!buf || buf.length < 2) return '<span class="spark-flat">·····</span>';
+    var w = 64, h = 20, n = buf.length;
+    var min = Math.min.apply(null, buf), max = Math.max.apply(null, buf);
+    var span = (max - min) || 1;
+    function x(i) { return (i / (n - 1)) * w; }
+    function y(val) { return h - 2 - ((val - min) / span) * (h - 4); }
+    var d = "", area = "M0 " + h.toFixed(1);
+    for (var i = 0; i < n; i++) {
+      d += (i ? "L" : "M") + x(i).toFixed(1) + " " + y(buf[i]).toFixed(1) + " ";
+      area += " L" + x(i).toFixed(1) + " " + y(buf[i]).toFixed(1);
+    }
+    area += " L" + w + " " + h + " Z";
+    var cls = (last != null ? (last >= 0 ? "spark-pos" : "spark-neg")
+                            : (buf[n - 1] >= buf[0] ? "spark-pos" : "spark-neg"));
+    var cx = x(n - 1).toFixed(1), cy = y(buf[n - 1]).toFixed(1);
+    return '<svg class="spark ' + cls + '" width="' + w + '" height="' + h +
+      '" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true">' +
+      '<path class="spark-area ' + cls + '" d="' + area + '"/>' +
+      '<path class="spark-line ' + cls + '" d="' + d.trim() + '"/>' +
+      '<circle class="spark-dot" cx="' + cx + '" cy="' + cy + '" fill="currentColor"/></svg>';
+  }
+
+  // ── Portfolio allocation donut ──────────────────────────────────────────
+  var _donut = null;
+  function _fmtMoney(v) { return "$" + Number(v || 0).toLocaleString(undefined, { maximumFractionDigits: 0 }); }
+  window.renderAllocationDonut = function (data) {
+    var canvas = document.getElementById("allocDonut");
+    var empty = document.getElementById("allocEmpty");
+    var legend = document.getElementById("allocLegend");
+    if (!canvas || typeof Chart === "undefined") return;
+    var positions = (data && data.positions) || [];
+    var slices = positions.map(function (p) {
+      return { label: p.symbol, value: Math.max(0, Number(p.cost_basis) || 0) };
+    }).filter(function (s) { return s.value > 0; });
+    slices.sort(function (a, b) { return b.value - a.value; });
+    // Collapse a long tail into "Other".
+    if (slices.length > 8) {
+      var tail = slices.slice(7).reduce(function (s, x) { return s + x.value; }, 0);
+      slices = slices.slice(0, 7);
+      slices.push({ label: "Other", value: tail });
+    }
+    // Add idle cash as a muted slice.
+    var cash = 0;
+    ((data && data.balances) || []).forEach(function (b) { cash += Number(b.available) || 0; });
+    if (cash > 0) slices.push({ label: "Cash", value: cash, cash: true });
+
+    // Empty only when there is genuinely nothing to show (no positions, no cash).
+    if (!slices.length) {
+      if (empty) empty.hidden = false;
+      canvas.style.display = "none";
+      if (legend) legend.innerHTML = "";
+      if (_donut) { _donut.destroy(); _donut = null; }
+      return;
+    }
+    if (empty) empty.hidden = true;
+    canvas.style.display = "";
+
+    var total = slices.reduce(function (s, x) { return s + x.value; }, 0) || 1;
+    var colors = slices.map(function (s, i) {
+      return s.cash ? themeColor("--surface-2") : PALETTE[i % PALETTE.length];
+    });
+    var cfg = {
+      type: "doughnut",
+      data: { labels: slices.map(function (s) { return s.label; }),
+        datasets: [{ data: slices.map(function (s) { return s.value; }),
+          backgroundColor: colors, borderColor: themeColor("--surface"), borderWidth: 2 }] },
+      options: { responsive: true, maintainAspectRatio: false, cutout: "62%",
+        animation: reduce ? false : { duration: 400 },
+        plugins: { legend: { display: false },
+          tooltip: { callbacks: { label: function (c) {
+            return c.label + ": " + _fmtMoney(c.parsed) +
+              " (" + (c.parsed / total * 100).toFixed(1) + "%)"; } } } } }
+    };
+    if (_donut) { _donut.data = cfg.data; _donut.update(reduce ? "none" : undefined); }
+    else { _donut = new Chart(canvas, cfg); }
+
+    if (legend) {
+      legend.innerHTML = slices.map(function (s, i) {
+        return '<span class="vl-item"><span class="vl-dot" style="background:' + colors[i] + '"></span>' +
+          _esc(s.label) + ' <span class="vl-pct">' + (s.value / total * 100).toFixed(0) + "%</span></span>";
+      }).join("");
+    }
+  };
+  function _esc(s) { var d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+
+  async function _loadDonut() {
+    try {
+      var r = await fetch("/api/paper/account", { credentials: "same-origin" });
+      if (r.ok) window.renderAllocationDonut(await r.json());
+    } catch (e) {}
+  }
+
+  // ── Realised-P&L timeline ───────────────────────────────────────────────
+  var _pnlChart = null, _pnlData = null, _pnlFreq = "daily";
+  window.setPnlTimelineFreq = function (freq, btn) {
+    _pnlFreq = freq;
+    var seg = btn && btn.parentNode;
+    if (seg) Array.prototype.forEach.call(seg.querySelectorAll(".viz-seg-btn"),
+      function (b) { b.classList.toggle("active", b === btn); });
+    _paintPnlTimeline();
+  };
+  function _paintPnlTimeline() {
+    var canvas = document.getElementById("pnlTimeline");
+    var empty = document.getElementById("pnlTimelineEmpty");
+    if (!canvas || typeof Chart === "undefined") return;
+    var series = (_pnlData && _pnlData[_pnlFreq]) || [];
+    if (!series.length) {
+      if (empty) empty.hidden = false;
+      canvas.style.display = "none";
+      if (_pnlChart) { _pnlChart.destroy(); _pnlChart = null; }
+      return;
+    }
+    if (empty) empty.hidden = true;
+    canvas.style.display = "";
+    var cfg = {
+      type: "bar",
+      data: { labels: series.map(function (p) { return p.period; }),
+        datasets: [{ data: series.map(function (p) { return p.pnl; }),
+          backgroundColor: series.map(function (p) {
+            return p.pnl >= 0 ? "rgba(34,197,94,.78)" : "rgba(239,68,68,.78)"; }),
+          borderRadius: 3 }] },
+      options: { responsive: true, maintainAspectRatio: false,
+        animation: reduce ? false : { duration: 350 },
+        plugins: { legend: { display: false },
+          tooltip: { callbacks: { label: function (c) {
+            return (c.parsed.y >= 0 ? "+" : "") + _fmtMoney(c.parsed.y); } } } },
+        scales: { x: { ticks: { maxTicksLimit: 10 } },
+          y: { ticks: { callback: function (v) { return "$" + v; } } } } }
+    };
+    if (_pnlChart) { _pnlChart.data = cfg.data; _pnlChart.update(reduce ? "none" : undefined); }
+    else { _pnlChart = new Chart(canvas, cfg); }
+  }
+  async function _loadPnlTimeline() {
+    try {
+      var r = await fetch("/api/risk/pnl-breakdown", { credentials: "same-origin" });
+      if (r.ok) { _pnlData = await r.json(); _paintPnlTimeline(); }
+    } catch (e) {}
+  }
+
+  // ── Semicircular risk gauges ────────────────────────────────────────────
+  var ARC = Math.PI * 50;  // length of the r=50 semicircle path
+  function _setGauge(id, frac, label, band) {
+    var g = document.getElementById(id);
+    if (!g) return;
+    frac = Math.max(0, Math.min(1, frac || 0));
+    var fill = g.querySelector(".gauge-fill");
+    var val = g.querySelector(".gauge-val");
+    if (fill) { fill.style.strokeDashoffset = String(ARC * (1 - frac)); }
+    if (val) val.textContent = label;
+    g.classList.remove("gauge-ok", "gauge-warn", "gauge-bad");
+    if (band) g.classList.add("gauge-" + band);
+  }
+  function _band(v, warn, bad) { return v >= bad ? "bad" : v >= warn ? "warn" : "ok"; }
+  window.renderRiskGauges = function (r) {
+    if (!r) return;
+    var exp = (r.exposure && r.exposure.gross_exposure_pct) || 0;   // 0..1
+    _setGauge("gaugeExposure", exp, (exp * 100).toFixed(0) + "%", _band(exp, 0.6, 0.85));
+    var dd = (r.drawdown && r.drawdown.current_drawdown_pct) || 0;  // 0..1
+    _setGauge("gaugeDrawdown", Math.min(1, dd / 0.2), (dd * 100).toFixed(1) + "%", _band(dd, 0.05, 0.1));
+    var sectors = r.sector_concentration || [];
+    var conc = sectors.length
+      ? Math.max.apply(null, sectors.map(function (s) { return s.pct || 0; })) : 0;
+    _setGauge("gaugeConcentration", conc, (conc * 100).toFixed(0) + "%", _band(conc, 0.4, 0.6));
+  };
+  async function _loadGauges() {
+    try {
+      var r = await fetch("/api/risk/report", { credentials: "same-origin" });
+      if (r.ok) window.renderRiskGauges(await r.json());
+    } catch (e) {}
+  }
+
+  // ── Sticky-first-column + horizontal-scroll hint on wide tables ─────────
+  function _scrollableAncestor(table) {
+    var el = table.parentElement;
+    while (el && el !== document.body) {
+      var ox = getComputedStyle(el).overflowX;
+      if ((ox === "auto" || ox === "scroll") ||
+          /table-wrap|scroll-x/.test(el.className) ||
+          /overflow-x\s*:\s*auto/.test(el.getAttribute("style") || "")) return el;
+      el = el.parentElement;
+    }
+    return table.parentElement;
+  }
+  function enhanceTables(root) {
+    var tables = (root || document).querySelectorAll(
+      "table.score-table, table.data-table");
+    Array.prototype.forEach.call(tables, function (t) {
+      if (t.dataset.enhanced) return;
+      t.dataset.enhanced = "1";
+      t.classList.add("sticky-col");
+      var box = _scrollableAncestor(t);
+      if (!box) return;
+      box.classList.add("table-scroll");
+      var hint = null;
+      function update() {
+        var more = box.scrollWidth - box.clientWidth - box.scrollLeft > 4;
+        box.classList.toggle("can-scroll-right", more);
+        if (more && !hint) {
+          hint = document.createElement("div");
+          hint.className = "swipe-hint live";
+          hint.textContent = "swipe for more →";
+          if (box.parentNode) box.parentNode.insertBefore(hint, box.nextSibling);
+        }
+        if (hint) hint.classList.toggle("live", more && window.innerWidth <= 768);
+      }
+      box.addEventListener("scroll", update, { passive: true });
+      window.addEventListener("resize", window.debounce(update, 150), { passive: true });
+      update();
+    });
+  }
+  window.enhanceTables = enhanceTables;
+
+  // ── Wire it all up on ready ─────────────────────────────────────────────
+  function init() {
+    // Account viz is near the top → effectively immediate, but still gated.
+    window.lazySection("nav-account", function () { _loadDonut(); _loadPnlTimeline(); });
+    window.lazySection("nav-risk", _loadGauges);
+    // Periodic refresh while visible.
+    setInterval(function () {
+      if (document.hidden) return;
+      if (_donut || document.getElementById("allocEmpty")) _loadDonut();
+      _loadPnlTimeline();
+    }, 30000);
+    setInterval(function () { if (!document.hidden && _lazyDone["nav-risk"]) _loadGauges(); }, 30000);
+
+    enhanceTables(document);
+    // Re-enhance tables the app injects later (positions re-render on every tick).
+    if (window.MutationObserver) {
+      var deb = window.debounce(function () { enhanceTables(document); }, 200);
+      new MutationObserver(function (muts) {
+        for (var i = 0; i < muts.length; i++) {
+          if (muts[i].addedNodes && muts[i].addedNodes.length) { deb(); break; }
+        }
+      }).observe(document.body, { childList: true, subtree: true });
+    }
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else { init(); }
+})();
 </script>
 
 <!-- ═══════════════════ COMMAND PALETTE · KEYBOARD SHORTCUTS · BOTTOM NAV ═══════════════════

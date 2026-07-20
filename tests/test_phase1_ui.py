@@ -235,3 +235,57 @@ def test_metric_tooltips_present(html) -> None:
     # Contextual info tooltips on key P&L metrics.
     assert 'class="info-tip"' in html
     assert "data-tip=" in html
+
+
+# ───────────────── 6. Data-viz + performance layer ─────────────────────────
+
+def test_allocation_donut_and_pnl_timeline_present(html) -> None:
+    assert 'id="allocDonut"' in html
+    assert "renderAllocationDonut" in html
+    assert 'id="pnlTimeline"' in html
+    assert "setPnlTimelineFreq" in html
+    # Period toggle for the timeline.
+    for freq in ("daily", "weekly", "monthly"):
+        assert f'data-freq="{freq}"' in html
+
+
+def test_risk_gauges_present(html) -> None:
+    for gid in ("gaugeExposure", "gaugeDrawdown", "gaugeConcentration"):
+        assert f'id="{gid}"' in html
+    assert "renderRiskGauges" in html
+    assert 'class="gauge-fill"' in html
+
+
+def test_position_sparklines_wired(html) -> None:
+    # Inline P&L sparkline helper + a Trend column in the table view.
+    assert "window._spark" in html
+    assert 'class="pos-spark"' in html
+    assert ">Trend</th>" in html
+
+
+def test_performance_layer_present(html) -> None:
+    # Debounce + lazy-load helpers, global fetch-wrapping stale indicator.
+    assert "window.debounce" in html
+    assert "window.lazySection" in html
+    assert "IntersectionObserver" in html
+    assert "__fetchWrapped" in html
+    assert 'class="updating-dot"' in html or "updating-dot" in html
+
+
+def test_sticky_and_swipe_table_behaviour(html) -> None:
+    assert "sticky-col" in html
+    assert "can-scroll-right" in html
+    assert "swipe-hint" in html
+    assert "function enhanceTables" in html
+
+
+def test_activity_filter_is_debounced(html) -> None:
+    # Symbol filter no longer fetches on every keystroke.
+    assert 'oninput="actFilterDebounced()"' in html
+    assert "actFilterDebounced" in html
+
+
+def test_charts_and_memory_lazy_loaded(html) -> None:
+    # Heavy far-down sections load on scroll, not at boot.
+    assert 'lazySection("nav-charts"' in html
+    assert 'lazySection("nav-memory"' in html
