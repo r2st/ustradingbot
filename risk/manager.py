@@ -23,13 +23,18 @@ import tempfile
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, Generator, List, Optional, Tuple
+from typing import Any, Callable, Dict, Generator, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 import structlog
 
 from config.settings import Settings
 from config.universe import get_currency
+from risk.limits import (
+    correlation_cap_check,
+    portfolio_var_cvar,
+    sector_cap_check,
+)
 from signals.signal_types import (
     ExitEvent,
     ExitReason,
@@ -144,6 +149,14 @@ class RiskManager:
         # Exit history: list of dicts with symbol, exit_reason, exit_ts
         self._exit_history: List[Dict[str, Any]] = self._load_exit_history()
 
+        # Optional returns provider for the correlation / portfolio-VaR gates.
+        # ``symbols -> {symbol: daily-return pd.Series}``.  Left ``None`` by
+        # default so pre_check never touches the network unless a caller (the
+        # engine) wires a cached fetcher; when ``None`` those gates fail open.
+        self.returns_provider: Optional[
+            Callable[[List[str]], Dict[str, Any]]
+        ] = None
+
         self._lock_path = self._data_dir / ".open_positions.lock"
         self._log = log.bind(component="RiskManager")
         self._log.info(
@@ -255,12 +268,180 @@ class RiskManager:
                 f"rr_too_low:{rr:.2f}<{self._settings.RISK_REWARD_MIN}"
             )
 
+        # (h) Portfolio-level daily-loss halt (P0-1).  A distinct, usually
+        #     tighter gate than (c): once today's realised loss reaches
+        #     HALT_NEW_ENTRIES_ON_DAILY_LOSS_PCT of TOTAL_CAPITAL, block new
+        #     entries for the rest of the day.
+        halt_ok, halt_reason = self._daily_loss_halt_gate()
+        if not halt_ok:
+            return False, halt_reason
+
+        # (i) Sector-concentration hard gate (P0-1).  Local/no-network: reject a
+        #     new entry whose sector would exceed MAX_SECTOR_CONCENTRATION_PCT of
+        #     gross book exposure, projected at the position's maximum notional.
+        sector_ok, sector_reason = self._sector_gate(signal)
+        if not sector_ok:
+            return False, sector_reason
+
+        # (j)/(k) Correlation + portfolio-VaR gates (P0-1).  Both need a returns
+        #         provider; when none is wired they fail open (skip).  Fetched
+        #         once and shared between the two gates.
+        returns_ok, returns_reason = self._returns_based_gates(signal)
+        if not returns_ok:
+            return False, returns_reason
+
         self._log.debug(
             "pre_check.passed",
             symbol=symbol,
             strategy=strategy,
             rr=round(rr, 2),
         )
+        return True, "passed"
+
+    # ---------------------------------------------------- hard-limit gates
+
+    def _daily_loss_halt_gate(self) -> Tuple[bool, str]:
+        """Block new entries once today's loss reaches the halt threshold."""
+        if not getattr(self._settings, "HALT_NEW_ENTRIES_ON_DAILY_LOSS", False):
+            return True, "passed"
+        pct = float(getattr(self._settings, "DAILY_LOSS_LIMIT_PCT", 0.0) or 0.0)
+        if pct <= 0:
+            return True, "passed"
+        halt_at = -self._settings.TOTAL_CAPITAL * pct
+        if self._daily_pnl <= halt_at:
+            return False, (
+                f"daily_loss_halt:pnl={self._daily_pnl:.2f},"
+                f"halt=-{abs(halt_at):.2f}"
+            )
+        return True, "passed"
+
+    def _estimate_new_notional(self, signal: Signal) -> float:
+        """Conservative maximum dollar notional a new entry could take.
+
+        Sizing happens later in :meth:`build_order`; the sector gate runs first,
+        so it projects the *largest* notional the position could reach — the
+        asset-type notional cap times the currency's capital pool.
+        """
+        currency = get_currency(signal.symbol)
+        capital_pool = self._settings.get_capital_for_currency(currency)
+        try:
+            from config.etf_universe import is_etf
+
+            if is_etf(signal.symbol):
+                _, cap_pct, _ = self._etf_risk_params(signal.symbol)
+            else:
+                cap_pct = float(getattr(self._settings, "STOCK_NOTIONAL_CAP_PCT", 0.10))
+        except Exception:  # noqa: BLE001 -- never break the gate on classification
+            cap_pct = float(getattr(self._settings, "STOCK_NOTIONAL_CAP_PCT", 0.10))
+        return float(capital_pool) * float(cap_pct)
+
+    def _sector_gate(self, signal: Signal) -> Tuple[bool, str]:
+        """Reject when the new entry would over-concentrate a sector."""
+        if not getattr(self._settings, "ENFORCE_SECTOR_LIMIT", False):
+            return True, "passed"
+        cap = float(getattr(self._settings, "MAX_SECTOR_CONCENTRATION_PCT", 1.0))
+        if cap >= 1.0:
+            return True, "passed"
+        new_notional = self._estimate_new_notional(signal)
+        try:
+            ok, pct = sector_cap_check(
+                list(self._positions.values()),
+                signal.symbol,
+                new_notional,
+                cap,
+                capital_base=float(getattr(self._settings, "TOTAL_CAPITAL", 0.0) or 0.0),
+            )
+        except Exception as exc:  # noqa: BLE001 -- fail open on any data error
+            self._log.warning("sector_gate.failed_open", error=str(exc))
+            return True, "passed"
+        if not ok:
+            from config.universe import get_sector
+
+            return False, (
+                f"sector_concentration:{get_sector(signal.symbol)}:"
+                f"{pct:.2%}>{cap:.0%}"
+            )
+        return True, "passed"
+
+    def _returns_based_gates(self, signal: Signal) -> Tuple[bool, str]:
+        """Run the correlation + portfolio-VaR gates off a shared returns fetch."""
+        need_corr = bool(getattr(self._settings, "ENFORCE_CORRELATION_LIMIT", False))
+        need_var = bool(
+            getattr(self._settings, "ENFORCE_PORTFOLIO_VAR_LIMIT", False)
+            and float(getattr(self._settings, "PORTFOLIO_VAR_LIMIT_PCT", 0.0) or 0.0)
+            > 0
+        )
+        if self.returns_provider is None or not (need_corr or need_var):
+            return True, "passed"
+        existing = list(self._positions.keys())
+        if not existing:
+            return True, "passed"
+        symbols = sorted(set(existing) | {signal.symbol})
+        try:
+            returns = self.returns_provider(symbols) or {}
+        except Exception as exc:  # noqa: BLE001 -- fail open on provider error
+            self._log.warning("returns_gates.provider_failed", error=str(exc))
+            return True, "passed"
+
+        min_overlap = int(getattr(self._settings, "CORRELATION_MIN_OVERLAP", 20))
+
+        if need_corr:
+            max_corr = float(getattr(self._settings, "MAX_POSITION_CORRELATION", 1.0))
+            try:
+                ok, worst = correlation_cap_check(
+                    signal.symbol, existing, returns, max_corr, min_overlap
+                )
+            except Exception as exc:  # noqa: BLE001
+                self._log.warning("correlation_gate.failed_open", error=str(exc))
+                ok, worst = True, None
+            if not ok and worst is not None:
+                return False, (
+                    f"correlation_too_high:{signal.symbol}~{worst[0]}="
+                    f"{worst[1]:.2f}>{max_corr:.2f}"
+                )
+
+        if need_var:
+            var_ok, var_reason = self._portfolio_var_gate(signal, returns, min_overlap)
+            if not var_ok:
+                return False, var_reason
+
+        return True, "passed"
+
+    def _portfolio_var_gate(
+        self, signal: Signal, returns: Dict[str, Any], min_overlap: int
+    ) -> Tuple[bool, str]:
+        """Reject when adding the new entry pushes portfolio VaR over its cap."""
+        limit_pct = float(getattr(self._settings, "PORTFOLIO_VAR_LIMIT_PCT", 0.0) or 0.0)
+        confidence = float(getattr(self._settings, "VAR_CONFIDENCE", 0.95))
+        horizon = int(getattr(self._settings, "VAR_HORIZON_DAYS", 1))
+        # Weight the prospective book by dollar notional (existing at cost, the
+        # candidate at its projected max notional).
+        weights: Dict[str, float] = {}
+        for sym, pos in self._positions.items():
+            try:
+                weights[sym] = float(pos.get("entry_price", 0) or 0) * int(
+                    float(pos.get("quantity", 0) or 0)
+                )
+            except (ValueError, TypeError):
+                continue
+        weights[signal.symbol] = weights.get(signal.symbol, 0.0) + (
+            self._estimate_new_notional(signal)
+        )
+        try:
+            report = portfolio_var_cvar(
+                returns, weights, confidence, horizon, min_overlap
+            )
+        except Exception as exc:  # noqa: BLE001 -- fail open on estimator error
+            self._log.warning("portfolio_var_gate.failed_open", error=str(exc))
+            return True, "passed"
+        if report.get("observations", 0) < min_overlap:
+            return True, "passed"  # not enough history — fail open
+        hist_var = float(report.get("historical_var", 0.0))
+        if hist_var > limit_pct:
+            return False, (
+                f"portfolio_var_exceeded:{hist_var:.2%}>{limit_pct:.2%}"
+                f"@{confidence:.0%}"
+            )
         return True, "passed"
 
     # -------------------------------------------------------- strategy cap

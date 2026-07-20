@@ -28,7 +28,7 @@ import asyncio
 import signal
 import sys
 from datetime import datetime, time as dt_time, timedelta
-from typing import List, Tuple
+from typing import Any, Dict, List, Tuple
 from zoneinfo import ZoneInfo
 
 import structlog
@@ -78,6 +78,16 @@ class TradingEngine:
 
         # Risk gatekeeper (position sizing, caps, cooldowns, daily P&L).
         self.risk_manager = RiskManager(self.settings)
+        # Wire a per-cycle-cached returns provider so the correlation and
+        # portfolio-VaR pre-check gates (P0-1) can evaluate the open book.  Both
+        # gates are fail-open, so this is best-effort; the cache is cleared at
+        # the top of each scan cycle.
+        self._returns_cache: dict[str, Any] = {}
+        if (
+            self.settings.ENFORCE_CORRELATION_LIMIT
+            or self.settings.ENFORCE_PORTFOLIO_VAR_LIMIT
+        ):
+            self.risk_manager.returns_provider = self._returns_for_symbols
 
         # Structured activity feed for the dashboard (monitoring F4) — every
         # write is best-effort and can never break the trading loop.
@@ -413,6 +423,10 @@ class TradingEngine:
         self._cycle_id = cycle_start.strftime("%Y%m%d-%H%M%S")
         log.info("engine.cycle_start", time_et=cycle_start.strftime("%H:%M:%S"))
         self.activity.log("cycle_start", cycle_id=self._cycle_id)
+
+        # Drop the per-cycle returns cache backing the correlation / VaR gates so
+        # each cycle sees fresh return series for the current book.
+        self._returns_cache.clear()
 
         # Day-boundary detection: reset the daily P&L accumulator when we cross
         # into a new US trading day so the daily loss limit measures today only.
@@ -1166,6 +1180,32 @@ class TradingEngine:
         except Exception:  # noqa: BLE001
             idx = sub.index[-1]
         return sub.loc[idx].to_dict()
+
+    def _returns_for_symbols(self, symbols: List[str]) -> Dict[str, Any]:
+        """Return ``{symbol: daily-return series}`` for the correlation/VaR gates.
+
+        Backs the risk manager's returns provider (P0-1).  Results are cached per
+        scan cycle (the cache is cleared at ``cycle_start``); ``fetch_ohlcv`` is
+        itself cached, so repeated candidates in a cycle are cheap.  Any per-
+        symbol failure is swallowed so the fail-open gates degrade gracefully.
+        """
+        from analytics.risk_dashboard import returns_from_ohlcv
+        from data.fetcher import fetch_ohlcv
+
+        out: Dict[str, Any] = {}
+        for sym in symbols:
+            if sym in self._returns_cache:
+                series = self._returns_cache[sym]
+            else:
+                try:
+                    df = fetch_ohlcv(sym)
+                    series = returns_from_ohlcv(df) if df is not None else None
+                except Exception:  # noqa: BLE001 -- fail open on data errors
+                    series = None
+                self._returns_cache[sym] = series
+            if series is not None and not series.empty:
+                out[sym] = series
+        return out
 
     def _on_rejection_activity(self, sig, reason: str, detail: str) -> None:
         """Mirror every gate rejection into the activity feed (F4)."""

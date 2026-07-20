@@ -58,6 +58,8 @@ class RiskReport:
     marked_to_market: bool = False
     # P3f — portfolio beta vs SPY + market-relative drawdown (additive).
     beta: Dict[str, Any] = field(default_factory=dict)
+    # P0-1 — portfolio VaR / CVaR (parametric + historical), additive.
+    var_cvar: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -71,6 +73,7 @@ class RiskReport:
             "daily_loss_budget": self.daily_loss_budget,
             "marked_to_market": self.marked_to_market,
             "beta": self.beta,
+            "var_cvar": self.var_cvar,
         }
 
 
@@ -535,6 +538,8 @@ def build_risk_report(
     now: Optional[datetime] = None,
     prices: Optional[Dict[str, float]] = None,
     daily_loss_limit_pct: Optional[float] = None,
+    var_confidence: float = 0.95,
+    var_horizon_days: int = 1,
 ) -> RiskReport:
     """Assemble a full :class:`RiskReport` from the live data sources.
 
@@ -603,6 +608,31 @@ def build_risk_report(
             log.warning("risk.beta_failed", error=str(exc),
                         error_type=type(exc).__name__)
 
+    # P0-1 — portfolio VaR / CVaR from the same aligned returns (best-effort).
+    var_cvar: Dict[str, Any] = {}
+    if returns:
+        try:
+            from risk.limits import portfolio_var_cvar
+
+            var_weights: Dict[str, float] = {}
+            for pos in positions:
+                symbol = str(pos.get("symbol", ""))
+                if not symbol:
+                    continue
+                try:
+                    qty = int(float(pos.get("quantity", 0) or 0))
+                    px = prices.get(symbol) if prices else None
+                    mark = float(px) if px else float(pos.get("entry_price", 0) or 0)
+                except (ValueError, TypeError):
+                    continue
+                var_weights[symbol] = var_weights.get(symbol, 0.0) + mark * qty
+            var_cvar = portfolio_var_cvar(
+                returns, var_weights, var_confidence, var_horizon_days
+            )
+        except Exception as exc:  # noqa: BLE001 -- additive; degrade gracefully
+            log.warning("risk.var_failed", error=str(exc),
+                        error_type=type(exc).__name__)
+
     breakdown = pnl_breakdown(trades, now=now)
     marked = bool(prices) and any(
         prices.get(str(p.get("symbol", ""))) for p in positions
@@ -625,6 +655,7 @@ def build_risk_report(
         daily_loss_budget=budget,
         marked_to_market=marked,
         beta=beta,
+        var_cvar=var_cvar,
     )
     return report
 

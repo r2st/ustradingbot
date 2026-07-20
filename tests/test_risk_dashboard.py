@@ -207,6 +207,7 @@ def test_build_risk_report(settings: Settings) -> None:
         "exposure", "sector_concentration", "correlations",
         "max_correlation", "drawdown", "pnl_breakdown",
         "open_risk", "daily_loss_budget", "marked_to_market", "beta",
+        "var_cvar",
     }
 
 

@@ -2014,6 +2014,8 @@ def _risk_report():
         settings.TOTAL_CAPITAL,
         prices=prices or None,
         daily_loss_limit_pct=settings.DAILY_LOSS_LIMIT_PCT,
+        var_confidence=settings.VAR_CONFIDENCE,
+        var_horizon_days=settings.VAR_HORIZON_DAYS,
     )
 
 
@@ -2033,6 +2035,25 @@ async def risk_exposure(_user: str = Depends(require_auth)):
 async def risk_sectors(_user: str = Depends(require_auth)):
     """Sector / industry concentration of the open book."""
     return {"sector_concentration": _risk_report().sector_concentration}
+
+
+@app.get("/api/risk/var", tags=["Analytics"])
+async def risk_var(_user: str = Depends(require_auth)):
+    """Portfolio Value-at-Risk / CVaR (parametric + historical) and the
+    configured hard-limit thresholds."""
+    settings = get_settings()
+    report = _risk_report()
+    return {
+        "var_cvar": report.var_cvar,
+        "limits": {
+            "max_sector_concentration_pct": settings.MAX_SECTOR_CONCENTRATION_PCT,
+            "enforce_sector_limit": settings.ENFORCE_SECTOR_LIMIT,
+            "max_position_correlation": settings.MAX_POSITION_CORRELATION,
+            "enforce_correlation_limit": settings.ENFORCE_CORRELATION_LIMIT,
+            "portfolio_var_limit_pct": settings.PORTFOLIO_VAR_LIMIT_PCT,
+            "enforce_portfolio_var_limit": settings.ENFORCE_PORTFOLIO_VAR_LIMIT,
+        },
+    }
 
 
 @app.get("/api/risk/correlations", tags=["Analytics"])

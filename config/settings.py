@@ -119,6 +119,32 @@ class Settings(BaseSettings):
     ATR_STOP_MULTIPLIER: float = 1.5
     RISK_REWARD_MIN: float = 1.8
 
+    # ── Hard portfolio-risk limits (P0-1) ───────────────────────────────────
+    # Enforced as pre-trade gates in ``risk.manager.RiskManager.pre_check``.
+    # Sector concentration: reject a new entry whose sector would exceed this
+    # fraction of gross book exposure (projected at the position's max notional).
+    ENFORCE_SECTOR_LIMIT: bool = True
+    MAX_SECTOR_CONCENTRATION_PCT: float = 0.30
+    # Correlation: reject a new entry whose recent-return correlation with any
+    # existing holding exceeds this level (the same bet twice).  Needs a returns
+    # provider wired on the RiskManager; when absent the gate fails open.
+    ENFORCE_CORRELATION_LIMIT: bool = True
+    MAX_POSITION_CORRELATION: float = 0.85
+    CORRELATION_MIN_OVERLAP: int = 20
+    # Value at Risk / CVaR: confidence + lookback for the risk-dashboard figures
+    # and the optional portfolio-VaR entry gate.  ``PORTFOLIO_VAR_LIMIT_PCT`` of
+    # 0 disables the VaR gate (report figures are still computed for display).
+    VAR_CONFIDENCE: float = 0.95
+    VAR_LOOKBACK_DAYS: int = 60
+    VAR_HORIZON_DAYS: int = 1
+    ENFORCE_PORTFOLIO_VAR_LIMIT: bool = False
+    PORTFOLIO_VAR_LIMIT_PCT: float = 0.06
+    # Portfolio-level daily loss halt: when today's realised loss reaches this
+    # fraction of TOTAL_CAPITAL, all new entries are blocked for the day.  This
+    # is a distinct, usually-tighter gate layered on DAILY_LOSS_LIMIT_PCT; set to
+    # 0 to disable and rely on DAILY_LOSS_LIMIT_PCT alone.
+    HALT_NEW_ENTRIES_ON_DAILY_LOSS: bool = True
+
     # ── Scanning & signal freshness ─────────────────────────────────────────
     SCAN_INTERVAL_MINUTES: int = 60
     SIGNAL_FRESHNESS_TOLERANCE_PCT: float = 0.01
