@@ -2285,11 +2285,29 @@ async def dividends_api(_user: str = Depends(require_auth)):
                 realized = float(trades["pnl_net"].sum())
         except Exception:  # noqa: BLE001
             realized = 0.0
-        from analytics.dividends import total_return
+        from analytics.dividends import (
+            monthly_dividend_income,
+            total_return,
+            upcoming_ex_dividends,
+        )
+
+        # Per-position yield-on-cost = accrued income / cost basis.
+        cost_by_symbol = {
+            str(p.get("symbol", "")): float(p.get("cost_basis", 0) or 0)
+            for p in positions
+        }
+        for row in income.get("by_position", []):
+            cost = cost_by_symbol.get(row["symbol"], 0.0)
+            row["cost_basis"] = round(cost, 2)
+            row["yield_on_cost_pct"] = (
+                round(row["dividend_income"] / cost * 100, 2) if cost > 0 else None
+            )
 
         return {
             "dividend_income": income,
             "total_return": total_return(realized, income["total"]),
+            "upcoming": upcoming_ex_dividends(positions, divs),
+            "monthly": monthly_dividend_income(positions, divs, months=12),
         }
 
     return await run_in_threadpool(_build)

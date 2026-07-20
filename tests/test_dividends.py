@@ -9,10 +9,12 @@ from analytics.dividends import (
     dividends_between,
     fetch_dividends,
     is_dividend_gap,
+    monthly_dividend_income,
     portfolio_dividend_income,
     position_dividend_income,
     recent_dividend,
     total_return,
+    upcoming_ex_dividends,
     clear_cache,
 )
 
@@ -105,3 +107,39 @@ class TestGapHandling:
         divs = [{"ex_date": "2024-05-10", "amount": 0.25}]
         adj = dividend_adjusted_price(99.75, divs, as_of="2024-05-10")
         assert adj == 100.0
+
+
+class TestUpcomingAndMonthly:
+    _POS = [{"symbol": "AAPL", "quantity": 10, "entry_time": "2026-01-01", "cost_basis": 1000.0}]
+    _DIVS = {
+        "AAPL": [
+            {"ex_date": "2025-11-10", "amount": 0.24},   # before entry -> excluded
+            {"ex_date": "2026-02-10", "amount": 0.25},   # accrued
+            {"ex_date": "2026-08-10", "amount": 0.30},   # upcoming
+        ]
+    }
+
+    def test_upcoming_only_future_ex_dates(self) -> None:
+        rows = upcoming_ex_dividends(self._POS, self._DIVS, as_of="2026-07-20")
+        assert len(rows) == 1
+        r = rows[0]
+        assert r["symbol"] == "AAPL"
+        assert r["ex_date"] == "2026-08-10"
+        assert r["est_payment"] == 3.0  # 10 shares * 0.30
+
+    def test_upcoming_respects_limit(self) -> None:
+        rows = upcoming_ex_dividends(self._POS, self._DIVS, as_of="2020-01-01", limit=2)
+        assert len(rows) == 2  # three future dates, capped at 2
+
+    def test_monthly_buckets_income_after_entry(self) -> None:
+        months = monthly_dividend_income(self._POS, self._DIVS, months=12, as_of="2026-07-20")
+        assert len(months) == 12
+        by_month = {m["month"]: m["income"] for m in months}
+        assert by_month["2026-02"] == 2.5   # 10 * 0.25
+        # Pre-entry Nov 2025 dividend does not accrue.
+        assert by_month.get("2025-11", 0.0) == 0.0
+
+    def test_monthly_ends_at_as_of_month(self) -> None:
+        months = monthly_dividend_income(self._POS, self._DIVS, months=6, as_of="2026-07-20")
+        assert months[-1]["month"] == "2026-07"
+        assert months[0]["month"] == "2026-02"

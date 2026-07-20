@@ -4243,6 +4243,424 @@
 })();
 </script>
 
+<!-- ═══════════════════ REBALANCING (P0-2) ═══════════════════ -->
+<div class="section lazy-pending" id="nav-rebalance">
+  <div class="section-header">
+    <div class="section-icon icon-strategy">⚖</div>
+    <div class="section-titles">
+      <h2>Rebalancing</h2>
+      <p class="section-sub">{{ guides_map.rebalance.summary }}</p>
+    </div>
+    <a class="section-help-link" href="#help-rebalance" title="How to use this section — opens the Help reference" aria-label="Help and how-to for Rebalancing">?</a>
+  </div>
+  <div class="section-body">
+    <div class="panel-toolbar">
+      <div class="form-field">
+        <label for="rbDimension">Dimension</label>
+        <select id="rbDimension" onchange="rbLoad()">
+          <option value="sector">Sector</option>
+          <option value="strategy">Strategy</option>
+          <option value="asset_type">Asset type</option>
+        </select>
+      </div>
+      <button type="button" class="btn-primary btn-sm" onclick="rbLoad()">Refresh</button>
+      <span class="pill" id="rbStatus" style="margin-left:auto;">—</span>
+    </div>
+
+    <div class="risk-grid" style="align-items:start;">
+      <div>
+        <h4>Current Allocation</h4>
+        <div class="chart-box"><canvas id="rbCurrentDonut" aria-label="Current allocation donut chart"></canvas></div>
+        <div class="viz-legend" id="rbCurrentLegend"></div>
+      </div>
+      <div>
+        <h4>Target Allocation</h4>
+        <div class="chart-box"><canvas id="rbTargetDonut" aria-label="Target allocation donut chart"></canvas></div>
+        <div class="viz-legend" id="rbTargetLegend"></div>
+      </div>
+    </div>
+
+    <h4 style="margin-top:18px;">Drift vs Target</h4>
+    <div id="rbDrift" aria-live="polite"><div class="empty-note">Loading…</div></div>
+
+    <h4 style="margin-top:18px;">Target Weights</h4>
+    <p class="muted-note" id="rbTargetsNote">Set a target percent for each bucket. Weights are normalized automatically.</p>
+    <div id="rbTargetEditor" class="form-row" style="flex-wrap:wrap;"></div>
+    <div class="form-row">
+      <button type="button" class="chip" onclick="rbSaveTargets()">Save targets</button>
+      <span id="rbTargetsResult" class="modal-result"></span>
+    </div>
+
+    <h4 style="margin-top:18px;">Suggested Trades</h4>
+    <div class="form-row">
+      <button type="button" class="btn-primary btn-sm" onclick="rbPreview()">Preview</button>
+      <button type="button" class="btn-danger btn-sm" onclick="rbOpenApply()">Apply…</button>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table"><caption class="sr-only">Suggested rebalancing trades</caption>
+        <thead><tr><th scope="col">Bucket</th><th scope="col">Action</th><th scope="col">Drift</th>
+          <th scope="col">Current $</th><th scope="col">Target $</th><th scope="col">Δ $</th></tr></thead>
+        <tbody id="rbSuggestRows"><tr><td colspan="6" class="empty-note">Press Preview to see suggested trades.</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Rebalance apply confirm dialog -->
+<div class="modal-overlay" id="rbApplyModal">
+  <div class="modal">
+    <h3>Apply rebalancing plan</h3>
+    <p class="modal-warning">Auto-rebalance returns a <strong>trim plan</strong> only — no orders are
+      placed automatically. Requires the admin password and <code>REBALANCE_AUTO=true</code>.</p>
+    <div>
+      <label for="rbAdminPw">Admin password</label>
+      <input type="password" id="rbAdminPw" autocomplete="off" placeholder="Admin password">
+    </div>
+    <div id="rbApplyResult" class="modal-result"></div>
+    <div class="modal-actions">
+      <button type="button" class="btn-secondary" onclick="rbCloseApply()">Cancel</button>
+      <button type="button" class="btn-danger" id="rbApplyBtn" onclick="rbConfirmApply()">Get trim plan</button>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  "use strict";
+  function ready(fn) { if (document.readyState !== "loading") fn(); else document.addEventListener("DOMContentLoaded", fn); }
+  var PALETTE = ["#3B82F6", "#22C55E", "#A855F7", "#F59E0B", "#06B6D4", "#EF4444", "#8B5CF6", "#14B8A6", "#EC4899", "#84CC16"];
+  var _reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function money(v) { var n = Number(v || 0); return (n < 0 ? "-$" : "$") + Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 0 }); }
+  function surface() { return getComputedStyle(document.documentElement).getPropertyValue("--surface").trim() || "#1E293B"; }
+  var _charts = {};
+  var _lastReport = null;
+
+  function drawDonut(canvasId, legendId, entries) {
+    var canvas = document.getElementById(canvasId);
+    if (!canvas || typeof Chart === "undefined") return;
+    var legend = document.getElementById(legendId);
+    entries = (entries || []).filter(function (e) { return e.value > 0; });
+    if (_charts[canvasId]) { _charts[canvasId].destroy(); _charts[canvasId] = null; }
+    if (!entries.length) {
+      canvas.style.display = "none";
+      if (legend) legend.innerHTML = '<span class="empty-note">Not configured yet.</span>';
+      return;
+    }
+    canvas.style.display = "";
+    var colors = entries.map(function (e, i) { return PALETTE[i % PALETTE.length]; });
+    _charts[canvasId] = new Chart(canvas, {
+      type: "doughnut",
+      data: { labels: entries.map(function (e) { return e.label; }),
+        datasets: [{ data: entries.map(function (e) { return e.value; }), backgroundColor: colors, borderColor: surface(), borderWidth: 2 }] },
+      options: { responsive: true, maintainAspectRatio: false, cutout: "60%",
+        animation: _reduce ? false : { duration: 350 },
+        plugins: { legend: { display: false },
+          tooltip: { callbacks: { label: function (c) { return c.label + ": " + c.parsed.toFixed(1) + "%"; } } } } }
+    });
+    if (legend) {
+      legend.innerHTML = entries.map(function (e, i) {
+        return '<span class="vl-item"><span class="vl-dot" style="background:' + colors[i] + '"></span>' +
+          esc(e.label) + ' <span class="vl-pct">' + e.value.toFixed(0) + "%</span></span>";
+      }).join("");
+    }
+  }
+
+  function renderDrift(drift) {
+    var el = document.getElementById("rbDrift");
+    if (!drift || !drift.length) { el.innerHTML = '<div class="empty-note">No allocation data yet.</div>'; return; }
+    var maxAbs = Math.max.apply(null, drift.map(function (d) { return Math.abs(d.drift_pct); }).concat([5]));
+    el.innerHTML = drift.map(function (d) {
+      var over = d.drift_pct >= 0;
+      var w = Math.min(50, Math.abs(d.drift_pct) / maxAbs * 50);
+      var style = over ? "left:50%;width:" + w + "%;" : "left:" + (50 - w) + "%;width:" + w + "%;";
+      return '<div class="drift-row"><span>' + esc(d.bucket) + '</span>' +
+        '<div class="drift-track"><div class="drift-fill ' + (over ? "drift-over" : "drift-under") + '" style="' + style + '"></div></div>' +
+        '<span class="' + (over ? "num-neg" : "num-pos") + '">' + (over ? "+" : "") + d.drift_pct.toFixed(1) + "% " +
+        (over ? "over" : "under") + "</span></div>";
+    }).join("");
+  }
+
+  function renderTargetEditor(report) {
+    var wrap = document.getElementById("rbTargetEditor");
+    var buckets = {};
+    Object.keys(report.allocation || {}).forEach(function (b) { buckets[b] = 0; });
+    (report.drift || []).forEach(function (d) { buckets[d.bucket] = d.target_pct || 0; });
+    var names = Object.keys(buckets);
+    if (!names.length) { wrap.innerHTML = '<span class="empty-note">No open positions to allocate.</span>'; return; }
+    wrap.innerHTML = names.map(function (b) {
+      return '<div class="form-field" style="width:120px;"><label>' + esc(b) + '</label>' +
+        '<input type="number" min="0" step="1" data-bucket="' + esc(b) + '" value="' + (buckets[b] || 0) + '"></div>';
+    }).join("");
+  }
+
+  function renderSuggestions(suggestions) {
+    var tb = document.getElementById("rbSuggestRows");
+    if (!suggestions || !suggestions.length) { tb.innerHTML = '<tr><td colspan="6" class="empty-note">No trades needed — allocation is within threshold.</td></tr>'; return; }
+    tb.innerHTML = suggestions.map(function (s) {
+      var badge = s.action === "trim" ? '<span class="imp-badge imp-high">trim</span>' : '<span class="imp-badge imp-low">add</span>';
+      return "<tr><td>" + esc(s.bucket) + "</td><td>" + badge + "</td><td>" + (s.drift_pct || 0).toFixed(1) + "%</td><td>" +
+        money(s.current_value) + "</td><td>" + money(s.target_value) + "</td><td class='" + (s.delta_value >= 0 ? "num-pos" : "num-neg") + "'>" +
+        money(s.delta_value) + "</td></tr>";
+    }).join("");
+  }
+
+  window.rbLoad = async function () {
+    var dim = document.getElementById("rbDimension").value;
+    renderSkeleton("rbDrift", 3);
+    try {
+      var r = await jget("/api/rebalance?dimension=" + encodeURIComponent(dim), { key: "rebalance", report: true, context: "Rebalance" });
+      _lastReport = r;
+      var status = document.getElementById("rbStatus");
+      if (!r.configured) { status.textContent = "no targets set"; status.className = "pill pill-warn"; }
+      else if (r.needs_rebalance) { status.textContent = "drift exceeds threshold"; status.className = "pill pill-warn"; }
+      else { status.textContent = "on target"; status.className = "pill pill-ok"; }
+
+      var current = Object.keys(r.allocation || {}).map(function (b) { return { label: b, value: (r.allocation[b].pct || 0) * 100 }; });
+      var target = (r.drift || []).filter(function (d) { return (d.target_pct || 0) > 0; }).map(function (d) { return { label: d.bucket, value: d.target_pct }; });
+      drawDonut("rbCurrentDonut", "rbCurrentLegend", current);
+      drawDonut("rbTargetDonut", "rbTargetLegend", target);
+      renderDrift(r.drift);
+      renderTargetEditor(r);
+      renderSuggestions(r.suggestions);
+    } catch (e) {
+      document.getElementById("rbDrift").innerHTML = '<div class="empty-note">Could not load rebalance data.</div>';
+    }
+  };
+
+  window.rbPreview = function () { if (_lastReport) renderSuggestions(_lastReport.suggestions); else window.rbLoad(); };
+
+  window.rbSaveTargets = async function () {
+    var inputs = document.querySelectorAll("#rbTargetEditor input[data-bucket]");
+    var targets = {};
+    inputs.forEach(function (i) { var v = parseFloat(i.value); if (!isNaN(v) && v > 0) targets[i.getAttribute("data-bucket")] = v; });
+    if (!Object.keys(targets).length) { setMsg("rbTargetsResult", "Enter at least one positive target.", false); return; }
+    try {
+      await jsend("POST", "/api/rebalance/targets", { dimension: document.getElementById("rbDimension").value, targets: targets }, { context: "Save targets" });
+      setMsg("rbTargetsResult", "Targets saved.", true);
+      window.rbLoad();
+    } catch (e) { /* jsend surfaces the error */ }
+  };
+
+  window.rbOpenApply = function () { document.getElementById("rbApplyResult").textContent = ""; document.getElementById("rbApplyModal").classList.add("open"); };
+  window.rbCloseApply = function () { document.getElementById("rbApplyModal").classList.remove("open"); };
+  window.rbConfirmApply = async function () {
+    var pw = document.getElementById("rbAdminPw").value;
+    if (!pw) { setMsg("rbApplyResult", "Admin password required.", false); return; }
+    var btn = document.getElementById("rbApplyBtn"); btn.disabled = true;
+    try {
+      var res = await jsend("POST", "/api/rebalance/apply", { admin_password: pw, dry_run: false }, { context: "Apply rebalance", quiet: true });
+      var plan = res.plan || [];
+      setMsg("rbApplyResult", plan.length ? ("Trim plan: " + plan.length + " bucket(s). Execute via Manual Trade.") : "No trims needed.", true);
+      renderSuggestions(plan);
+    } catch (e) {
+      setMsg("rbApplyResult", String(e), false);
+    } finally { btn.disabled = false; document.getElementById("rbAdminPw").value = ""; }
+  };
+
+  ready(function () { if (window.lazySection) window.lazySection("nav-rebalance", window.rbLoad); else window.rbLoad(); });
+})();
+</script>
+
+<!-- ═══════════════════ DIVIDENDS (P0-3) ═══════════════════ -->
+<div class="section lazy-pending" id="nav-dividends">
+  <div class="section-header">
+    <div class="section-icon icon-status">💵</div>
+    <div class="section-titles">
+      <h2>Dividends</h2>
+      <p class="section-sub">{{ guides_map.dividends.summary }}</p>
+    </div>
+    <a class="section-help-link" href="#help-dividends" title="How to use this section — opens the Help reference" aria-label="Help and how-to for Dividends">?</a>
+  </div>
+  <div class="section-body">
+    <div class="stat-cards" aria-live="polite">
+      <div class="stat-card"><div class="label">Total Dividend Income</div><div class="value" id="divTotal">—</div></div>
+      <div class="stat-card"><div class="label">Realized P&amp;L</div><div class="value small" id="divRealized">—</div></div>
+      <div class="stat-card"><div class="label">Total Return</div><div class="value small" id="divTotalReturn">—</div></div>
+    </div>
+
+    <div class="risk-grid" style="align-items:start;margin-top:14px;">
+      <div>
+        <h4>Trailing Monthly Income</h4>
+        <div class="chart-box"><canvas id="divMonthlyChart" aria-label="Trailing monthly dividend income bar chart"></canvas></div>
+      </div>
+      <div>
+        <h4>Upcoming Ex-Dividend Dates</h4>
+        <div class="tbl-scroll table-wrap">
+          <table class="data-table sticky-head"><caption class="sr-only">Upcoming ex-dividend dates</caption>
+            <thead><tr><th scope="col">Ex-Date</th><th scope="col">Symbol</th><th scope="col">Amount</th>
+              <th scope="col">Shares</th><th scope="col">Est. Payment</th></tr></thead>
+            <tbody id="divUpcomingRows"><tr><td colspan="5" class="empty-note">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <h4 style="margin-top:18px;">Yield on Cost by Position</h4>
+    <div class="table-wrap">
+      <table class="data-table"><caption class="sr-only">Dividend income and yield on cost per position</caption>
+        <thead><tr><th scope="col">Symbol</th><th scope="col">Shares</th><th scope="col">Accrued Income</th>
+          <th scope="col">Cost Basis</th><th scope="col">Yield on Cost</th></tr></thead>
+        <tbody id="divPositionRows"><tr><td colspan="5" class="empty-note">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  "use strict";
+  function ready(fn) { if (document.readyState !== "loading") fn(); else document.addEventListener("DOMContentLoaded", fn); }
+  var _reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function money(v) { if (v == null || isNaN(v)) return "—"; var n = Number(v); return (n < 0 ? "-$" : "$") + Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  function themeColor(v) { return getComputedStyle(document.documentElement).getPropertyValue(v).trim() || "#888"; }
+  var _chart = null;
+
+  function renderMonthly(monthly) {
+    var canvas = document.getElementById("divMonthlyChart");
+    if (!canvas || typeof Chart === "undefined") return;
+    if (_chart) { _chart.destroy(); _chart = null; }
+    var labels = (monthly || []).map(function (m) { return m.month; });
+    var data = (monthly || []).map(function (m) { return m.income; });
+    _chart = new Chart(canvas, {
+      type: "bar",
+      data: { labels: labels, datasets: [{ label: "Dividend income", data: data, backgroundColor: themeColor("--green"), borderRadius: 4 }] },
+      options: { responsive: true, maintainAspectRatio: false, animation: _reduce ? false : { duration: 350 },
+        scales: { y: { ticks: { callback: function (v) { return "$" + v; } } } },
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: function (c) { return money(c.parsed.y); } } } } }
+    });
+  }
+
+  window.divLoad = async function () {
+    renderSkeleton("divUpcomingRows", 3);
+    renderSkeleton("divPositionRows", 3);
+    try {
+      var d = await jget("/api/dividends", { key: "dividends", report: true, context: "Dividends" });
+      var inc = d.dividend_income || {};
+      var tr = d.total_return || {};
+      document.getElementById("divTotal").textContent = money(inc.total);
+      document.getElementById("divRealized").textContent = money(tr.realized_pnl);
+      var trEl = document.getElementById("divTotalReturn");
+      trEl.textContent = money(tr.total_return);
+      trEl.className = "value small " + (Number(tr.total_return || 0) >= 0 ? "num-pos" : "num-neg");
+
+      renderMonthly(d.monthly);
+
+      var up = d.upcoming || [];
+      var ur = document.getElementById("divUpcomingRows");
+      ur.innerHTML = up.length ? up.map(function (r) {
+        return "<tr><td>" + esc(r.ex_date) + "</td><td>" + esc(r.symbol) + "</td><td>$" + Number(r.amount).toFixed(4) +
+          "</td><td>" + r.shares + "</td><td>" + money(r.est_payment) + "</td></tr>";
+      }).join("") : '<tr><td colspan="5" class="empty-note">No upcoming ex-dividend dates for the open book.</td></tr>';
+
+      var pos = inc.by_position || [];
+      var pr = document.getElementById("divPositionRows");
+      pr.innerHTML = pos.length ? pos.map(function (r) {
+        return "<tr><td>" + esc(r.symbol) + "</td><td>" + r.shares + "</td><td>" + money(r.dividend_income) +
+          "</td><td>" + money(r.cost_basis) + "</td><td>" + (r.yield_on_cost_pct != null ? r.yield_on_cost_pct.toFixed(2) + "%" : "—") + "</td></tr>";
+      }).join("") : '<tr><td colspan="5" class="empty-note">No dividend income accrued yet.</td></tr>';
+    } catch (e) {
+      document.getElementById("divUpcomingRows").innerHTML = '<tr><td colspan="5" class="empty-note">Could not load dividends.</td></tr>';
+      document.getElementById("divPositionRows").innerHTML = '<tr><td colspan="5" class="empty-note">Could not load dividends.</td></tr>';
+    }
+  };
+
+  ready(function () { if (window.lazySection) window.lazySection("nav-dividends", window.divLoad); else window.divLoad(); });
+})();
+</script>
+
+<!-- ═══════════════════ ECONOMIC CALENDAR (P0-4) ═══════════════════ -->
+<div class="section lazy-pending" id="nav-economic">
+  <div class="section-header">
+    <div class="section-icon icon-provider">🗓</div>
+    <div class="section-titles">
+      <h2>Economic Calendar</h2>
+      <p class="section-sub">{{ guides_map.economic.summary }}</p>
+    </div>
+    <a class="section-help-link" href="#help-economic" title="How to use this section — opens the Help reference" aria-label="Help and how-to for Economic Calendar">?</a>
+  </div>
+  <div class="section-body">
+    <div id="econBlackout" class="modal-result" aria-live="polite" style="margin-bottom:12px;"></div>
+    <div class="panel-toolbar">
+      <div class="form-field">
+        <label for="econImp">Importance</label>
+        <select id="econImp" onchange="econRender()">
+          <option value="">All</option>
+          <option value="high">High only</option>
+          <option value="med">Medium &amp; up</option>
+        </select>
+      </div>
+      <div class="form-field">
+        <label for="econDays">Window</label>
+        <select id="econDays" onchange="econLoad()">
+          <option value="7">This week</option>
+          <option value="21" selected>3 weeks</option>
+          <option value="60">2 months</option>
+        </select>
+      </div>
+      <button type="button" class="btn-primary btn-sm" onclick="econLoad()">Refresh</button>
+    </div>
+    <div class="tbl-scroll table-wrap">
+      <table class="data-table sticky-head"><caption class="sr-only">Upcoming macro economic events</caption>
+        <thead><tr><th scope="col">Event</th><th scope="col">Date</th><th scope="col">Time (ET)</th>
+          <th scope="col">In</th><th scope="col">Importance</th></tr></thead>
+        <tbody id="econRows"><tr><td colspan="5" class="empty-note">Loading…</td></tr></tbody>
+      </table>
+    </div>
+    <p class="muted-note">During a macro blackout the engine avoids opening new positions around the event.</p>
+  </div>
+</div>
+<script>
+(function () {
+  "use strict";
+  function ready(fn) { if (document.readyState !== "loading") fn(); else document.addEventListener("DOMContentLoaded", fn); }
+  var HIGH = { fomc: 1, cpi: 1, nfp: 1 }, MED = { gdp: 1, pce: 1, ppi: 1 };
+  function importance(type) { type = String(type || "").toLowerCase(); return HIGH[type] ? "high" : MED[type] ? "med" : "low"; }
+  var RANK = { high: 3, med: 2, low: 1 };
+  var _events = [];
+
+  function badge(imp) {
+    var label = imp === "high" ? "High" : imp === "med" ? "Medium" : "Low";
+    return '<span class="imp-badge imp-' + imp + '">' + label + "</span>";
+  }
+
+  window.econRender = function () {
+    var minImp = document.getElementById("econImp").value;
+    var minRank = minImp ? RANK[minImp] : 0;
+    var rows = _events.filter(function (e) { return RANK[importance(e.type)] >= minRank; });
+    var tb = document.getElementById("econRows");
+    if (!rows.length) { tb.innerHTML = '<tr><td colspan="5" class="empty-note">No events match this filter.</td></tr>'; return; }
+    tb.innerHTML = rows.map(function (e) {
+      var imp = importance(e.type);
+      var when = e.days_until === 0 ? "today" : e.days_until === 1 ? "tomorrow" : e.days_until + " days";
+      return "<tr><td>" + esc(e.name) + "</td><td>" + esc(e.date) + "</td><td>" + esc(e.time) +
+        "</td><td>" + when + "</td><td>" + badge(imp) + "</td></tr>";
+    }).join("");
+  };
+
+  window.econLoad = async function () {
+    var days = document.getElementById("econDays").value;
+    renderSkeleton("econRows", 4);
+    try {
+      var d = await jget("/api/economic-calendar?days=" + encodeURIComponent(days), { key: "econ", report: true, context: "Economic calendar" });
+      _events = d.events || [];
+      var bo = document.getElementById("econBlackout");
+      if (d.blackout_active) {
+        var b = d.blackout_active;
+        bo.innerHTML = '<span class="imp-badge imp-med">⚠ Blackout active</span> ' +
+          esc(b.name) + " — " + esc(b.date) + " " + esc(b.time) + " ET";
+        bo.style.color = "var(--orange)";
+      } else {
+        bo.innerHTML = '<span class="imp-badge imp-low">No blackout active</span>';
+        bo.style.color = "";
+      }
+      window.econRender();
+    } catch (e) {
+      document.getElementById("econRows").innerHTML = '<tr><td colspan="5" class="empty-note">Could not load the economic calendar.</td></tr>';
+    }
+  };
+
+  ready(function () { if (window.lazySection) window.lazySection("nav-economic", window.econLoad); else window.econLoad(); });
+})();
+</script>
+
 <!-- ═══════════════════ HELP: PAPER TRADING ═══════════════════ -->
 <div class="section" id="nav-help">
   <div class="section-header">

@@ -191,6 +191,77 @@ def total_return(realized_pnl: float, dividend_income: float) -> Dict[str, Any]:
     }
 
 
+def upcoming_ex_dividends(
+    positions: List[Dict[str, Any]],
+    dividends_by_symbol: Dict[str, List[Dict[str, Any]]],
+    as_of: Any = None,
+    limit: int = 20,
+) -> List[Dict[str, Any]]:
+    """Future ex-dividend dates for the open book, soonest first.
+
+    Each row: ``{symbol, ex_date, amount, shares, est_payment}`` where
+    ``est_payment`` is ``shares * amount``.  Only ex-dates on/after *as_of* are
+    included (already-passed dividends are accrued income, not upcoming events).
+    """
+    today = _as_date(as_of) or date.today()
+    rows: List[Dict[str, Any]] = []
+    for pos in positions:
+        symbol = str(pos.get("symbol", ""))
+        shares = float(pos.get("quantity", 0) or 0)
+        for rec in dividends_by_symbol.get(symbol, []):
+            d = _as_date(rec.get("ex_date"))
+            if d is None or d < today:
+                continue
+            amt = float(rec.get("amount", 0.0))
+            rows.append({
+                "symbol": symbol,
+                "ex_date": d.isoformat(),
+                "amount": round(amt, 4),
+                "shares": shares,
+                "est_payment": round(shares * amt, 2),
+            })
+    rows.sort(key=lambda r: (r["ex_date"], r["symbol"]))
+    return rows[: max(0, int(limit))]
+
+
+def monthly_dividend_income(
+    positions: List[Dict[str, Any]],
+    dividends_by_symbol: Dict[str, List[Dict[str, Any]]],
+    months: int = 12,
+    as_of: Any = None,
+) -> List[Dict[str, Any]]:
+    """Trailing per-month dividend income for the open book.
+
+    Returns ``months`` rows ``{month: "YYYY-MM", income: float}`` ending at the
+    *as_of* month (oldest first), summing ``shares * amount`` for every ex-date
+    that fell in each month while the position was held.
+    """
+    end = _as_date(as_of) or date.today()
+    # Build the ordered list of trailing "YYYY-MM" buckets ending at `end`.
+    buckets: List[str] = []
+    y, m = end.year, end.month
+    for _ in range(max(1, int(months))):
+        buckets.append(f"{y:04d}-{m:02d}")
+        m -= 1
+        if m == 0:
+            m = 12
+            y -= 1
+    buckets.reverse()
+    index = {b: 0.0 for b in buckets}
+    for pos in positions:
+        symbol = str(pos.get("symbol", ""))
+        shares = float(pos.get("quantity", 0) or 0)
+        entry = pos.get("entry_time") or pos.get("entry_date")
+        for rec in dividends_between(dividends_by_symbol.get(symbol, []), entry, end):
+            d = _as_date(rec.get("ex_date"))
+            if d is None:
+                continue
+            key = f"{d.year:04d}-{d.month:02d}"
+            if key in index:
+                index[key] += shares * float(rec.get("amount", 0.0))
+    return [{"month": b, "income": round(index[b], 2)} for b in buckets]
+
+
 # ---------------------------------------------------------------------------
 # Ex-dividend gap handling
 # ---------------------------------------------------------------------------
