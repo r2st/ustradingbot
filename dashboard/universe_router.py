@@ -15,11 +15,17 @@ from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 
 from config.settings import EASTERN, get_settings
 from dashboard.auth import require_auth
-from dashboard.http_util import parse_json_body
+from dashboard.schemas import (
+    UniverseAddWatchlistRequest,
+    UniverseFilterRequest,
+    UniverseRemoveWatchlistRequest,
+    UniverseSeedRequest,
+    UniverseWatchlistEnabledRequest,
+)
 from data_store.universe import db_exists, get_universe_db
 
 router = APIRouter(prefix="/api/universe", tags=["Configuration"])
@@ -65,11 +71,6 @@ def _not_available() -> Dict[str, Any]:
         "available": False,
         "message": "Universe database not initialized. Run seeder first.",
     }
-
-
-async def _body(request: Request) -> Dict[str, Any]:
-    """Parse a JSON object body, 422 on malformed JSON (see B7)."""
-    return await parse_json_body(request)
 
 
 # ---------------------------------------------------------------------------
@@ -193,7 +194,9 @@ async def get_watchlist(list_name: str, _user: str = Depends(require_auth)):
 
 
 @router.post("/watchlists")
-async def add_to_watchlist(request: Request, _user: str = Depends(require_auth)):
+async def add_to_watchlist(
+    payload: UniverseAddWatchlistRequest, _user: str = Depends(require_auth)
+):
     """Add symbols to a watchlist (creates it if needed).
 
     Body: ``{"list_name": "My List", "tickers": ["AAPL", "MSFT"]}``
@@ -201,9 +204,8 @@ async def add_to_watchlist(request: Request, _user: str = Depends(require_auth))
     db = _require_db()
     if db is None:
         return _not_available()
-    body = await _body(request)
-    list_name = str(body.get("list_name", "")).strip()
-    tickers = body.get("tickers", [])
+    list_name = payload.list_name.strip()
+    tickers = payload.tickers
     if not list_name:
         raise HTTPException(status_code=400, detail="'list_name' is required.")
     if not isinstance(tickers, list) or not tickers:
@@ -224,7 +226,9 @@ async def delete_watchlist(list_name: str, _user: str = Depends(require_auth)):
 
 @router.post("/watchlists/{list_name}/remove")
 async def remove_from_watchlist(
-    list_name: str, request: Request, _user: str = Depends(require_auth),
+    list_name: str,
+    payload: UniverseRemoveWatchlistRequest,
+    _user: str = Depends(require_auth),
 ):
     """Remove specific symbols from a watchlist.
 
@@ -233,8 +237,7 @@ async def remove_from_watchlist(
     db = _require_db()
     if db is None:
         return _not_available()
-    body = await _body(request)
-    tickers = body.get("tickers", [])
+    tickers = payload.tickers
     if not isinstance(tickers, list) or not tickers:
         raise HTTPException(status_code=400, detail="'tickers' must be a non-empty list.")
     removed = db.remove_from_watchlist(list_name, tickers)
@@ -243,7 +246,9 @@ async def remove_from_watchlist(
 
 @router.post("/watchlists/{list_name}/enabled")
 async def set_watchlist_enabled(
-    list_name: str, request: Request, _user: str = Depends(require_auth),
+    list_name: str,
+    payload: UniverseWatchlistEnabledRequest,
+    _user: str = Depends(require_auth),
 ):
     """Enable or disable a watchlist for scanning.
 
@@ -252,8 +257,7 @@ async def set_watchlist_enabled(
     db = _require_db()
     if db is None:
         return _not_available()
-    body = await _body(request)
-    enabled = bool(body.get("enabled", True))
+    enabled = bool(payload.enabled)
     db.set_watchlist_enabled(list_name, enabled)
     return {"ok": True, "list_name": list_name, "enabled": enabled}
 
@@ -273,7 +277,9 @@ async def get_filters(_user: str = Depends(require_auth)):
 
 
 @router.post("/filters")
-async def set_filter(request: Request, _user: str = Depends(require_auth)):
+async def set_filter(
+    payload: UniverseFilterRequest, _user: str = Depends(require_auth)
+):
     """Set or update a scan filter.
 
     Body: ``{"filter_name": "min_price", "filter_value": 10.0, "enabled": true}``
@@ -281,10 +287,9 @@ async def set_filter(request: Request, _user: str = Depends(require_auth)):
     db = _require_db()
     if db is None:
         return _not_available()
-    body = await _body(request)
-    name = str(body.get("filter_name", "")).strip()
-    value = body.get("filter_value")
-    enabled = body.get("enabled", True)
+    name = payload.filter_name.strip()
+    value = payload.filter_value
+    enabled = payload.enabled
     if not name:
         raise HTTPException(status_code=400, detail="'filter_name' is required.")
     if value is None:
@@ -505,7 +510,10 @@ def _is_seed_running() -> bool:
 
 
 @router.post("/seed")
-async def seed_universe(request: Request, _user: str = Depends(require_auth)):
+async def seed_universe(
+    payload: Optional[UniverseSeedRequest] = None,
+    _user: str = Depends(require_auth),
+):
     """Trigger re-seeding of the universe database (runs in background thread).
 
     Returns a ``job_id`` that the UI polls via
@@ -522,8 +530,7 @@ async def seed_universe(request: Request, _user: str = Depends(require_auth)):
             "message": "A seed job is already running. Please wait for it to finish.",
         }
 
-    body = await _body(request)
-    skip_enrichment = bool(body.get("skip_enrichment", False))
+    skip_enrichment = bool(payload.skip_enrichment) if payload else False
     settings = _settings()
     db_path = Path(settings.DATA_DIR) / _DB_FILENAME
 

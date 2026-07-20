@@ -6,13 +6,11 @@ CRUD + search over per-trade notes stored by :mod:`journal.notes`.
 
 from __future__ import annotations
 
-from typing import Any, Dict
-
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 
 from config.settings import get_settings
 from dashboard.auth import require_auth
-from dashboard.http_util import parse_json_body
+from dashboard.schemas import NoteRequest
 from journal.notes import get_notes_store
 
 router = APIRouter(prefix="/api/notes", tags=["Journal"])
@@ -20,11 +18,6 @@ router = APIRouter(prefix="/api/notes", tags=["Journal"])
 
 def _store():
     return get_notes_store(get_settings().DATA_DIR)
-
-
-async def _body(request: Request) -> Dict[str, Any]:
-    """Parse a JSON object body, 422 on malformed JSON (see B7)."""
-    return await parse_json_body(request)
 
 
 @router.get("")
@@ -82,8 +75,12 @@ async def get_note(trade_id: str, _user: str = Depends(require_auth)):
 
 
 @router.post("/{trade_id}")
-async def set_note(trade_id: str, request: Request, _user: str = Depends(require_auth)):
-    body = await _body(request)
+async def set_note(
+    trade_id: str, payload: NoteRequest, _user: str = Depends(require_auth)
+):
+    # exclude_unset keeps the rating sentinel meaningful: a field the client
+    # never sent stays absent, so `body.get("rating", _UNSET)` still works.
+    body = payload.model_dump(exclude_unset=True)
     tags = body.get("tags")
     if tags is not None and not isinstance(tags, list):
         raise HTTPException(status_code=400, detail="tags must be a list.")

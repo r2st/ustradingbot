@@ -10,12 +10,12 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 
 from config.settings import get_settings
 from config.watchlist import WatchlistError, get_watchlist_store
 from dashboard.auth import require_auth
-from dashboard.http_util import parse_json_body
+from dashboard.schemas import AddSymbolRequest, CreateListRequest, ListEnabledRequest
 
 router = APIRouter(prefix="/api/watchlist", tags=["Configuration"])
 
@@ -38,11 +38,6 @@ def _payload() -> Dict[str, Any]:
     }
 
 
-async def _body(request: Request) -> Dict[str, Any]:
-    """Parse a JSON object body, 422 on malformed JSON (see B7)."""
-    return await parse_json_body(request)
-
-
 @router.get("")
 async def get_watchlists(_user: str = Depends(require_auth)):
     """Return every list, its symbols, and the effective scan set."""
@@ -50,10 +45,9 @@ async def get_watchlists(_user: str = Depends(require_auth)):
 
 
 @router.post("/lists")
-async def create_list(request: Request, _user: str = Depends(require_auth)):
-    body = await _body(request)
+async def create_list(payload: CreateListRequest, _user: str = Depends(require_auth)):
     try:
-        _store().create_list(str(body.get("name", "")))
+        _store().create_list(payload.name)
     except WatchlistError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return _payload()
@@ -69,23 +63,23 @@ async def delete_list(name: str, _user: str = Depends(require_auth)):
 
 
 @router.post("/lists/{name}/enabled")
-async def set_enabled(name: str, request: Request, _user: str = Depends(require_auth)):
-    body = await _body(request)
+async def set_enabled(
+    name: str, payload: ListEnabledRequest, _user: str = Depends(require_auth)
+):
     try:
-        _store().set_enabled(name, bool(body.get("enabled", True)))
+        _store().set_enabled(name, bool(payload.enabled))
     except WatchlistError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     return _payload()
 
 
 @router.post("/symbols")
-async def add_symbol(request: Request, _user: str = Depends(require_auth)):
-    body = await _body(request)
-    name = str(body.get("list", "")).strip()
+async def add_symbol(payload: AddSymbolRequest, _user: str = Depends(require_auth)):
+    name = payload.list.strip()
     if not name:
         raise HTTPException(status_code=400, detail="A target list is required.")
     try:
-        _store().add_symbol(name, str(body.get("symbol", "")))
+        _store().add_symbol(name, payload.symbol)
     except WatchlistError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return _payload()

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import time
 from datetime import datetime, timedelta
-from typing import Callable, List, Optional, Protocol, runtime_checkable
+from typing import Callable, Dict, List, Optional, Protocol, Tuple, runtime_checkable
 
 import pandas as pd
 import structlog

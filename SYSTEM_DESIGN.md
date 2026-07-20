@@ -437,7 +437,7 @@ Signal passes technical scoring (Grade A or B)
                │ PASS
                ▼
 ┌──────────────────────────────┐
-│ TIER 2: Claude Sonnet 4.5   │  ← PAID (~$0.01-0.05 per call)
+│ TIER 2: OpenRouter LLM      │  ← default: openai/gpt-oss-20b:free
 │ + web_search tool            │
 │                              │
 │ Strategy-aware prompts:      │
@@ -666,9 +666,9 @@ risk.manager.build_order(signal: Signal) -> Optional[TradeOrder]
 risk.manager.validate_stop(stop: float, entry: float, current: Optional[float]) -> float
 
 # Execution Layer
-execution.ibkr_broker.connect() -> bool
-execution.ibkr_broker.place_bracket_order(order: TradeOrder) -> Optional[Trade]
-execution.ibkr_broker.get_positions() -> Dict[str, Position]
+execution.broker.IBKRBroker.connect() -> bool
+execution.broker.IBKRBroker.place_bracket_order(order: TradeOrder) -> Optional[Trade]
+execution.broker.IBKRBroker.get_positions() -> Dict[str, Position]
 execution.exit_manager.check_broker_exits() -> List[ExitEvent]
 execution.exit_manager.check_time_based_exits() -> List[ExitEvent]
 
@@ -768,7 +768,7 @@ WantedBy=multi-user.target
 | Secret | Storage | Access |
 |--------|---------|--------|
 | IBKR account credentials | TWS/Gateway login (not in code) | Manual login or IB Gateway auto-login |
-| Claude API key | `.env` file (never committed) | `ANTHROPIC_API_KEY` env var |
+| OpenRouter API key | `.env` or `keys/` file (never committed) | `OPENROUTER_API_KEY` env var |
 | Telegram bot token | `.env` file (never committed) | `TELEGRAM_BOT_TOKEN` env var |
 | Telegram chat ID | `.env` file | `TELEGRAM_CHAT_ID` env var |
 | IBKR account ID | `config/settings.py` | Explicit in code (non-secret, needed for Error 435 prevention) |
@@ -806,84 +806,125 @@ WantedBy=multi-user.target
 
 ## 15. Project Structure
 
+> **Kept in sync with the tree.** This section was reconciled against the
+> actual repository (audit item D4). Files the original design speculated about
+> but that were never built (`signals/position_monitor.py`,
+> `signals/opportunity_comparator.py`, `execution/ibkr_broker.py`,
+> `agent/expert.py`, `agent/scheduler.py`, `agent/telegram_bot.py`, the
+> `tools/*_scanner.py` utilities, `tests/test_fetcher.py`) have been removed;
+> where the functionality exists elsewhere it is noted inline. New subsystems
+> shipped since the first draft — the FastAPI dashboard, analytics, the paper
+> broker, the alerts package — are now listed.
+
 ```
 us_trading_bot/
 ├── pyproject.toml              # Project metadata, dependencies
 ├── .env.example                # Template for environment variables
+├── .coveragerc                 # Coverage config (see scripts/coverage.sh)
 ├── .gitignore                  # Excludes .env, __pycache__, data files
 ├── README.md                   # Quick-start guide
+├── SYSTEM_DESIGN.md            # This document
+├── CONTRIBUTING.md             # Contributor guide
+├── CHANGELOG.md                # Release notes
+├── logging_config.py           # structlog setup (JSON prod / colour dev)
+├── engine.py                   # Main trading loop orchestrator
 │
 ├── config/
-│   ├── __init__.py
 │   ├── settings.py             # All tunable parameters (single source of truth)
-│   └── universe.py             # Watchlist symbols (US + Canadian)
+│   ├── universe.py             # Base watchlist symbols (US + Canadian)
+│   ├── etf_universe.py         # ETF universe
+│   ├── index_membership.py     # S&P 500 / NASDAQ-100 tiering
+│   ├── trade_selection.py      # Operator strategy/symbol/grade whitelist
+│   └── watchlist.py            # User-managed named watchlists (JSON store)
 │
 ├── data/
-│   ├── __init__.py
-│   ├── fetcher.py              # yfinance OHLCV data retrieval
-│   └── earnings.py             # Earnings calendar queries
+│   ├── fetcher.py              # OHLCV retrieval (multi-provider, cached)
+│   ├── providers.py            # Provider abstraction + fallback chain
+│   ├── earnings.py             # Earnings calendar queries
+│   ├── earnings_calendar.py    # Upcoming-earnings lookups
+│   ├── earnings_tracker.py     # "Reporting today" + results/surprise
+│   ├── extended_hours.py       # Pre/post-market pricing
+│   ├── news_sentiment.py       # Headline sentiment
+│   └── ratings.py              # Analyst ratings
 │
-├── signals/
-│   ├── __init__.py
+├── signals/                    # Indicator modules + strategy detectors
 │   ├── signal_types.py         # Signal dataclass (universal output format)
 │   ├── screener.py             # Orchestrator: run_full_scan()
 │   ├── combined_filter.py      # Weighted scoring engine
-│   ├── rsi_signals.py          # RSI indicator module
-│   ├── macd_signals.py         # MACD indicator module
-│   ├── ema_signals.py          # EMA structure module
-│   ├── volume_signals.py       # Volume analysis module
-│   ├── ripster_cloud.py        # Ripster EMA cloud module
-│   ├── vcp_signal.py           # VCP breakout detector
-│   ├── pead_signal.py          # PEAD detector
-│   ├── mean_reversion_signal.py # Mean reversion detector
-│   ├── position_monitor.py     # Position health re-scoring
-│   └── opportunity_comparator.py # Signal comparison/ranking
+│   ├── rsi_signals.py  macd_signals.py  ema_signals.py  volume_signals.py
+│   ├── ripster_cloud.py  vcp_signal.py  pead_signal.py  mean_reversion_signal.py
+│   ├── sector_rotation.py  premarket.py  gap_filter.py  earnings_filter.py
+│   ├── ratings_filter.py  multi_timeframe.py  support_resistance.py
+│   └── indicator_snapshot.py
+│       # NB: position health re-scoring lives in execution/exit_manager.py;
+│       #     signal ranking is inline in engine.py (no separate comparator).
 │
 ├── ai/
-│   ├── __init__.py
-│   ├── analyst.py              # Claude AI news veto (strategy-aware)
-│   └── cache.py                # 4-hour TTL cache per symbol+strategy
+│   ├── analyst.py              # AI news veto — fail-closed (strategy-aware)
+│   ├── cache.py                # TTL cache per symbol+strategy
+│   ├── openrouter.py           # Thin OpenRouter chat client
+│   └── reflection.py           # Post-trade lesson writer (memory layer F1)
+│
+├── analytics/
+│   ├── performance.py          # Journal metrics (mtime-cached CSV read)
+│   ├── risk_dashboard.py       # Exposure, correlation, drawdown, beta vs SPY
+│   ├── tax.py                  # Realized-gains / FIFO / wash-sale (P1f)
+│   ├── montecarlo.py  regime.py  breadth.py
+│   ├── setup_similarity.py     # Similar-setup guard (memory layer F2)
+│   └── learnings_guard.py      # Applies learned lessons at entry (F1)
 │
 ├── risk/
-│   ├── __init__.py
 │   └── manager.py              # Position sizing, pre-checks, stop validation
 │
 ├── execution/
-│   ├── __init__.py
-│   ├── ibkr_broker.py          # IBKR connection, order placement, fills
-│   └── exit_manager.py         # All exit paths (broker/time/health/trailing)
+│   ├── broker.py               # PaperBroker + IBKRBroker + make_broker()
+│   ├── exit_manager.py         # All exit paths (broker/time/health/trailing)
+│   ├── advanced_orders.py  levels.py  manual_trade.py  stop_trade.py  stops.py
 │
 ├── journal/
-│   ├── __init__.py
-│   ├── trade_logger.py         # CSV trade journal (37 columns)
-│   └── btst_logger.py          # Rejected signal logger (JSONL)
+│   ├── trade_logger.py         # CSV trade journal (38-column schema)
+│   ├── notes.py                # Per-trade notes, tags, post-mortem (P6f)
+│   ├── learnings.py            # Append-only lesson store (JSONL)
+│   ├── rationale.py  activity_log.py  btst_logger.py
 │
 ├── agent/
-│   ├── __init__.py
-│   ├── expert.py               # Telegram reporting agent
-│   ├── scheduler.py            # Scan loop scheduler
-│   └── telegram_bot.py         # Telegram bot commands
+│   ├── notifier.py             # One-way alert dispatch (Telegram/email/push)
+│   ├── alerts.py               # AlertManager (channels)
+│   └── alert_config.py         # Alert rules + history
+│       # NB: no telegram_bot / expert / scheduler — scheduling is in engine.py.
 │
-├── tools/
-│   ├── finviz_scanner.py       # Universe builder from Finviz
-│   ├── market_scanner.py       # Relative strength ranking
-│   └── watchlist_screener.py   # Manual screening utility
+├── alerts/
+│   └── price_alerts.py         # User-defined price-cross alerts (P2f)
 │
-├── engine.py                   # Main trading loop orchestrator
+├── dashboard/                  # FastAPI web dashboard + JSON API
+│   ├── app.py                  # App assembly, root routes, router includes
+│   ├── auth.py                 # HTTP Basic auth (fail-closed)
+│   ├── middleware.py           # Security headers, request logging, error shape
+│   ├── http_util.py            # Body-size limit, JSON parsing, error envelope
+│   ├── rate_limit.py           # Per-IP rate limiting + login lockout
+│   ├── schemas.py              # Pydantic request models
+│   ├── ws_pnl.py               # Real-time P&L WebSocket
+│   ├── quotes.py               # Shared TTL quote service
+│   ├── ai_commentary.py analyst_cards.py            # AI analyst panel
+│   ├── *_router.py             # Feature routers (watchlist, universe, notes,
+│   │                           #   tax, price_alerts, earnings, history, …)
+│   ├── templates/  static/     # Dashboard HTML + self-hosted Chart.js
+│   └── push.py  pdf_report.py  backtest_control.py  provider_control.py
 │
-├── tests/
-│   ├── __init__.py
-│   ├── conftest.py             # Shared fixtures
-│   ├── test_config.py          # Configuration tests
-│   ├── test_fetcher.py         # Data fetcher tests
-│   ├── test_signals.py         # Signal scoring tests
-│   ├── test_risk_manager.py    # Risk management tests
-│   └── test_journal.py         # Journal operations tests
+├── backtest/                   # On-demand strategy backtester
+│   └── engine.py  data.py  __main__.py
+│
+├── selective_strategies/  short_strategies/   # Optional strategy packs
+│
+├── deploy/                     # systemd units for prod
+├── docs/                       # api.md, env-vars.md, troubleshooting.md, specs
+├── scripts/                    # coverage.sh, backup.sh, healthcheck.sh
+│
+├── tests/                      # ~1650 tests (pytest); see scripts/coverage.sh
 │
 └── data_store/                 # Runtime data (gitignored)
-    ├── trades.csv
-    ├── open_positions.json
-    └── rejected.jsonl
+    ├── trades.csv  open_positions.json  rejected_signals.jsonl
+    ├── learnings.jsonl  price_alerts.json  trade_notes.json  watchlists.json
 ```
 
 ---

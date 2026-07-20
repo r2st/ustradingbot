@@ -166,8 +166,10 @@ class NoteRequest(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     note: Optional[str] = None
-    tags: Optional[List[Any]] = None
-    mistake_tags: Optional[List[Any]] = None
+    # Typed as Any (not list) so a non-list value still reaches the endpoint's
+    # own isinstance guard, preserving its 400 (not 422) error contract.
+    tags: Optional[Any] = None
+    mistake_tags: Optional[Any] = None
     setup_type: Optional[str] = None
     what_worked: Optional[str] = None
     what_went_wrong: Optional[str] = None

@@ -1,0 +1,45 @@
+# Coverage configuration for the US Trading Bot test suite (audit T4).
+#
+#   Run:  ./scripts/coverage.sh
+#   or:   .venv/bin/python -m pytest --cov --cov-report=term-missing
+#
+# Kept in a standalone file (rather than pyproject) so a plain `pytest` run
+# stays fast — coverage is opt-in via the --cov flag / the runner script.
+
+[run]
+branch = True
+source =
+    config
+    data
+    alerts
+    signals
+    ai
+    risk
+    execution
+    journal
+    agent
+    tools
+    dashboard
+    analytics
+    backtest
+    short_strategies
+omit =
+    */__pycache__/*
+    */tests/*
+    tests/*
+    */.venv/*
+
+[report]
+# Surface the lines that aren't exercised so gaps are actionable.
+show_missing = True
+skip_covered = False
+precision = 1
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+
+[html]
+directory = htmlcov

@@ -41,12 +41,25 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "pytest-cov",
+    "ruff>=0.6",
 ]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests", "short_strategies/tests"]
 pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = ["dashboard/preview.html"]
+
+# The CI lint gate is intentionally focused on correctness rules that catch real
+# bugs (syntax errors, undefined names, broken f-strings, redefinitions) rather
+# than style, so it runs clean on the existing large codebase and only fails on
+# genuinely broken code.
+[tool.ruff.lint]
+select = ["E9", "F63", "F7", "F82"]
 
 [tool.setuptools.packages.find]
 include = [

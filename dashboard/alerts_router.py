@@ -11,20 +11,13 @@ Alert rules, history, and channel management API (monitoring feature 6).
 
 from __future__ import annotations
 
-from typing import Any, Dict
-
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 
 from agent import alert_config
 from dashboard.auth import get_settings, require_auth
-from dashboard.http_util import parse_json_body
+from dashboard.schemas import AlertRulesRequest, AlertTestRequest
 
 router = APIRouter(prefix="/api/alerts", tags=["Notifications"])
-
-
-async def _body(request: Request) -> Dict[str, Any]:
-    """Parse a JSON object body, 422 on malformed JSON (see B7)."""
-    return await parse_json_body(request)
 
 
 @router.get("/rules")
@@ -39,10 +32,10 @@ async def get_rules(_user: str = Depends(require_auth)):
 
 
 @router.put("/rules")
-async def put_rules(request: Request, _user: str = Depends(require_auth)):
+async def put_rules(payload: AlertRulesRequest, _user: str = Depends(require_auth)):
     """Validate and persist an updated rule set."""
     settings = get_settings()
-    body = await _body(request)
+    body = payload.model_dump(exclude_none=True)
     rules = body.get("rules", body)
     try:
         effective = alert_config.save_rules(settings.DATA_DIR, rules)
@@ -85,13 +78,12 @@ async def get_channels(_user: str = Depends(require_auth)):
 
 
 @router.post("/test")
-async def test_channel(request: Request, _user: str = Depends(require_auth)):
+async def test_channel(payload: AlertTestRequest, _user: str = Depends(require_auth)):
     """Send a test alert on one channel; report per-channel success clearly."""
     from agent.alerts import AlertManager
 
     settings = get_settings()
-    body = await _body(request)
-    channel = str(body.get("channel", "")).strip().lower()
+    channel = payload.channel.strip().lower()
     if channel not in alert_config.CHANNELS:
         raise HTTPException(
             status_code=400,

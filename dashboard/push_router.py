@@ -8,15 +8,21 @@ notifications for new trade alerts (polled from :mod:`dashboard.push`).
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Optional
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 from fastapi.responses import Response
 
 from config.settings import get_settings
 from dashboard.auth import require_auth
-from dashboard.http_util import parse_json_body
 from dashboard.push import CATEGORIES, get_push_store, _normalize_category
+from dashboard.schemas import (
+    NotificationsPrefsRequest,
+    NotificationsReadRequest,
+    PushSubscribeRequest,
+    PushTestRequest,
+    PushUnsubscribeRequest,
+)
 
 router = APIRouter(tags=["Notifications"])
 
@@ -149,11 +155,6 @@ async def pwa_client():
 # ---------------------------------------------------------------------------
 
 
-async def _body(request: Request) -> Dict[str, Any]:
-    """Parse a JSON object body, 422 on malformed JSON (see B7)."""
-    return await parse_json_body(request)
-
-
 @router.get("/api/push/status")
 async def push_status(_user: str = Depends(require_auth)):
     store = _store()
@@ -166,21 +167,24 @@ async def push_poll(since: int = 0, _user: str = Depends(require_auth)):
 
 
 @router.post("/api/push/subscribe")
-async def push_subscribe(request: Request, _user: str = Depends(require_auth)):
-    body = await _body(request)
-    return {"ok": _store().subscribe(body)}
+async def push_subscribe(
+    payload: PushSubscribeRequest, _user: str = Depends(require_auth)
+):
+    return {"ok": _store().subscribe(payload.model_dump(exclude_none=True))}
 
 
 @router.post("/api/push/unsubscribe")
-async def push_unsubscribe(request: Request, _user: str = Depends(require_auth)):
-    body = await _body(request)
-    return {"ok": _store().unsubscribe(str(body.get("endpoint", "")))}
+async def push_unsubscribe(
+    payload: PushUnsubscribeRequest, _user: str = Depends(require_auth)
+):
+    return {"ok": _store().unsubscribe(payload.endpoint)}
 
 
 @router.post("/api/push/test")
-async def push_test(request: Request, _user: str = Depends(require_auth)):
-    body = await _body(request)
-    category = str(body.get("category", "general"))
+async def push_test(
+    payload: Optional[PushTestRequest] = None, _user: str = Depends(require_auth)
+):
+    category = str(payload.category if payload else "general")
     labels = {
         "trade_executed": ("Trade executed", "AAPL — bought 25 @ $198.40 (Momentum)."),
         "stop_hit": ("Stop hit", "TSLA — stopped out at $242.10 (−1.0R)."),
@@ -214,11 +218,10 @@ async def notifications_unread(_user: str = Depends(require_auth)):
 
 
 @router.post("/api/notifications/read")
-async def notifications_read(request: Request, _user: str = Depends(require_auth)):
-    body = await _body(request)
-    ids = body.get("ids", [])
-    if not isinstance(ids, list):
-        ids = []
+async def notifications_read(
+    payload: NotificationsReadRequest, _user: str = Depends(require_auth)
+):
+    ids = payload.ids if isinstance(payload.ids, list) else []
     store = _store()
     changed = store.mark_read(ids)
     return {"ok": True, "changed": changed, "unread": store.unread_count()}
@@ -242,8 +245,10 @@ async def notifications_get_prefs(_user: str = Depends(require_auth)):
 
 
 @router.post("/api/notifications/preferences")
-async def notifications_set_prefs(request: Request, _user: str = Depends(require_auth)):
-    body = await _body(request)
+async def notifications_set_prefs(
+    payload: NotificationsPrefsRequest, _user: str = Depends(require_auth)
+):
+    body = payload.model_dump(exclude_none=True)
     prefs = body.get("preferences", body)
     if not isinstance(prefs, dict):
         prefs = {}

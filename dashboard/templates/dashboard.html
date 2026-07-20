@@ -4287,16 +4287,116 @@
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
     });
   }
-  async function jget(url) { var r = await fetch(url, { credentials: "same-origin" }); return r.ok ? r.json() : Promise.reject(await r.json().catch(function () { return {}; })); }
-  async function jsend(method, url, body) {
-    var r = await fetch(url, {
-      method: method, credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    var data = await r.json().catch(function () { return {}; });
-    if (!r.ok) throw (data && data.detail ? data.detail : "Request failed");
-    return data;
+  // ══════════════════ F1: surface API/fetch errors ══════════════════
+  // Previously ~30 `catch (e) {}` blocks swallowed fetch failures silently, so
+  // a failed save/trade/control action left the user staring at a stale screen
+  // with no feedback. reportApiError() routes those failures to a toast (and
+  // logs to the console), de-duplicating bursts of the same error so a flaky
+  // network or a repeated action can't spam the UI.
+  var _toastWrap = null;
+  var _toastSeen = {};           // "sev|context|msg" -> last-shown epoch ms
+  var _TOAST_DEDUP_MS = 8000;    // collapse identical errors within this window
+  function _ensureToastWrap() {
+    if (_toastWrap) return _toastWrap;
+    _toastWrap = document.createElement("div");
+    _toastWrap.setAttribute("role", "status");
+    _toastWrap.setAttribute("aria-live", "polite");
+    _toastWrap.style.cssText =
+      "position:fixed;top:16px;right:16px;z-index:9999;display:flex;" +
+      "flex-direction:column;gap:8px;max-width:min(92vw,380px);pointer-events:none;";
+    document.body.appendChild(_toastWrap);
+    return _toastWrap;
+  }
+  function _errText(err) {
+    // Normalise the many shapes an error arrives in (string throw, rejected
+    // {detail}/{error:{message}} body, Error object, network TypeError).
+    if (err == null) return "Request failed";
+    if (typeof err === "string") return err;
+    if (err.detail) return typeof err.detail === "string" ? err.detail : JSON.stringify(err.detail);
+    if (err.error && err.error.message) return err.error.message;
+    if (err.message) return err.message;
+    try { return JSON.stringify(err); } catch (e) { return "Request failed"; }
+  }
+  // sev: "error" (red) | "warn" (amber). Returns true if a toast was shown.
+  function reportApiError(context, err, sev) {
+    var msg = _errText(err);
+    sev = sev || "error";
+    try { console.warn("[api] " + (context || "") + ": " + msg, err); } catch (e) {}
+    var key = sev + "|" + (context || "") + "|" + msg;
+    var now = Date.now();
+    if (_toastSeen[key] && (now - _toastSeen[key]) < _TOAST_DEDUP_MS) return false;
+    _toastSeen[key] = now;
+    var wrap = _ensureToastWrap();
+    var t = document.createElement("div");
+    var red = sev === "error";
+    t.style.cssText =
+      "pointer-events:auto;background:var(--card,#1e293b);color:var(--text,#e2e8f0);" +
+      "border:1px solid " + (red ? "var(--red,#ef4444)" : "var(--amber,#f59e0b)") + ";" +
+      "border-left-width:4px;border-radius:8px;padding:10px 12px;font-size:13px;" +
+      "box-shadow:0 6px 20px rgba(0,0,0,.35);opacity:0;transition:opacity .18s;" +
+      "display:flex;gap:10px;align-items:flex-start;";
+    var label = context ? (context + ": ") : "";
+    var icon = document.createElement("span");
+    icon.style.cssText = "flex:0 0 auto";
+    icon.textContent = red ? "⚠️" : "⚠";
+    var text = document.createElement("span");
+    text.style.cssText = "flex:1 1 auto;word-break:break-word";
+    // textContent avoids any HTML injection from server-supplied messages.
+    text.textContent = label + msg;
+    var close = document.createElement("button");
+    close.textContent = "✕";
+    close.setAttribute("aria-label", "Dismiss");
+    close.style.cssText =
+      "flex:0 0 auto;background:none;border:none;color:inherit;cursor:pointer;" +
+      "opacity:.6;font-size:12px;line-height:1;padding:2px;";
+    function dismiss() { t.style.opacity = "0"; setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 200); }
+    close.onclick = dismiss;
+    t.appendChild(icon);
+    t.appendChild(text);
+    t.appendChild(close);
+    wrap.appendChild(t);
+    requestAnimationFrame(function () { t.style.opacity = "1"; });
+    setTimeout(dismiss, red ? 9000 : 6000);
+    return true;
+  }
+  window.reportApiError = reportApiError;
+
+  // jget: background reads. Quiet by default (pollers call it on a timer and a
+  // transient blip should self-heal without a toast); pass {report:true} for a
+  // user-initiated load that should surface failures.
+  async function jget(url, opts) {
+    try {
+      var r = await fetch(url, { credentials: "same-origin" });
+      if (!r.ok) {
+        var body = await r.json().catch(function () { return {}; });
+        return Promise.reject(body && Object.keys(body).length ? body : { detail: "HTTP " + r.status });
+      }
+      return await r.json();
+    } catch (e) {
+      if (opts && opts.report) reportApiError(opts.context || "Load failed", e, "warn");
+      throw e;
+    }
+  }
+  // jsend: mutations (POST/PUT/DELETE) — always user-initiated, so failures are
+  // surfaced by default. Pass {quiet:true} to suppress for a call site that
+  // renders its own error.
+  async function jsend(method, url, body, opts) {
+    try {
+      var r = await fetch(url, {
+        method: method, credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      var data = await r.json().catch(function () { return {}; });
+      if (!r.ok) throw (data && data.detail ? data.detail : "Request failed");
+      return data;
+    } catch (e) {
+      if (!(opts && opts.quiet)) {
+        var ctx = (opts && opts.context) || (method + " " + url.split("?")[0]);
+        reportApiError(ctx, e, "error");
+      }
+      throw e;
+    }
   }
   function setMsg(id, text, ok) {
     var el = document.getElementById(id); if (!el) return;

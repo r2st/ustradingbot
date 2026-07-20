@@ -8,13 +8,13 @@ profile.  The HTTP Basic admin remains independent and always available.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException
 
 from config.settings import get_settings
 from dashboard.auth import require_auth
-from dashboard.http_util import parse_json_body
+from dashboard.schemas import LoginRequest, ProfileUpdateRequest, RegisterRequest
 from users.accounts import AccountError, UserProfile, get_user_store
 
 router = APIRouter(prefix="/api/users", tags=["Users"])
@@ -29,11 +29,6 @@ def _require_multi_user() -> None:
         raise HTTPException(status_code=404, detail="Multi-user support is disabled.")
 
 
-async def _body(request: Request) -> Dict[str, Any]:
-    """Parse a JSON object body, 422 on malformed JSON (see B7)."""
-    return await parse_json_body(request)
-
-
 def _current_user(x_user_token: Optional[str]) -> str:
     username = _store().validate_token(x_user_token or "")
     if username is None:
@@ -42,24 +37,21 @@ def _current_user(x_user_token: Optional[str]) -> str:
 
 
 @router.post("/register")
-async def register(request: Request):
+async def register(payload: RegisterRequest):
     _require_multi_user()
-    body = await _body(request)
-    profile = UserProfile.from_dict(body.get("profile", {})) if body.get("profile") else None
+    profile = UserProfile.from_dict(payload.profile) if payload.profile else None
     try:
-        name = _store().register(str(body.get("username", "")),
-                                 str(body.get("password", "")), profile)
+        name = _store().register(payload.username, payload.password, profile)
     except AccountError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"ok": True, "username": name}
 
 
 @router.post("/login")
-async def login(request: Request):
+async def login(payload: LoginRequest):
     _require_multi_user()
-    body = await _body(request)
     try:
-        token = _store().login(str(body.get("username", "")), str(body.get("password", "")))
+        token = _store().login(payload.username, payload.password)
     except AccountError as exc:
         raise HTTPException(status_code=401, detail=str(exc))
     return {"ok": True, "token": token}
@@ -81,12 +73,16 @@ async def me(x_user_token: Optional[str] = Header(default=None)):
 
 
 @router.post("/me/profile")
-async def update_profile(request: Request, x_user_token: Optional[str] = Header(default=None)):
+async def update_profile(
+    payload: ProfileUpdateRequest,
+    x_user_token: Optional[str] = Header(default=None),
+):
     _require_multi_user()
     username = _current_user(x_user_token)
-    body = await _body(request)
     try:
-        profile = _store().update_profile(username, UserProfile.from_dict(body))
+        profile = _store().update_profile(
+            username, UserProfile.from_dict(payload.model_dump())
+        )
     except AccountError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"ok": True, "username": username, "profile": profile.to_dict()}

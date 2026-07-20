@@ -13,14 +13,14 @@ first key can be minted.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException
 
 from config.settings import get_settings
 from dashboard.api_keys import get_api_key_store
 from dashboard.auth import require_auth
-from dashboard.http_util import parse_json_body
+from dashboard.schemas import CreateApiKeyRequest
 
 router = APIRouter(prefix="/api/v1", tags=["rest-api-v1"])
 
@@ -127,11 +127,6 @@ async def api_risk(_key: str = Depends(require_api_key)):
 # ---------------------------------------------------------------------------
 
 
-async def _body(request: Request) -> Dict[str, Any]:
-    """Parse a JSON object body, 422 on malformed JSON (see B7)."""
-    return await parse_json_body(request)
-
-
 @router.get("/keys")
 async def list_keys(_user: str = Depends(require_auth)):
     store = get_api_key_store(get_settings().DATA_DIR)
@@ -139,10 +134,11 @@ async def list_keys(_user: str = Depends(require_auth)):
 
 
 @router.post("/keys")
-async def create_key(request: Request, _user: str = Depends(require_auth)):
-    body = await _body(request)
+async def create_key(
+    payload: CreateApiKeyRequest, _user: str = Depends(require_auth)
+):
     store = get_api_key_store(get_settings().DATA_DIR)
-    raw, info = store.create(str(body.get("name", "api-key")))
+    raw, info = store.create(payload.name)
     # The raw key is returned exactly once.
     return {"key": raw, "info": info.to_dict()}
 
