@@ -2167,6 +2167,25 @@ async def backtest_run_api(
     return start_backtest(payload.model_dump(exclude_none=True))
 
 
+@app.post(
+    "/api/backtest/walk-forward",
+    tags=["Backtesting"],
+    dependencies=[Depends(rate_limit("backtest_run", control=True))],
+)
+async def walk_forward_run_api(
+    payload: BacktestRunRequest, _user: str = Depends(require_auth)
+):
+    """Kick off a background walk-forward optimization run.
+
+    Accepts the backtest fields plus ``train_months``, ``test_months``,
+    ``step_months``, ``objective`` and an optional ``param_grid`` for the sweep.
+    Poll ``/api/backtest/status/{job_id}`` for the result (same registry).
+    """
+    from dashboard.backtest_control import start_walk_forward
+
+    return start_walk_forward(payload.model_dump(exclude_none=True))
+
+
 @app.get("/api/backtest/latest", tags=["Backtesting"])
 async def backtest_latest_api(_user: str = Depends(require_auth)):
     """The most recently started backtest job, so the UI can resume after

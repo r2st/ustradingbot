@@ -301,6 +301,143 @@ def _summarize(result) -> Dict[str, Any]:
     return payload
 
 
+# ---------------------------------------------------------------------------
+# Walk-forward analysis + parameter optimization (P0-2)
+# ---------------------------------------------------------------------------
+
+#: Grid params the UI may sweep, mapped to a coercion function.  Keeping this an
+#: allowlist stops an arbitrary request from setting unrelated settings fields.
+_SWEEP_PARAMS: Dict[str, Any] = {
+    "min_grade": lambda v: str(v).strip().upper(),
+    "max_positions": int,
+    "RISK_REWARD_MIN": float,
+    "ATR_STOP_MULTIPLIER": float,
+}
+
+
+def _build_wf_config(params: Dict[str, Any]):
+    """Validate raw form *params* into a ``WalkForwardConfig``."""
+    from backtest.walk_forward import WalkForwardConfig
+
+    # Reuse the backtest validation for symbols/strategies/dates/capital/grade.
+    base_config, meta = _build_config(params)
+
+    def _pos_int(key: str, default: int) -> int:
+        raw = params.get(key, default)
+        try:
+            val = int(raw)
+        except (ValueError, TypeError):
+            raise ValueError(f"{key} must be a whole number of months.")
+        if val <= 0:
+            raise ValueError(f"{key} must be positive.")
+        return val
+
+    train_months = _pos_int("train_months", 12)
+    test_months = _pos_int("test_months", 3)
+    step_months = params.get("step_months")
+    step = None if step_months in (None, "") else _pos_int("step_months", test_months)
+    objective = str(params.get("objective", "sharpe_ratio")).strip() or "sharpe_ratio"
+
+    # Parse the (optional) parameter grid: {param: [values]} through the allowlist.
+    raw_grid = params.get("param_grid") or {}
+    grid: Dict[str, List[Any]] = {}
+    if isinstance(raw_grid, dict):
+        for key, values in raw_grid.items():
+            coerce = _SWEEP_PARAMS.get(key)
+            if coerce is None or not isinstance(values, (list, tuple)) or not values:
+                continue
+            try:
+                grid[key] = [coerce(v) for v in values]
+            except (ValueError, TypeError):
+                raise ValueError(f"Invalid values for sweep parameter {key!r}.")
+
+    wf_config = WalkForwardConfig(
+        symbols=base_config.symbols,
+        start=base_config.start,
+        end=base_config.end,
+        train_months=train_months,
+        test_months=test_months,
+        step_months=step,
+        param_grid=grid,
+        objective=objective,
+        min_grade=base_config.min_grade,
+        starting_capital=base_config.starting_capital,
+        strategies=base_config.strategies,
+    )
+    meta = {
+        **meta,
+        "train_months": train_months,
+        "test_months": test_months,
+        "step_months": step or test_months,
+        "objective": objective,
+        "param_grid": grid,
+    }
+    return wf_config, meta
+
+
+def start_walk_forward(params: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate *params*, spawn a background walk-forward run, return job id."""
+    try:
+        config, meta = _build_wf_config(params)
+    except ValueError as exc:
+        return {"ok": False, "message": str(exc)}
+
+    job_id = uuid.uuid4().hex[:12]
+    job = {
+        "id": job_id,
+        "kind": "walk_forward",
+        "state": "running",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "finished_at": None,
+        "params": meta,
+        "message": "Running walk-forward optimization…",
+        "result": None,
+        "error": None,
+    }
+    with _lock:
+        _jobs[job_id] = job
+        while len(_jobs) > _MAX_JOBS:
+            _jobs.popitem(last=False)
+
+    thread = threading.Thread(
+        target=_run_wf_job, args=(job_id, config), daemon=True,
+        name=f"walkforward-{job_id}",
+    )
+    thread.start()
+    log.info("walk_forward.ui_started", job_id=job_id, **meta)
+    return {"ok": True, "job_id": job_id}
+
+
+def _run_wf_job(job_id: str, config) -> None:
+    """Execute one walk-forward run in the background and store its outcome."""
+    from backtest.walk_forward import run_walk_forward
+
+    try:
+        result = run_walk_forward(config)
+        _update(
+            job_id,
+            state="done",
+            message="Walk-forward complete.",
+            result=result.to_dict(),
+            finished_at=datetime.now(timezone.utc).isoformat(),
+        )
+        log.info(
+            "walk_forward.ui_complete",
+            job_id=job_id,
+            windows=len(result.windows),
+            overfit=result.overfitting.get("warning"),
+        )
+    except Exception as exc:  # noqa: BLE001 -- surface any failure to the UI
+        log.exception("walk_forward.ui_failed", job_id=job_id)
+        _update(
+            job_id,
+            state="error",
+            message=f"Walk-forward failed: {exc}",
+            error=str(exc),
+            finished_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+
 def _update(job_id: str, **fields: Any) -> None:
     with _lock:
         job = _jobs.get(job_id)

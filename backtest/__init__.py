@@ -26,6 +26,13 @@ from backtest.engine import (
     DEFAULT_STRATEGIES,
     run_backtest,
 )
+from backtest.walk_forward import (
+    WalkForwardConfig,
+    WalkForwardResult,
+    WalkForwardWindow,
+    parameter_sweep,
+    run_walk_forward,
+)
 
 __all__ = [
     "Backtester",
@@ -34,4 +41,9 @@ __all__ = [
     "BacktestTrade",
     "DEFAULT_STRATEGIES",
     "run_backtest",
+    "WalkForwardConfig",
+    "WalkForwardResult",
+    "WalkForwardWindow",
+    "parameter_sweep",
+    "run_walk_forward",
 ]
