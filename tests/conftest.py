@@ -33,6 +33,11 @@ def _isolate_env(monkeypatch: pytest.MonkeyPatch) -> None:
     # test-suite so hermetic router tests are never throttled; the dedicated
     # rate-limit tests opt back in explicitly.
     monkeypatch.setenv("RATE_LIMIT_ENABLED", "False")
+    # CSRF same-origin enforcement (B5) is off by default too — the TestClient
+    # sends no Origin header, so it would be allowed anyway, but disabling it
+    # keeps any test that *does* set an Origin hermetic. The dedicated CSRF
+    # tests opt back in explicitly.
+    monkeypatch.setenv("CSRF_PROTECTION_ENABLED", "False")
 
 
 @pytest.fixture(autouse=True)

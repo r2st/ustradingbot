@@ -243,6 +243,31 @@ class Settings(BaseSettings):
     DASHBOARD_HOST: str = "127.0.0.1"
     DASHBOARD_PORT: int = 8501
 
+    # ── CSRF protection (dashboard) ─────────────────────────────────────────
+    # HTTP Basic credentials are cached and auto-attached by browsers, so the
+    # usual "no cookie ⇒ no CSRF" reasoning doesn't fully hold.  A same-origin
+    # Origin/Referer check on state-changing methods is a deliberate defence
+    # (audit B-5).  Disabled automatically under the test-suite.
+    CSRF_PROTECTION_ENABLED: bool = True
+    # Extra origins (scheme://host[:port], comma-separated) to trust in addition
+    # to the request's own Host — set this to your public URL when the dashboard
+    # runs behind a reverse proxy that rewrites the Host header.
+    CSRF_TRUSTED_ORIGINS: str = ""
+
+    @property
+    def csrf_trusted_origin_hosts(self) -> set[str]:
+        """Parsed host[:port] values from :attr:`CSRF_TRUSTED_ORIGINS`."""
+        from urllib.parse import urlsplit
+
+        hosts: set[str] = set()
+        for raw in str(self.CSRF_TRUSTED_ORIGINS or "").split(","):
+            raw = raw.strip()
+            if not raw:
+                continue
+            netloc = urlsplit(raw if "//" in raw else f"//{raw}").netloc or raw
+            hosts.add(netloc.lower())
+        return hosts
+
     # ── Rate limiting & brute-force lockout (dashboard) ─────────────────────
     # In-process protection for money-moving / control endpoints and the login
     # (HTTP Basic) path.  Disabled automatically under the test-suite via the

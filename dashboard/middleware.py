@@ -192,6 +192,84 @@ def install_security_headers(app: FastAPI) -> None:
 
 
 # ---------------------------------------------------------------------------
+# B5(v2) — CSRF: same-origin check on state-changing requests
+# ---------------------------------------------------------------------------
+#: Methods that can change server state and therefore need CSRF protection.
+_CSRF_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+def _origin_host(value: str) -> str:
+    """Return the lower-cased ``host[:port]`` of an Origin/Referer URL."""
+    from urllib.parse import urlsplit
+
+    if not value:
+        return ""
+    return (urlsplit(value).netloc or "").lower()
+
+
+def _request_hosts(request: Request) -> set[str]:
+    """The set of host[:port] values that count as same-origin for *request*.
+
+    Includes the ``Host`` header and any ``X-Forwarded-Host`` (the dashboard is
+    meant to sit behind a TLS-terminating reverse proxy), plus operator-trusted
+    origins from settings.
+    """
+    hosts: set[str] = set()
+    for hv in (request.headers.get("host"), request.headers.get("x-forwarded-host")):
+        if hv:
+            hosts.add(hv.split(",")[0].strip().lower())
+    return hosts
+
+
+def install_csrf_protection(app: FastAPI) -> None:
+    """Register a same-origin CSRF guard for state-changing requests (B-5).
+
+    For POST/PUT/PATCH/DELETE, when the browser sends an ``Origin`` (or falls
+    back to ``Referer``) it must match the request's own host or an operator-
+    trusted origin; a cross-site value is rejected with 403.  Requests with
+    *neither* header (non-browser API clients such as the API-key-authenticated
+    ``/api/v1`` surface, curl, health probes) are allowed — browsers always send
+    ``Origin`` on cross-origin state-changing requests, so their absence is not a
+    cross-site attack.  Gated by ``CSRF_PROTECTION_ENABLED``.
+    """
+
+    @app.middleware("http")
+    async def _csrf(request: Request, call_next):
+        if request.method in _CSRF_METHODS:
+            from dashboard.auth import get_settings
+
+            settings = get_settings()
+            if getattr(settings, "CSRF_PROTECTION_ENABLED", True):
+                origin = request.headers.get("origin") or ""
+                referer = request.headers.get("referer") or ""
+                source = _origin_host(origin) or _origin_host(referer)
+                if source:
+                    allowed = _request_hosts(request)
+                    allowed |= getattr(settings, "csrf_trusted_origin_hosts", set())
+                    if source not in allowed:
+                        log.warning(
+                            "csrf.blocked",
+                            origin=origin or None,
+                            referer=referer or None,
+                            source=source,
+                            allowed=sorted(allowed),
+                            path=request.url.path,
+                            ip=_client_ip(request),
+                        )
+                        from dashboard.http_util import error_body
+
+                        return JSONResponse(
+                            status_code=403,
+                            content=error_body(
+                                403,
+                                "Cross-site request blocked (origin mismatch).",
+                                code="csrf_failed",
+                            ),
+                        )
+        return await call_next(request)
+
+
+# ---------------------------------------------------------------------------
 # B8 — global exception handler
 # ---------------------------------------------------------------------------
 def install_exception_handlers(app: FastAPI, *, debug: bool = False) -> None:
@@ -283,5 +361,8 @@ def install(app: FastAPI, *, debug: bool = False) -> None:
     # B5 — reject over-sized request bodies before any handler buffers them.
     app.add_middleware(BodySizeLimitMiddleware)
     install_security_headers(app)
+    # B5(v2) — same-origin CSRF guard (registered before the exception handlers
+    # so a blocked request still gets the standard error envelope).
+    install_csrf_protection(app)
     install_exception_handlers(app, debug=debug)
     install_request_logging(app)
