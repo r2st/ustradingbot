@@ -2037,6 +2037,42 @@ async def risk_sectors(_user: str = Depends(require_auth)):
     return {"sector_concentration": _risk_report().sector_concentration}
 
 
+@app.get("/api/attribution", tags=["Analytics"])
+async def attribution_api(_user: str = Depends(require_auth)):
+    """Performance attribution: P&L by sector, by strategy, and market-factor."""
+    from analytics.attribution import build_attribution_report
+
+    settings = get_settings()
+    return await run_in_threadpool(
+        build_attribution_report, str(settings.DATA_DIR), settings.TOTAL_CAPITAL
+    )
+
+
+@app.get("/api/statement", tags=["Analytics"])
+async def statement_api(
+    period: str = "monthly", format: str = "json",
+    _user: str = Depends(require_auth),
+):
+    """Generate a monthly/quarterly statement; ``?format=pdf`` downloads the PDF."""
+    from automation.statements import build_statement
+
+    settings = get_settings()
+    statement = await run_in_threadpool(build_statement, settings, period)
+    if format.lower() == "pdf" and statement.pdf:
+        from fastapi.responses import Response
+
+        return Response(
+            content=statement.pdf,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition":
+                f'attachment; filename="statement_{period}.pdf"'
+            },
+        )
+    return {"subject": statement.subject, "body": statement.body,
+            "period": statement.period, "lines": statement.lines}
+
+
 @app.get("/api/dividends", tags=["Analytics"])
 async def dividends_api(_user: str = Depends(require_auth)):
     """Accrued dividend income per open position + total-return summary."""

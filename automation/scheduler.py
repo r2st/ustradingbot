@@ -53,8 +53,10 @@ class Job:
     hour: int
     minute: int
     callback: Callable[[], None]
-    kind: str = "daily"  # "daily" | "weekly"
+    kind: str = "daily"  # "daily" | "weekly" | "monthly"
     weekday: int = 0  # only for weekly jobs (Mon=0)
+    day: int = 1  # only for monthly jobs (day-of-month)
+    months: Optional[frozenset] = None  # monthly: restrict to these months (quarterly)
     last_run: Optional[datetime] = field(default=None)
 
 
@@ -67,13 +69,30 @@ def is_due(job: Job, now: datetime, last_run: Optional[datetime]) -> bool:
     """
     if job.kind == "weekly" and now.weekday() != job.weekday:
         return False
+    if job.kind == "monthly":
+        # Fire on the configured day-of-month (clamped to the month's length so
+        # a "day 31" job still runs in short months), restricted to job.months
+        # when set (quarterly delivery).
+        import calendar as _cal
+
+        last_dom = _cal.monthrange(now.year, now.month)[1]
+        target_day = min(job.day, last_dom)
+        if now.day != target_day:
+            return False
+        if job.months is not None and now.month not in job.months:
+            return False
     scheduled = now.replace(
         hour=job.hour, minute=job.minute, second=0, microsecond=0
     )
     if now < scheduled:
         return False
-    if last_run is not None and last_run.date() >= now.date():
-        return False
+    if last_run is not None:
+        if job.kind == "monthly":
+            # Once per (year, month).
+            if (last_run.year, last_run.month) == (now.year, now.month):
+                return False
+        elif last_run.date() >= now.date():
+            return False
     return True
 
 
@@ -103,6 +122,23 @@ class SimpleScheduler:
             self._jobs.append(
                 Job(name, hour, minute, callback, kind="weekly",
                     weekday=parse_weekday(weekday))
+            )
+
+    def add_monthly(
+        self,
+        name: str,
+        day: int,
+        hhmm: str,
+        callback: Callable[[], None],
+        months: Optional[frozenset] = None,
+    ) -> None:
+        """Register a monthly job on *day* at *hhmm*; *months* restricts it
+        (e.g. ``{1, 4, 7, 10}`` for quarterly)."""
+        hour, minute = parse_hhmm(hhmm)
+        with self._lock:
+            self._jobs.append(
+                Job(name, hour, minute, callback, kind="monthly",
+                    day=int(day), months=months)
             )
 
     @property
@@ -180,6 +216,20 @@ def build_scheduler(settings) -> Optional[SimpleScheduler]:
                 settings.PNL_REPORT_DAILY_TIME,
                 lambda: send_report(settings, "weekly"),
             )
+
+    if getattr(settings, "STATEMENT_ENABLED", False):
+        from automation.statements import send_statement
+
+        period = str(getattr(settings, "STATEMENT_PERIOD", "monthly")).lower()
+        months = frozenset({1, 4, 7, 10}) if period == "quarterly" else None
+        scheduler.add_monthly(
+            "performance_statement",
+            int(getattr(settings, "STATEMENT_DAY", 1)),
+            str(getattr(settings, "STATEMENT_TIME", "08:00")),
+            lambda: send_statement(settings, period),
+            months=months,
+        )
+        added = True
 
     if getattr(settings, "SCHEDULED_BACKTEST_ENABLED", False):
         from automation.scheduled_backtest import run_nightly_backtests

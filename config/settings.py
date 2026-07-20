@@ -847,6 +847,12 @@ class Settings(BaseSettings):
     PNL_REPORT_DAILY_TIME: str = "17:00"
     PNL_REPORT_WEEKLY_ENABLED: bool = True
     PNL_REPORT_WEEKLY_DAY: str = "FRI"
+    # Scheduled monthly/quarterly PDF performance statements (P1-10), emailed
+    # over SMTP with the PDF attached.  Runs via the scheduler's monthly job.
+    STATEMENT_ENABLED: bool = False
+    STATEMENT_PERIOD: str = "monthly"       # monthly | quarterly
+    STATEMENT_DAY: int = 1                   # day-of-month to send
+    STATEMENT_TIME: str = "08:00"
     SCHEDULED_BACKTEST_ENABLED: bool = False
     SCHEDULED_BACKTEST_TIME: str = "02:00"
     SCHEDULED_BACKTEST_LOOKBACK_DAYS: int = 180
