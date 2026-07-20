@@ -1002,6 +1002,14 @@
   .api-key-raw { font-family: ui-monospace, Menlo, monospace; font-size: 12px; word-break: break-all;
                  background: var(--bg); border: 1px solid var(--green); border-radius: 6px; padding: 8px; }
   .muted-note { color: var(--text-muted); font-size: 12px; margin-top: 6px; }
+  /* Screen-reader-only: visually hidden but exposed to assistive tech (a11y F-1/F-2). */
+  .sr-only {
+    position: absolute !important;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0, 0, 0, 0);
+    white-space: nowrap; border: 0;
+  }
   .callout {
     background: var(--surface, rgba(127,127,127,0.08));
     border: 1px solid var(--border, rgba(127,127,127,0.3));
@@ -1632,16 +1640,16 @@
     </div>
     {% elif positions_view == 'table' %}
     <div style="overflow-x:auto;">
-      <table class="score-table">
+      <table class="score-table"><caption class="sr-only">Open positions</caption>
         <thead>
           <tr>
-            <th>Symbol</th><th>Strategy</th><th>Grade</th>
-            <th class="num">Qty</th><th class="num">Entry</th>
-            <th class="num">Current</th><th class="num">Unreal P&amp;L</th>
-            <th class="num">Stop</th><th class="num">Target</th>
-            <th>Stop ◄─● ─► Target</th>
-            <th class="num">Cost Basis</th>
-            <th>Opened</th><th></th>
+            <th scope="col">Symbol</th><th scope="col">Strategy</th><th scope="col">Grade</th>
+            <th scope="col" class="num">Qty</th><th scope="col" class="num">Entry</th>
+            <th scope="col" class="num">Current</th><th scope="col" class="num">Unreal P&amp;L</th>
+            <th scope="col" class="num">Stop</th><th scope="col" class="num">Target</th>
+            <th scope="col">Stop ◄─● ─► Target</th>
+            <th scope="col" class="num">Cost Basis</th>
+            <th scope="col">Opened</th><th scope="col"></th>
           </tr>
         </thead>
         <tbody>
@@ -1710,11 +1718,11 @@
     <div id="paperTradesWrap">
     {% if paper.recent_trades %}
     <div style="overflow-x:auto;">
-      <table class="score-table">
+      <table class="score-table"><caption class="sr-only">Recent trade history</caption>
         <thead>
           <tr>
-            <th>Symbol</th><th>Strategy</th><th class="num">Entry</th><th class="num">Exit</th>
-            <th>Reason</th><th class="num">Net P&amp;L</th><th class="num">R</th><th>Closed</th>
+            <th scope="col">Symbol</th><th scope="col">Strategy</th><th scope="col" class="num">Entry</th><th scope="col" class="num">Exit</th>
+            <th scope="col">Reason</th><th scope="col" class="num">Net P&amp;L</th><th scope="col" class="num">R</th><th scope="col">Closed</th>
           </tr>
         </thead>
         <tbody>
@@ -1755,12 +1763,12 @@
   <div class="section-body">
     {% if strategy_comparison %}
     <div class="table-wrap">
-    <table class="data-table">
+    <table class="data-table"><caption class="sr-only">Strategy performance comparison</caption>
       <thead>
         <tr>
-          <th>Strategy</th><th>Trades</th><th>Win Rate</th>
-          <th>Avg Win</th><th>Avg Loss</th><th>Profit Factor</th>
-          <th>Expectancy</th><th>Total P&L</th>
+          <th scope="col">Strategy</th><th scope="col">Trades</th><th scope="col">Win Rate</th>
+          <th scope="col">Avg Win</th><th scope="col">Avg Loss</th><th scope="col">Profit Factor</th>
+          <th scope="col">Expectancy</th><th scope="col">Total P&L</th>
         </tr>
       </thead>
       <tbody>
@@ -1888,13 +1896,13 @@
            preserveAspectRatio="none"></svg></div>
       <h4 style="margin:14px 0 2px;">Trades <span id="btTradeCount" class="bt-hint"></span></h4>
       <div class="table-wrap">
-        <table class="data-table">
+        <table class="data-table"><caption class="sr-only">Recent trades</caption>
           <thead>
-            <tr><th>Symbol</th><th>Strategy</th>
-              <th>Entry Date</th><th>Entry $</th>
-              <th>Exit Date</th><th>Exit $</th>
-              <th>Stop</th><th>Target</th>
-              <th>Reason</th><th>Qty</th><th>Net P&amp;L</th><th>R</th></tr>
+            <tr><th scope="col">Symbol</th><th scope="col">Strategy</th>
+              <th scope="col">Entry Date</th><th scope="col">Entry $</th>
+              <th scope="col">Exit Date</th><th scope="col">Exit $</th>
+              <th scope="col">Stop</th><th scope="col">Target</th>
+              <th scope="col">Reason</th><th scope="col">Qty</th><th scope="col">Net P&amp;L</th><th scope="col">R</th></tr>
           </thead>
           <tbody id="btTrades"></tbody>
         </table>
@@ -1918,9 +1926,9 @@
                 onclick="filterBtLog('reject', this)">Rejections</button>
       </div>
       <div class="bt-log-wrap">
-        <table class="bt-log-table">
+        <table class="bt-log-table"><caption class="sr-only">Backtest signal log</caption>
           <thead>
-            <tr><th>Date</th><th>Event</th><th>Symbol</th><th>Detail</th></tr>
+            <tr><th scope="col">Date</th><th scope="col">Event</th><th scope="col">Symbol</th><th scope="col">Detail</th></tr>
           </thead>
           <tbody id="btLog"></tbody>
         </table>
@@ -1971,9 +1979,9 @@
     <p class="muted-note">Per-symbol results from the most recent backtest run — tick a row
       to add that symbol to the selection. Run a backtest above to refresh this table.</p>
     <div class="bt-table-wrap">
-      <table class="data-table">
-        <thead><tr><th>Trade</th><th>Symbol</th><th>Trades</th><th>Win rate</th>
-          <th>Net P&amp;L</th><th>Avg R</th><th>Profit factor</th></tr></thead>
+      <table class="data-table"><caption class="sr-only">Backtest performance summary</caption>
+        <thead><tr><th scope="col">Trade</th><th scope="col">Symbol</th><th scope="col">Trades</th><th scope="col">Win rate</th>
+          <th scope="col">Net P&amp;L</th><th scope="col">Avg R</th><th scope="col">Profit factor</th></tr></thead>
         <tbody id="selBtRows"><tr><td colspan="7" class="empty-note">No backtest results yet — run one in the Backtesting section.</td></tr></tbody>
       </table>
     </div>
@@ -2026,19 +2034,19 @@
          rel="noopener" style="text-decoration:none;">Export CSV</a>
     </div>
     <div style="overflow-x:auto;">
-      <table class="data-table">
+      <table class="data-table"><caption class="sr-only">Closed trades</caption>
         <thead><tr>
-          <th onclick="histSort('symbol')" style="cursor:pointer;">Symbol</th>
-          <th onclick="histSort('strategy')" style="cursor:pointer;">Strategy</th>
-          <th>Grade</th>
-          <th class="num">Entry</th><th class="num">Exit</th>
-          <th onclick="histSort('hold_duration_hours')" style="cursor:pointer;">Hold</th>
-          <th class="num" onclick="histSort('pnl_net')" style="cursor:pointer;">P&amp;L $</th>
-          <th class="num" onclick="histSort('pnl_pct')" style="cursor:pointer;">P&amp;L %</th>
-          <th class="num" onclick="histSort('r_multiple')" style="cursor:pointer;">R</th>
-          <th>Exit reason</th>
-          <th onclick="histSort('exit_time')" style="cursor:pointer;">Closed ▾</th>
-          <th></th>
+          <th scope="col" onclick="histSort('symbol')" style="cursor:pointer;">Symbol</th>
+          <th scope="col" onclick="histSort('strategy')" style="cursor:pointer;">Strategy</th>
+          <th scope="col">Grade</th>
+          <th scope="col" class="num">Entry</th><th scope="col" class="num">Exit</th>
+          <th scope="col" onclick="histSort('hold_duration_hours')" style="cursor:pointer;">Hold</th>
+          <th scope="col" class="num" onclick="histSort('pnl_net')" style="cursor:pointer;">P&amp;L $</th>
+          <th scope="col" class="num" onclick="histSort('pnl_pct')" style="cursor:pointer;">P&amp;L %</th>
+          <th scope="col" class="num" onclick="histSort('r_multiple')" style="cursor:pointer;">R</th>
+          <th scope="col">Exit reason</th>
+          <th scope="col" onclick="histSort('exit_time')" style="cursor:pointer;">Closed ▾</th>
+          <th scope="col"></th>
         </tr></thead>
         <tbody id="histRows"><tr><td colspan="12" class="empty-note">Loading…</td></tr></tbody>
       </table>
@@ -2117,9 +2125,9 @@
       answer to “why didn’t the bot trade today?”.</p>
     <h4>Recent Cycles</h4>
     <div style="overflow-x:auto;">
-      <table class="data-table">
-        <thead><tr><th>Cycle</th><th class="num">Signals</th><th>Rejected by gate</th>
-          <th class="num">Placed</th><th class="num">Exits</th><th class="num">Elapsed</th></tr></thead>
+      <table class="data-table"><caption class="sr-only">Recent engine cycles</caption>
+        <thead><tr><th scope="col">Cycle</th><th scope="col" class="num">Signals</th><th scope="col">Rejected by gate</th>
+          <th scope="col" class="num">Placed</th><th scope="col" class="num">Exits</th><th scope="col" class="num">Elapsed</th></tr></thead>
         <tbody id="actCycleRows"><tr><td colspan="6" class="empty-note">No cycles yet —
           the feed fills once the engine runs a market-hours cycle.</td></tr></tbody>
       </table>
@@ -2182,9 +2190,9 @@
       drawdown (fraction, e.g. 0.05), daily loss (fraction of capital), and proximity (%).
       Changes take effect on the engine's next dispatch — no restart needed.</p>
     <div style="overflow-x:auto;">
-      <table class="data-table">
-        <thead><tr><th>Event</th><th>Enabled</th><th>Telegram</th><th>Email</th>
-          <th>Push</th><th>Threshold</th></tr></thead>
+      <table class="data-table"><caption class="sr-only">Alert rules</caption>
+        <thead><tr><th scope="col">Event</th><th scope="col">Enabled</th><th scope="col">Telegram</th><th scope="col">Email</th>
+          <th scope="col">Push</th><th scope="col">Threshold</th></tr></thead>
         <tbody id="alertRuleRows"><tr><td colspan="6" class="empty-note">Loading…</td></tr></tbody>
       </table>
     </div>
@@ -2257,10 +2265,10 @@
       <strong>prefer</strong> annotates, <strong>observe</strong> is a non-binding note. A lesson only
       binds once enough similar trades support it and confidence clears the threshold.</p>
     <div class="table-wrap">
-      <table class="data-table">
+      <table class="data-table"><caption class="sr-only">AI learnings</caption>
         <thead><tr>
-          <th>Date</th><th>Symbol</th><th>Strategy</th><th>Lesson</th>
-          <th>Binding</th><th class="num">Confidence</th><th class="num">Support</th>
+          <th scope="col">Date</th><th scope="col">Symbol</th><th scope="col">Strategy</th><th scope="col">Lesson</th>
+          <th scope="col">Binding</th><th scope="col" class="num">Confidence</th><th scope="col" class="num">Support</th>
         </tr></thead>
         <tbody id="memLearningRows">
           <tr><td colspan="7" class="empty-note">Loading…</td></tr>
@@ -2284,10 +2292,10 @@
       evaluated (grade, RSI, volume) and why it was rejected. (Only rejections are logged; accepted
       signals pass through silently.)</p>
     <div class="table-wrap">
-      <table class="data-table">
+      <table class="data-table"><caption class="sr-only">AI guard decisions</caption>
         <thead><tr>
-          <th>Time</th><th>Guard</th><th>Decision</th><th>Symbol</th><th>Strategy</th>
-          <th>Grade</th><th class="num">RSI</th><th class="num">Vol×</th><th>Reason</th>
+          <th scope="col">Time</th><th scope="col">Guard</th><th scope="col">Decision</th><th scope="col">Symbol</th><th scope="col">Strategy</th>
+          <th scope="col">Grade</th><th scope="col" class="num">RSI</th><th scope="col" class="num">Vol×</th><th scope="col">Reason</th>
         </tr></thead>
         <tbody id="memGuardRows">
           <tr><td colspan="9" class="empty-note">Loading…</td></tr>
@@ -2444,20 +2452,20 @@
       <div class="muted-note" id="riskBudgetNote">—</div>
     </div>
     <div style="overflow-x:auto;">
-      <table class="data-table"><tbody id="riskOpenRows">
+      <table class="data-table"><caption class="sr-only">Open positions risk breakdown</caption><tbody id="riskOpenRows">
         <tr><td class="empty-note">Loading…</td></tr>
       </tbody></table>
     </div>
     <div class="risk-grid">
       <div>
         <h4>Sector Concentration</h4>
-        <table class="data-table"><tbody id="riskSectors">
+        <table class="data-table"><caption class="sr-only">Sector concentration</caption><tbody id="riskSectors">
           <tr><td class="empty-note">Loading…</td></tr>
         </tbody></table>
       </div>
       <div>
         <h4>Position Correlations</h4>
-        <table class="data-table"><tbody id="riskCorr">
+        <table class="data-table"><caption class="sr-only">Position correlations</caption><tbody id="riskCorr">
           <tr><td class="empty-note">Loading…</td></tr>
         </tbody></table>
       </div>
@@ -2465,13 +2473,13 @@
     <div class="risk-grid">
       <div>
         <h4>P&L Breakdown</h4>
-        <table class="data-table"><tbody id="riskPnl">
+        <table class="data-table"><caption class="sr-only">Profit and loss breakdown</caption><tbody id="riskPnl">
           <tr><td class="empty-note">Loading…</td></tr>
         </tbody></table>
       </div>
       <div>
         <h4>Exposure by Currency</h4>
-        <table class="data-table"><tbody id="riskExposure">
+        <table class="data-table"><caption class="sr-only">Exposure by currency</caption><tbody id="riskExposure">
           <tr><td class="empty-note">Loading…</td></tr>
         </tbody></table>
       </div>
@@ -2486,7 +2494,7 @@
     <!-- Correlation matrix (feature 7) -->
     <h4 style="margin-top:18px;">Position Correlation Matrix</h4>
     <div class="scroll-x">
-      <table class="corr-matrix" id="riskCorrMatrix"></table>
+      <table class="corr-matrix" id="riskCorrMatrix" aria-label="Position correlation matrix"></table>
     </div>
     <p class="muted-note" id="riskCorrNote">Green = positively correlated, red = inversely.
       A book of highly-correlated names is really one bet.</p>
@@ -2619,9 +2627,9 @@
       return v >= 0 ? "rgba(46,204,113," + a.toFixed(2) + ")"
                     : "rgba(231,76,60," + a.toFixed(2) + ")";
     }
-    var head = "<tr><th></th>" + syms.map(function (s) { return "<th>" + s + "</th>"; }).join("") + "</tr>";
+    var head = "<tr><th></th>" + syms.map(function (s) { return "<th scope='col'>" + s + "</th>"; }).join("") + "</tr>";
     var body = syms.map(function (r) {
-      return "<tr><th>" + r + "</th>" + syms.map(function (c) {
+      return "<tr><th scope='row'>" + r + "</th>" + syms.map(function (c) {
         if (r === c) return '<td class="corr-cell" style="background:var(--surface-2)">1.00</td>';
         var v = m[r + "|" + c];
         if (v === undefined) return '<td>·</td>';
@@ -2788,22 +2796,22 @@
   </div>
   <div class="section-body">
     <div style="overflow-x:auto;">
-      <table class="score-table">
+      <table class="score-table"><caption class="sr-only">Demo signal scoring</caption>
         <thead>
           <tr>
-            <th>Symbol</th>
-            <th>Strategy</th>
-            <th>Grade</th>
-            <th class="num">Score</th>
-            <th class="num">Entry</th>
-            <th class="num">Stop</th>
-            <th class="num">Target</th>
-            <th class="num">R:R</th>
-            <th class="num">RSI</th>
-            <th class="num">MACD</th>
-            <th class="num">EMA</th>
-            <th class="num">Vol</th>
-            <th class="num">Rip</th>
+            <th scope="col">Symbol</th>
+            <th scope="col">Strategy</th>
+            <th scope="col">Grade</th>
+            <th scope="col" class="num">Score</th>
+            <th scope="col" class="num">Entry</th>
+            <th scope="col" class="num">Stop</th>
+            <th scope="col" class="num">Target</th>
+            <th scope="col" class="num">R:R</th>
+            <th scope="col" class="num">RSI</th>
+            <th scope="col" class="num">MACD</th>
+            <th scope="col" class="num">EMA</th>
+            <th scope="col" class="num">Vol</th>
+            <th scope="col" class="num">Rip</th>
           </tr>
         </thead>
         <tbody>
@@ -2910,9 +2918,9 @@
     <p class="muted-note">What might the bot do next — live price, day change, and each
       symbol's status in the latest scan (signal / near entry / held / rejected / excluded).</p>
     <div style="overflow-x:auto;">
-      <table class="data-table">
-        <thead><tr><th>Symbol</th><th>Lists</th><th class="num">Price</th>
-          <th class="num">Day %</th><th>Status</th><th>Detail</th></tr></thead>
+      <table class="data-table"><caption class="sr-only">Watchlist management</caption>
+        <thead><tr><th scope="col">Symbol</th><th scope="col">Lists</th><th scope="col" class="num">Price</th>
+          <th scope="col" class="num">Day %</th><th scope="col">Status</th><th scope="col">Detail</th></tr></thead>
         <tbody id="wlMonRows"><tr><td colspan="6" class="empty-note">Loading…</td></tr></tbody>
       </table>
     </div>
@@ -3022,20 +3030,20 @@
 
       <!-- Symbols table -->
       <div class="table-wrap">
-        <table class="data-table" id="uniTable">
+        <table class="data-table" id="uniTable"><caption class="sr-only">Trading universe symbols</caption>
           <thead>
             <tr>
-              <th style="width:30px;"><input type="checkbox" id="uniCheckAll"
+              <th scope="col" style="width:30px;"><input type="checkbox" id="uniCheckAll"
                    onchange="uniToggleAllPage(this.checked)"></th>
-              <th style="cursor:pointer;" onclick="uniSortBy('ticker')">Ticker</th>
-              <th style="cursor:pointer;" onclick="uniSortBy('name')">Name</th>
-              <th style="cursor:pointer;" onclick="uniSortBy('exchange')">Exchange</th>
-              <th style="cursor:pointer;" onclick="uniSortBy('sector')">Sector</th>
-              <th>Type</th>
-              <th class="num" style="cursor:pointer;" onclick="uniSortBy('market_cap')">Market Cap</th>
-              <th class="num" style="cursor:pointer;" onclick="uniSortBy('avg_volume')">Avg Volume</th>
-              <th class="num" style="cursor:pointer;" onclick="uniSortBy('last_price')">Last Price</th>
-              <th></th>
+              <th scope="col" style="cursor:pointer;" onclick="uniSortBy('ticker')">Ticker</th>
+              <th scope="col" style="cursor:pointer;" onclick="uniSortBy('name')">Name</th>
+              <th scope="col" style="cursor:pointer;" onclick="uniSortBy('exchange')">Exchange</th>
+              <th scope="col" style="cursor:pointer;" onclick="uniSortBy('sector')">Sector</th>
+              <th scope="col">Type</th>
+              <th scope="col" class="num" style="cursor:pointer;" onclick="uniSortBy('market_cap')">Market Cap</th>
+              <th scope="col" class="num" style="cursor:pointer;" onclick="uniSortBy('avg_volume')">Avg Volume</th>
+              <th scope="col" class="num" style="cursor:pointer;" onclick="uniSortBy('last_price')">Last Price</th>
+              <th scope="col"></th>
             </tr>
           </thead>
           <tbody id="uniTableBody">
@@ -3129,16 +3137,16 @@
             <b id="uniScanPoolSize">--</b> S&amp;P 500 names ranked by
             <b>volume × market cap</b>. A signal here auto-promotes the symbol into Tier 1.</p>
           <div class="table-wrap">
-            <table class="data-table" id="uniScanPoolTable">
+            <table class="data-table" id="uniScanPoolTable"><caption class="sr-only">Tier 2 scan pool</caption>
               <thead>
                 <tr>
-                  <th style="width:44px;">Rank</th>
-                  <th>Ticker</th>
-                  <th>Name</th>
-                  <th>Sector</th>
-                  <th class="num">Market Cap</th>
-                  <th class="num">Avg Volume</th>
-                  <th class="num" title="volume × market cap, relative to rank 1 = 100">Liquidity Score</th>
+                  <th scope="col" style="width:44px;">Rank</th>
+                  <th scope="col">Ticker</th>
+                  <th scope="col">Name</th>
+                  <th scope="col">Sector</th>
+                  <th scope="col" class="num">Market Cap</th>
+                  <th scope="col" class="num">Avg Volume</th>
+                  <th scope="col" class="num" title="volume × market cap, relative to rank 1 = 100">Liquidity Score</th>
                 </tr>
               </thead>
               <tbody id="uniScanPoolBody">
@@ -3155,15 +3163,15 @@
             TTL lapses.</p>
           <div id="uniPromoWrap">
             <div class="table-wrap">
-              <table class="data-table" id="uniPromoTable">
+              <table class="data-table" id="uniPromoTable"><caption class="sr-only">Promoted symbols</caption>
                 <thead>
                   <tr>
-                    <th>Ticker</th>
-                    <th>Source</th>
-                    <th>Reason</th>
-                    <th>Promoted</th>
-                    <th>TTL Remaining</th>
-                    <th></th>
+                    <th scope="col">Ticker</th>
+                    <th scope="col">Source</th>
+                    <th scope="col">Reason</th>
+                    <th scope="col">Promoted</th>
+                    <th scope="col">TTL Remaining</th>
+                    <th scope="col"></th>
                   </tr>
                 </thead>
                 <tbody id="uniPromoBody">
@@ -3300,8 +3308,8 @@
       <strong>unusual volume</strong>.</p>
     <button type="button" class="btn-primary" onclick="loadScanner()">Run scan</button>
     <div class="scroll-x" style="margin-top:12px;">
-      <table class="data-table">
-        <thead><tr><th>Symbol</th><th>Prev</th><th>Last</th><th>Gap</th><th>Vol&nbsp;×</th><th>Signals</th></tr></thead>
+      <table class="data-table"><caption class="sr-only">Pre-market scanner results</caption>
+        <thead><tr><th scope="col">Symbol</th><th scope="col">Prev</th><th scope="col">Last</th><th scope="col">Gap</th><th scope="col">Vol&nbsp;×</th><th scope="col">Signals</th></tr></thead>
         <tbody id="scannerRows"><tr><td colspan="6" class="empty-note">Click “Run scan”.</td></tr></tbody>
       </table>
     </div>
@@ -3323,8 +3331,8 @@
     <p class="muted-note">Upcoming earnings for every watchlist symbol (via yfinance).</p>
     <button type="button" class="btn-secondary" onclick="loadEarnings()">Load earnings</button>
     <div class="scroll-x" style="margin-top:12px;">
-      <table class="data-table">
-        <thead><tr><th>Symbol</th><th>Earnings date</th><th>Days away</th></tr></thead>
+      <table class="data-table"><caption class="sr-only">Upcoming earnings</caption>
+        <thead><tr><th scope="col">Symbol</th><th scope="col">Earnings date</th><th scope="col">Days away</th></tr></thead>
         <tbody id="earningsRows"><tr><td colspan="3" class="empty-note">Click “Load earnings”.</td></tr></tbody>
       </table>
     </div>
@@ -3335,10 +3343,10 @@
     <button type="button" class="btn-secondary" onclick="loadTodaysEarnings()">Load today</button>
     <div id="contagionBox" style="margin-top:10px;"></div>
     <div class="scroll-x" style="margin-top:12px;">
-      <table class="data-table">
+      <table class="data-table"><caption class="sr-only">Companies reporting earnings today</caption>
         <thead><tr>
-          <th>Symbol</th><th>Session</th><th>Est EPS</th><th>Actual</th>
-          <th>Surprise %</th><th>Pre/Post move</th><th>Sector</th>
+          <th scope="col">Symbol</th><th scope="col">Session</th><th scope="col">Est EPS</th><th scope="col">Actual</th>
+          <th scope="col">Surprise %</th><th scope="col">Pre/Post move</th><th scope="col">Sector</th>
         </tr></thead>
         <tbody id="todaysEarningsRows"><tr><td colspan="7" class="empty-note">Click “Load today”.</td></tr></tbody>
       </table>
@@ -3363,10 +3371,10 @@
     <button type="button" class="btn-secondary" onclick="loadSectors()">Load sectors</button>
     <div id="breadthBox" style="margin-top:12px;"></div>
     <div class="scroll-x" style="margin-top:12px;">
-      <table class="data-table">
+      <table class="data-table"><caption class="sr-only">Sector rotation and breadth</caption>
         <thead><tr>
-          <th>Sector</th><th>ETF</th><th>Return</th><th>vs SPY</th>
-          <th>Above 50-DMA</th><th>Score</th><th>Leader</th>
+          <th scope="col">Sector</th><th scope="col">ETF</th><th scope="col">Return</th><th scope="col">vs SPY</th>
+          <th scope="col">Above 50-DMA</th><th scope="col">Score</th><th scope="col">Leader</th>
         </tr></thead>
         <tbody id="sectorsRows"><tr><td colspan="7" class="empty-note">Click “Load sectors”.</td></tr></tbody>
       </table>
@@ -3434,8 +3442,8 @@
     <div id="noteTagCloud" style="margin:6px 0;"></div>
     <div id="noteResult" class="modal-result"></div>
     <div class="scroll-x">
-      <table class="data-table">
-        <thead><tr><th>Trade</th><th>Note</th><th>Tags</th><th>Updated</th><th></th></tr></thead>
+      <table class="data-table"><caption class="sr-only">Trade journal notes</caption>
+        <thead><tr><th scope="col">Trade</th><th scope="col">Note</th><th scope="col">Tags</th><th scope="col">Updated</th><th scope="col"></th></tr></thead>
         <tbody id="noteRows"><tr><td colspan="5" class="empty-note">Search to list notes.</td></tr></tbody>
       </table>
     </div>
@@ -4713,14 +4721,15 @@
           'title="Close this position at market now (admin password required)" onclick="stopTrade(\'' +
           esc(pos.symbol) + "')\">Stop</button></td></tr>";
     }).join("");
-    return '<div style="overflow-x:auto;"><table class="score-table"><thead><tr>' +
-      "<th>Symbol</th><th>Strategy</th><th>Grade</th>" +
-      '<th class="num">Qty</th><th class="num">Entry</th>' +
-      '<th class="num">Current</th><th class="num">Unreal P&amp;L</th>' +
-      '<th class="num">Stop</th><th class="num">Target</th>' +
-      "<th>Stop ◄─● ─► Target</th>" +
-      '<th class="num">Cost Basis</th>' +
-      "<th>Opened</th><th></th></tr></thead><tbody>" + rows + "</tbody></table></div>";
+    return '<div style="overflow-x:auto;"><table class="score-table">' +
+      '<caption class="sr-only">Open positions</caption><thead><tr>' +
+      "<th scope='col'>Symbol</th><th scope='col'>Strategy</th><th scope='col'>Grade</th>" +
+      '<th scope="col" class="num">Qty</th><th scope="col" class="num">Entry</th>' +
+      '<th scope="col" class="num">Current</th><th scope="col" class="num">Unreal P&amp;L</th>' +
+      '<th scope="col" class="num">Stop</th><th scope="col" class="num">Target</th>' +
+      "<th scope='col'>Stop ◄─● ─► Target</th>" +
+      '<th scope="col" class="num">Cost Basis</th>' +
+      "<th scope='col'>Opened</th><th></th></tr></thead><tbody>" + rows + "</tbody></table></div>";
   }
 
   function _renderPaperPositions(p) {
@@ -4752,9 +4761,10 @@
         '<button type="button" class="chip" style="cursor:pointer;" onclick="showTAChart(\'' +
           esc(t.symbol) + "','')\">TA Chart</button></td></tr>";
     }).join("");
-    return '<div style="overflow-x:auto;"><table class="score-table"><thead><tr>' +
-      '<th>Symbol</th><th>Strategy</th><th class="num">Entry</th><th class="num">Exit</th>' +
-      '<th>Reason</th><th class="num">Net P&amp;L</th><th class="num">R</th><th>Closed</th><th></th>' +
+    return '<div style="overflow-x:auto;"><table class="score-table">' +
+      '<caption class="sr-only">Recent trades</caption><thead><tr>' +
+      '<th scope="col">Symbol</th><th scope="col">Strategy</th><th scope="col" class="num">Entry</th><th scope="col" class="num">Exit</th>' +
+      '<th scope="col">Reason</th><th scope="col" class="num">Net P&amp;L</th><th scope="col" class="num">R</th><th scope="col">Closed</th><th></th>' +
       "</tr></thead><tbody>" + rows + "</tbody></table></div>";
   }
 
@@ -5635,8 +5645,9 @@
         '<td class="muted-note">' + esc(c.explanation) + "</td></tr>";
     }).join("");
     var table = rows
-      ? '<div style="overflow-x:auto;"><table class="data-table"><thead><tr>' +
-        "<th>Criterion</th><th>Score /10</th><th>Why</th></tr></thead><tbody>" +
+      ? '<div style="overflow-x:auto;"><table class="data-table">' +
+        '<caption class="sr-only">Signal score breakdown</caption><thead><tr>' +
+        "<th scope='col'>Criterion</th><th scope='col'>Score /10</th><th scope='col'>Why</th></tr></thead><tbody>" +
         rows + "</tbody></table></div>"
       : '<div class="empty-note">No criteria recorded.</div>';
     var chart = renderCandlesSVG(rec.bars || [], {
@@ -7017,9 +7028,10 @@
         return;
       }
       wrap.innerHTML =
-        '<div class="table-wrap"><table class="data-table"><thead><tr>' +
-        '<th>Ticker</th><th>Source</th><th>Reason</th><th>Promoted</th>' +
-        '<th>TTL Remaining</th><th></th></tr></thead><tbody>' +
+        '<div class="table-wrap"><table class="data-table">' +
+        '<caption class="sr-only">Recent scan promotions</caption><thead><tr>' +
+        '<th scope="col">Ticker</th><th scope="col">Source</th><th scope="col">Reason</th><th scope="col">Promoted</th>' +
+        '<th scope="col">TTL Remaining</th><th></th></tr></thead><tbody>' +
         rows.map(function (p) {
           var promoted = p.promoted_at
             ? String(p.promoted_at).slice(0, 16).replace("T", " ") : "--";
