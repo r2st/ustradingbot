@@ -759,6 +759,13 @@ class Settings(BaseSettings):
     MACRO_BLACKOUT_EVENT_TYPES: list[str] = Field(
         default_factory=lambda: ["fomc", "cpi", "nfp"]
     )
+    # ── Dividend tracking / total-return accounting (P1-6) ──────────────────
+    # Track ex-dividend dates + amounts, attribute dividend income to open
+    # positions, and (when the gap guard is on) avoid tripping health/stop exits
+    # on a price drop that is really the stock going ex-dividend.
+    DIVIDEND_TRACKING_ENABLED: bool = True
+    DIVIDEND_GAP_STOP_GUARD: bool = True
+
     # Earnings *results* (beat/miss, EPS/revenue surprise) from Finnhub, used by
     # the beat-aware PEAD signal and the daily earnings tracker.  Fail-open.
     EARNINGS_RESULTS_ENABLED: bool = False

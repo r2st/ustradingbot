@@ -275,6 +275,21 @@ class ExitManager:
             current = float(df["Close"].iloc[-1])
             if entry <= 0 or stop >= entry:
                 continue
+            # Ex-dividend gap guard (P1-6): add back any just-passed dividend so a
+            # price drop that is really the stock going ex-dividend does not count
+            # as a broken setup.  Best-effort — never blocks the health check.
+            if getattr(self._settings, "DIVIDEND_GAP_STOP_GUARD", True):
+                try:
+                    from analytics.dividends import (
+                        dividend_adjusted_price,
+                        fetch_dividends,
+                    )
+
+                    current = dividend_adjusted_price(
+                        current, fetch_dividends(symbol)
+                    )
+                except Exception:  # noqa: BLE001 -- dividends are best-effort
+                    pass
             progress_to_stop = (entry - current) / (entry - stop)
             if progress_to_stop >= _HEALTH_STOP_PROGRESS:
                 self._force_exit(symbol, ExitReason.SETUP_BROKEN)

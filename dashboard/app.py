@@ -2037,6 +2037,41 @@ async def risk_sectors(_user: str = Depends(require_auth)):
     return {"sector_concentration": _risk_report().sector_concentration}
 
 
+@app.get("/api/dividends", tags=["Analytics"])
+async def dividends_api(_user: str = Depends(require_auth)):
+    """Accrued dividend income per open position + total-return summary."""
+    from analytics.dividends import fetch_dividends, portfolio_dividend_income
+
+    settings = get_settings()
+
+    def _build():
+        positions = _load_open_positions(Path(settings.DATA_DIR))
+        divs = {}
+        for p in positions:
+            sym = str(p.get("symbol", ""))
+            if sym:
+                divs[sym] = fetch_dividends(sym)
+        income = portfolio_dividend_income(positions, divs)
+        # Realised capital P&L (this year) for a total-return figure.
+        realized = 0.0
+        try:
+            from analytics.performance import load_completed_trades
+
+            trades = load_completed_trades(Path(settings.DATA_DIR) / "trades.csv")
+            if trades is not None and "pnl_net" in getattr(trades, "columns", []):
+                realized = float(trades["pnl_net"].sum())
+        except Exception:  # noqa: BLE001
+            realized = 0.0
+        from analytics.dividends import total_return
+
+        return {
+            "dividend_income": income,
+            "total_return": total_return(realized, income["total"]),
+        }
+
+    return await run_in_threadpool(_build)
+
+
 @app.get("/api/economic-calendar", tags=["Analytics"])
 async def economic_calendar_api(
     days: int = 21, _user: str = Depends(require_auth)
