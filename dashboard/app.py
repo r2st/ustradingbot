@@ -2203,3 +2203,12 @@ for _r in (
     _price_alerts_router,
 ):
     app.include_router(_r)
+
+
+@app.on_event("startup")
+async def _startup_rate_limit_backend() -> None:
+    """Wire the shared limiter store and warn on unsafe multi-worker setups (B-4)."""
+    from dashboard.rate_limit import configure_backend, warn_if_multiworker
+
+    configure_backend(get_settings())
+    warn_if_multiworker(get_settings())

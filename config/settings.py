@@ -259,6 +259,11 @@ class Settings(BaseSettings):
     # paid OpenRouter calls, so the cap is deliberately low to bound cost/DoS
     # exposure from a leaked or shared credential (audit B-1).
     RATE_LIMIT_AI_PER_MIN: int = 12
+    # Optional Redis URL for a *shared* rate-limit / lockout store.  When set,
+    # the limiter and login lockout key their counters in Redis instead of
+    # process-local dicts, so the caps stay correct across multiple uvicorn /
+    # gunicorn workers (audit B-4).  Empty → in-process (single-worker) mode.
+    RATE_LIMIT_REDIS_URL: str = ""
     # Failed-login attempts (per client IP) allowed before a temporary lockout.
     RATE_LIMIT_LOGIN_MAX_FAILURES: int = 5
     # How long (minutes) a client IP is locked out after exhausting the failed
