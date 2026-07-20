@@ -138,3 +138,30 @@ def test_malformed_numeric_cells_do_not_crash(client, env):
     assert d["total"] == 1
     assert d["trades"][0]["pnl_net"] is None  # None, never NaN
     assert client.get("/api/history/stats").status_code == 200
+
+
+# --------------------------------------------------------------- attribution (F-6)
+
+def test_attribution_per_strategy_and_timing(client, env):
+    _seed(env)
+    d = client.get("/api/history/attribution").json()
+    # Two strategies present, sorted by pnl desc.
+    strategies = {r["strategy"] for r in d["per_strategy"]}
+    assert strategies == {"momentum", "swing"}
+    assert d["trades"] == 30  # the still-open row is excluded
+    for r in d["per_strategy"]:
+        assert r["trades"] == r["wins"] + (r["trades"] - r["wins"])
+        assert 0.0 <= r["win_rate"] <= 100.0
+    # Timing buckets are populated and internally consistent.
+    assert d["timing"]["by_dow"]
+    assert d["timing"]["by_hour"]
+    assert all(0 <= b["dow"] <= 6 for b in d["timing"]["by_dow"])
+    assert all(0 <= b["hour"] <= 23 for b in d["timing"]["by_hour"])
+    # Per-strategy pnl sums to the reported total.
+    assert round(sum(r["pnl"] for r in d["per_strategy"]), 2) == d["total_pnl"]
+
+
+def test_attribution_empty_journal(client, env):
+    d = client.get("/api/history/attribution").json()
+    assert d == {"per_strategy": [], "timing": {"by_dow": [], "by_hour": []},
+                 "total_pnl": 0.0, "trades": 0}

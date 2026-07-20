@@ -198,3 +198,76 @@ async def win_rate_trend(window: int = 20, _user: str = Depends(require_auth)):
             ),
         })
     return {"window": window, "points": points}
+
+
+_DOW_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+
+@router.get("/attribution")
+async def attribution(_user: str = Depends(require_auth)):
+    """Per-strategy P&L attribution + trade-timing heatmap (audit F-6).
+
+    Computed from the completed-trade journal:
+
+    * ``per_strategy`` — realized P&L, trade count, wins, and win-rate for each
+      strategy, so it's clear which strategy (momentum / swing / short /
+      selective) is making or losing money.
+    * ``timing`` — realized P&L and trade count bucketed by exit day-of-week and
+      hour-of-day, for a calendar/time-of-day heatmap.
+    """
+    df = _trades_df()
+    empty = {"per_strategy": [], "timing": {"by_dow": [], "by_hour": []},
+             "total_pnl": 0.0, "trades": 0}
+    if df.empty or "pnl_net" not in df.columns:
+        return empty
+
+    work = df.copy()
+    work["_pnl"] = pd.to_numeric(work["pnl_net"], errors="coerce").fillna(0.0)
+    work["_strategy"] = work.get("strategy", "unknown").fillna("unknown").astype(str)
+    work["_exit"] = pd.to_datetime(work.get("exit_time"), errors="coerce")
+
+    # ── Per-strategy attribution ──
+    per_strategy: List[Dict[str, Any]] = []
+    for name, grp in work.groupby("_strategy"):
+        pnl = grp["_pnl"]
+        n = int(len(grp))
+        wins = int((pnl > 0).sum())
+        per_strategy.append({
+            "strategy": name,
+            "pnl": round(float(pnl.sum()), 2),
+            "trades": n,
+            "wins": wins,
+            "win_rate": round(100.0 * wins / n, 1) if n else 0.0,
+            "avg_pnl": round(float(pnl.mean()), 2) if n else 0.0,
+        })
+    per_strategy.sort(key=lambda r: r["pnl"], reverse=True)
+
+    # ── Trade-timing heatmap (by exit time) ──
+    timed = work[work["_exit"].notna()]
+    by_dow: List[Dict[str, Any]] = []
+    by_hour: List[Dict[str, Any]] = []
+    if not timed.empty:
+        dow = timed["_exit"].dt.dayofweek
+        hour = timed["_exit"].dt.hour
+        for d in range(7):
+            mask = dow == d
+            if not mask.any():
+                continue
+            sub = timed.loc[mask, "_pnl"]
+            by_dow.append({"dow": d, "label": _DOW_LABELS[d],
+                           "pnl": round(float(sub.sum()), 2),
+                           "trades": int(len(sub))})
+        for h in range(24):
+            mask = hour == h
+            if not mask.any():
+                continue
+            sub = timed.loc[mask, "_pnl"]
+            by_hour.append({"hour": h, "pnl": round(float(sub.sum()), 2),
+                            "trades": int(len(sub))})
+
+    return {
+        "per_strategy": per_strategy,
+        "timing": {"by_dow": by_dow, "by_hour": by_hour},
+        "total_pnl": round(float(work["_pnl"].sum()), 2),
+        "trades": int(len(work)),
+    }

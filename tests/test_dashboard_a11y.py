@@ -121,3 +121,40 @@ def test_onclick_keyboard_enhancement(html) -> None:
     assert "data-clickable" in html
     # Enter/Space activate promoted click handlers.
     assert 'e.key === "Enter"' in html
+
+
+# ---------------------------------------------------------------------------
+# F-3 — shared skeleton + empty-state helpers
+# ---------------------------------------------------------------------------
+
+def test_skeleton_and_empty_helpers(html) -> None:
+    assert "function renderEmpty" in html
+    assert "function renderSkeleton" in html
+    assert ".skeleton" in html  # CSS
+    assert "skeleton-shimmer" in html
+
+
+# ---------------------------------------------------------------------------
+# F-6 — new data-viz: per-strategy P&L attribution + trade-timing heatmap
+# ---------------------------------------------------------------------------
+
+def test_attribution_viz_present(html) -> None:
+    assert 'id="attrStrategy"' in html
+    assert 'id="attrTiming"' in html
+    assert "function loadAttribution" in html
+    assert "/api/history/attribution" in html
+    assert "attr-bar-fill" in html
+    assert "heat-cell" in html
+
+
+# ---------------------------------------------------------------------------
+# G-1 — global kill-switch (emergency halt)
+# ---------------------------------------------------------------------------
+
+def test_kill_switch_present(html) -> None:
+    assert 'id="killSwitch"' in html
+    assert 'id="killModal"' in html
+    assert "function confirmKillSwitch" in html
+    # Halts via the existing admin-gated engine-control stop path.
+    assert '"/api/engine/control"' in html
+    assert 'action: "stop"' in html

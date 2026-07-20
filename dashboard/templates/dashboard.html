@@ -1025,6 +1025,38 @@
     text-decoration: none; transition: top 0.15s ease;
   }
   .skip-link:focus { top: 8px; outline: 2px solid #fff; outline-offset: 2px; }
+  /* Skeleton loading placeholders (F-3) — a shimmer while data loads so panels
+     don't visibly jump/reflow when content arrives. */
+  .skeleton {
+    display: block; border-radius: 6px;
+    background: linear-gradient(90deg,
+      var(--surface-2, rgba(127,127,127,0.10)) 25%,
+      var(--surface, rgba(127,127,127,0.18)) 37%,
+      var(--surface-2, rgba(127,127,127,0.10)) 63%);
+    background-size: 400% 100%;
+    animation: skeleton-shimmer 1.4s ease infinite;
+  }
+  .skeleton-row { height: 14px; margin: 8px 0; }
+  .skeleton-row.w60 { width: 60%; } .skeleton-row.w80 { width: 80%; }
+  @keyframes skeleton-shimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+  @media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
+  /* Per-strategy P&L attribution bars + trade-timing heatmap (F-6). */
+  .attr-bar-row { display: grid; grid-template-columns: 90px 1fr 90px; gap: 8px;
+    align-items: center; margin: 6px 0; font-size: 13px; }
+  .attr-bar-track { position: relative; height: 18px; border-radius: 4px;
+    background: var(--surface-2, rgba(127,127,127,0.10)); overflow: hidden; }
+  .attr-bar-fill { position: absolute; top: 0; bottom: 0; border-radius: 4px; }
+  .attr-bar-fill.pos { background: var(--green, #22C55E); }
+  .attr-bar-fill.neg { background: var(--red, #EF4444); }
+  .heat-grid { display: grid; gap: 3px; margin-top: 8px; }
+  .heat-cell { height: 26px; border-radius: 4px; display: flex; align-items: center;
+    justify-content: center; font-size: 11px; color: #fff; }
+  /* Prominent global kill-switch (G-1). */
+  .kill-switch { background: var(--red, #EF4444); color: #fff; border: none;
+    font-weight: 700; padding: 8px 14px; border-radius: 8px; cursor: pointer;
+    letter-spacing: 0.02em; }
+  .kill-switch:hover { filter: brightness(1.08); }
+  .kill-switch:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
   /* Keyboard focus ring for click-handling elements promoted to buttons (F-5). */
   [data-clickable][tabindex]:focus-visible {
     outline: 2px solid var(--accent, #3B82F6); outline-offset: 2px;
@@ -1350,6 +1382,13 @@
           </details>
         </div>
       </span>
+      <!-- Global kill-switch (G-1): always-visible emergency halt, distinct
+           from per-position stops and the engine pause. Requires the admin
+           password and a confirmation. -->
+      <button type="button" class="kill-switch" id="killSwitch"
+              title="Emergency stop — halt the trading engine now (admin password required)"
+              aria-label="Emergency stop the trading engine"
+              onclick="openKillSwitch()">■ HALT</button>
       <button type="button" class="icon-btn" id="themeToggle" title="Toggle light / dark"
               aria-label="Toggle light or dark theme" onclick="toggleTheme()">🌙</button>
       <button type="button" class="nav-toggle" id="navToggle" aria-label="Toggle menu"
@@ -1436,6 +1475,27 @@
     </div>
   </nav>
   <div class="nav-backdrop" id="navBackdrop" onclick="closeNav()" hidden></div>
+</div>
+
+<!-- ═══════════════════ KILL-SWITCH DIALOG (G-1) ═══════════════════ -->
+<div class="modal-overlay" id="killModal">
+  <div class="modal">
+    <h3>⚠ Emergency halt</h3>
+    <p class="modal-warning">
+      This immediately stops the trading engine — no new orders will be placed
+      and open positions are left as-is (use per-position stops to exit). Confirm
+      with the admin password.
+    </p>
+    <label for="killAdminPw">Admin password</label>
+    <input type="password" id="killAdminPw" autocomplete="off"
+           placeholder="Required to halt the engine">
+    <div id="killResult" class="modal-result"></div>
+    <div class="modal-actions">
+      <button type="button" class="btn-secondary" onclick="closeKillSwitch()">Cancel</button>
+      <button type="button" class="kill-switch" id="killConfirmBtn"
+              onclick="confirmKillSwitch()">■ Halt engine now</button>
+    </div>
+  </div>
 </div>
 
 <!-- ═══════════════════ MODE-SWITCH DIALOG ═══════════════════ -->
@@ -2129,6 +2189,18 @@
     </div>
     <div class="empty-note" id="chartsEmpty" style="display:none;">No closed trades yet —
       charts appear after the first completed trade.</div>
+
+    <!-- Per-strategy P&L attribution + trade-timing heatmap (F-6) -->
+    <div class="risk-grid" style="margin-top:18px;">
+      <div>
+        <h4>P&amp;L by Strategy <span class="bt-hint">which strategy makes / loses money</span></h4>
+        <div id="attrStrategy"><div class="empty-note">Loading…</div></div>
+      </div>
+      <div>
+        <h4>P&amp;L by Day of Week <span class="bt-hint">trade-timing heatmap (by exit)</span></h4>
+        <div id="attrTiming"><div class="empty-note">Loading…</div></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -3729,6 +3801,48 @@
     document.getElementById("modeModal").classList.remove("open");
   }
 
+  // ── Global kill-switch / emergency halt (G-1) ───────────────────────
+  function openKillSwitch() {
+    var r = document.getElementById("killResult");
+    r.textContent = ""; r.className = "modal-result";
+    document.getElementById("killAdminPw").value = "";
+    document.getElementById("killModal").classList.add("open");
+  }
+  function closeKillSwitch() {
+    document.getElementById("killModal").classList.remove("open");
+  }
+  async function confirmKillSwitch() {
+    var pw = document.getElementById("killAdminPw").value;
+    var result = document.getElementById("killResult");
+    var btn = document.getElementById("killConfirmBtn");
+    if (!pw) {
+      result.className = "modal-result err";
+      result.textContent = "Admin password is required.";
+      return;
+    }
+    btn.disabled = true;
+    result.className = "modal-result";
+    result.textContent = "Halting…";
+    try {
+      var d = await jsend("POST", "/api/engine/control",
+        { action: "stop", admin_password: pw }, { quiet: true });
+      if (d && d.ok) {
+        result.className = "modal-result ok";
+        result.textContent = "Engine halt requested. " + (d.message || "");
+        setTimeout(closeKillSwitch, 1500);
+        if (typeof loadEngineStatus === "function") loadEngineStatus();
+      } else {
+        result.className = "modal-result err";
+        result.textContent = (d && d.message) || "Halt failed.";
+      }
+    } catch (e) {
+      result.className = "modal-result err";
+      result.textContent = "Halt failed: " + (typeof e === "string" ? e : "request error");
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
   // ── Market-data provider selection ──────────────────────────────────
   async function applyProvider() {
     var sel = document.getElementById("providerSelect");
@@ -4457,6 +4571,25 @@
   function setMsg(id, text, ok) {
     var el = document.getElementById(id); if (!el) return;
     el.textContent = text; el.style.color = ok ? "var(--green)" : "var(--red)";
+  }
+  // Shared empty-state + skeleton helpers (F-3) so every panel renders a
+  // consistent "nothing yet" message and a shimmer placeholder while loading,
+  // instead of ad-hoc "Loading…" text that makes panels jump when data lands.
+  function renderEmpty(el, message) {
+    if (typeof el === "string") el = document.getElementById(el);
+    if (el) el.innerHTML =
+      '<div class="empty-note">' + esc(message || "Nothing to show yet.") + "</div>";
+  }
+  function renderSkeleton(el, rows) {
+    if (typeof el === "string") el = document.getElementById(el);
+    if (!el) return;
+    var n = rows || 3, out = "";
+    var widths = ["", " w80", " w60"];
+    for (var i = 0; i < n; i++) {
+      out += '<div class="skeleton skeleton-row' + widths[i % widths.length] +
+        '" aria-hidden="true"></div>';
+    }
+    el.innerHTML = '<div role="status" aria-label="Loading">' + out + "</div>";
   }
 
   // ── Paper account live refresh ──
@@ -5888,6 +6021,9 @@
   }
   async function loadPerformanceCharts() {
     if (typeof Chart === "undefined") return;
+    renderSkeleton("attrStrategy", 4);
+    renderSkeleton("attrTiming", 3);
+    loadAttribution();
     try {
       var eq = await jget("/api/analytics/equity-curve?granularity=daily");
       var curve = eq.equity_curve || [];
@@ -5946,6 +6082,58 @@
                 } } } } } });
       }
     } catch (e) {}
+  }
+  // Per-strategy P&L attribution + trade-timing heatmap (F-6). Pure-DOM bars /
+  // heat cells — no chart library needed, reuses /api/history/attribution.
+  async function loadAttribution() {
+    var sEl = document.getElementById("attrStrategy");
+    var tEl = document.getElementById("attrTiming");
+    if (!sEl || !tEl) return;
+    var d;
+    try { d = await jget("/api/history/attribution", { key: "attribution" }); }
+    catch (e) { renderEmpty(sEl, "Failed to load."); renderEmpty(tEl, ""); return; }
+
+    // ── P&L by strategy — diverging bars around a centre line. ──
+    var rows = (d && d.per_strategy) || [];
+    if (!rows.length) {
+      renderEmpty(sEl, "No closed trades yet — attribution appears after the first exit.");
+    } else {
+      var maxAbs = Math.max.apply(null, rows.map(function (r) { return Math.abs(r.pnl); })) || 1;
+      sEl.innerHTML = rows.map(function (r) {
+        var w = Math.max(2, Math.round(100 * Math.abs(r.pnl) / maxAbs));
+        var pos = r.pnl >= 0;
+        var pnlTxt = (pos ? "+" : "") + "$" + Number(r.pnl).toFixed(0);
+        return '<div class="attr-bar-row">' +
+          "<span>" + esc(r.strategy) + "</span>" +
+          '<span class="attr-bar-track" title="' + r.trades + " trades · " +
+            r.win_rate + '% win">' +
+            '<span class="attr-bar-fill ' + (pos ? "pos" : "neg") +
+              '" style="' + (pos ? "left:50%;" : "right:50%;") +
+              "width:" + (w / 2) + '%;"></span>' +
+          "</span>" +
+          '<span class="' + (pos ? "pnl-pos" : "pnl-neg") + '" style="text-align:right;">' +
+            pnlTxt + "</span>" +
+          "</div>";
+      }).join("");
+    }
+
+    // ── P&L by day-of-week — heatmap cells green (profit) / red (loss). ──
+    var dow = (d && d.timing && d.timing.by_dow) || [];
+    if (!dow.length) {
+      renderEmpty(tEl, "No timed trades yet.");
+    } else {
+      var mx = Math.max.apply(null, dow.map(function (b) { return Math.abs(b.pnl); })) || 1;
+      tEl.innerHTML =
+        '<div class="heat-grid" style="grid-template-columns:repeat(' + dow.length + ',1fr);">' +
+        dow.map(function (b) {
+          var a = Math.min(0.85, 0.15 + 0.7 * Math.abs(b.pnl) / mx);
+          var color = b.pnl >= 0
+            ? "rgba(34,197,94," + a + ")" : "rgba(239,68,68," + a + ")";
+          return '<div class="heat-cell" style="background:' + color + ';" title="' +
+            esc(b.label) + ": " + (b.pnl >= 0 ? "+" : "") + "$" + Number(b.pnl).toFixed(0) +
+            " · " + b.trades + ' trades">' + esc(b.label) + "</div>";
+        }).join("") + "</div>";
+    }
   }
   function renderReturnsChart() {
     if (!_returnsData || typeof Chart === "undefined") return;
