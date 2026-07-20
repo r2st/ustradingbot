@@ -2115,13 +2115,18 @@ async def analytics_by_symbol(_user: str = Depends(require_auth)):
 
 @app.get("/api/analytics/equity-curve", tags=["Analytics"])
 async def analytics_equity_curve(
-    granularity: str = "trade", _user: str = Depends(require_auth)
+    granularity: str = "trade",
+    benchmark: str = "",
+    _user: str = Depends(require_auth),
 ):
     """Cumulative equity curve with per-point drawdown.
 
     ``granularity=trade`` (default) returns one point per completed trade;
     ``granularity=daily`` buckets closed trades by exit date so a large
     journal doesn't render hundreds of x-axis points (monitoring F7).
+
+    ``benchmark=SPY`` adds a ``benchmark`` value on each point: the benchmark
+    (e.g. SPY) normalized to the curve's starting equity, for an overlay.
     """
     curve = _analytics_report().equity_curve
 
@@ -2153,7 +2158,34 @@ async def analytics_equity_curve(
         enriched = dict(point)
         enriched["drawdown_pct"] = round(dd, 4)
         out.append(enriched)
-    return {"equity_curve": out, "granularity": granularity}
+
+    bench_symbol = (benchmark or "").strip().upper()
+    if bench_symbol and out:
+        try:
+            from data.fetcher import fetch_ohlcv
+
+            df = await run_in_threadpool(fetch_ohlcv, bench_symbol, "2y", "1d")
+            if df is not None and "Close" in getattr(df, "columns", []):
+                closes = {
+                    str(idx)[:10]: float(val)
+                    for idx, val in df["Close"].items()
+                    if val == val  # drop NaN
+                }
+                from analytics.performance import benchmark_curve
+
+                start_eq = float(out[0].get("equity", 0.0) or 0.0)
+                dates = [str(p.get("date", ""))[:10] for p in out]
+                series = benchmark_curve(dates, start_eq, closes)
+                for point, bval in zip(out, series):
+                    point["benchmark"] = bval
+        except Exception:  # noqa: BLE001 -- overlay is best-effort, never fatal
+            bench_symbol = ""
+
+    return {
+        "equity_curve": out,
+        "granularity": granularity,
+        "benchmark": bench_symbol or None,
+    }
 
 
 @app.get("/api/analytics/trades", tags=["Analytics"])

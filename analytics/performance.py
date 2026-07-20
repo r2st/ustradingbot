@@ -280,6 +280,41 @@ def max_drawdown(equity: Sequence[float]) -> Dict[str, float]:
 # ---------------------------------------------------------------------------
 
 
+def benchmark_curve(
+    dates: List[str],
+    start_equity: float,
+    closes_by_date: Dict[str, float],
+) -> List[Optional[float]]:
+    """Align a benchmark price series to *dates*, normalized to *start_equity*.
+
+    For each target date, the most recent benchmark close on or before that
+    date is used (so weekend/holiday gaps in the equity curve still map to the
+    prior trading day). The series is scaled so its first resolvable point
+    equals *start_equity*, making it directly comparable to the equity curve on
+    the same axis. Points with no prior close resolve to ``None``.
+    """
+    if not dates or not closes_by_date or start_equity <= 0:
+        return [None for _ in dates]
+    sorted_dates = sorted(closes_by_date)
+    import bisect
+
+    def _close_on_or_before(target: str) -> Optional[float]:
+        idx = bisect.bisect_right(sorted_dates, target) - 1
+        if idx < 0:
+            return None
+        return closes_by_date[sorted_dates[idx]]
+
+    base = _close_on_or_before(dates[0])
+    if not base:
+        # Fall back to the earliest available close as the normalization base.
+        base = closes_by_date[sorted_dates[0]]
+    out: List[Optional[float]] = []
+    for d in dates:
+        c = _close_on_or_before(d)
+        out.append(round(start_equity * c / base, 2) if c and base else None)
+    return out
+
+
 def build_equity_curve(
     trades: pd.DataFrame,
     starting_capital: float,

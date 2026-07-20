@@ -2768,6 +2768,16 @@
         <div style="height:220px;"><canvas id="chartWinRate" height="220"></canvas></div>
       </div>
     </div>
+    <div class="risk-grid">
+      <div>
+        <h4>Rolling 30-Day Sharpe <span class="bt-hint" id="chartSharpeHint">annualized</span></h4>
+        <div style="height:220px;"><canvas id="chartRollingSharpe" height="220"></canvas></div>
+      </div>
+      <div>
+        <h4>Equity vs Benchmark <span class="bt-hint" id="chartBenchHint"></span></h4>
+        <div style="height:220px;"><canvas id="chartBenchmark" height="220"></canvas></div>
+      </div>
+    </div>
     <div class="empty-note" id="chartsEmpty" style="display:none;">No closed trades yet —
       charts appear after the first completed trade.</div>
 
@@ -3192,10 +3202,16 @@
     </div>
 
     <!-- Sector heat map (feature 6) -->
-    <h4 style="margin-top:18px;">Sector / Industry Exposure Heat Map</h4>
+    <h4 style="margin-top:18px;">Sector / Industry Exposure
+      <span class="seg-toggle" role="group" aria-label="Sector chart view" style="margin-left:8px;font-size:12px;">
+        <button type="button" class="chip act-filter active" id="secViewHeatmap" onclick="setSectorView('heatmap')">Heat map</button>
+        <button type="button" class="chip act-filter" id="secViewTreemap" onclick="setSectorView('treemap')">Treemap</button>
+      </span>
+    </h4>
     <div class="heatmap" id="riskHeatmap">
       <div class="empty-note">No open positions.</div>
     </div>
+    <div id="riskTreemap" style="display:none;"></div>
 
     <!-- Correlation matrix (feature 7) -->
     <h4 style="margin-top:18px;">Position Correlation Matrix</h4>
@@ -3331,6 +3347,7 @@
 
   // Heat map: block colour intensity scales with each sector's share (feature 6).
   function renderHeatmap(sectors) {
+    window.__sectorData = sectors || [];
     var el = document.getElementById("riskHeatmap");
     if (!sectors.length) { el.innerHTML = '<div class="empty-note">No open positions.</div>'; return; }
     var max = Math.max.apply(null, sectors.map(function (s) { return s.pct; })) || 1;
@@ -3342,7 +3359,40 @@
         '<div class="h-pct">' + (s.pct * 100).toFixed(0) + '%</div>' +
         '<div class="h-sub">' + s.positions + ' pos · $' + s.exposure.toFixed(0) + '</div></div>';
     }).join("");
+    if (window.__sectorView === "treemap") renderTreemap(sectors);
   }
+
+  // Sector treemap (P1-12): flex tiles with area proportional to each sector's
+  // share — a lightweight alternative view of the same concentration data.
+  var PALETTE_TM = ["#3B82F6", "#22C55E", "#A855F7", "#F59E0B", "#06B6D4", "#EF4444", "#8B5CF6", "#14B8A6", "#EC4899", "#84CC16"];
+  function renderTreemap(sectors) {
+    var el = document.getElementById("riskTreemap");
+    if (!el) return;
+    if (!sectors || !sectors.length) { el.innerHTML = '<div class="empty-note">No open positions.</div>'; return; }
+    var sorted = sectors.slice().sort(function (a, b) { return b.pct - a.pct; });
+    el.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:4px;min-height:180px;align-content:stretch;">' +
+      sorted.map(function (s, i) {
+        var grow = Math.max(1, Math.round(s.pct * 1000));
+        var big = s.pct >= 0.15;
+        return '<div title="' + esc(s.sector) + ' ' + (s.pct * 100).toFixed(1) + '%" style="flex:' + grow +
+          ' 1 90px;min-height:' + (big ? 96 : 64) + 'px;border-radius:6px;padding:8px;color:#fff;overflow:hidden;' +
+          'display:flex;flex-direction:column;justify-content:center;background:' + PALETTE_TM[i % PALETTE_TM.length] + ';">' +
+          '<div style="font-weight:700;font-size:13px;">' + esc(s.sector) + '</div>' +
+          '<div style="font-size:12px;opacity:.9;">' + (s.pct * 100).toFixed(0) + '% · ' + s.positions + ' pos</div></div>';
+      }).join("") + "</div>";
+  }
+
+  window.setSectorView = function (view) {
+    window.__sectorView = view;
+    var hm = document.getElementById("riskHeatmap"), tm = document.getElementById("riskTreemap");
+    var bh = document.getElementById("secViewHeatmap"), bt = document.getElementById("secViewTreemap");
+    var treemap = view === "treemap";
+    if (hm) hm.style.display = treemap ? "none" : "";
+    if (tm) tm.style.display = treemap ? "" : "none";
+    if (bh) bh.classList.toggle("active", !treemap);
+    if (bt) bt.classList.toggle("active", treemap);
+    if (treemap) renderTreemap(window.__sectorData || []);
+  };
 
   // Correlation matrix: build a symmetric grid from the pairwise list (feature 7).
   function renderCorrMatrix(pairs) {
@@ -7850,7 +7900,7 @@
     renderSkeleton("attrTiming", 3);
     loadAttribution();
     try {
-      var eq = await jget("/api/analytics/equity-curve?granularity=daily");
+      var eq = await jget("/api/analytics/equity-curve?granularity=daily&benchmark=SPY");
       var curve = eq.equity_curve || [];
       if (!curve.length) {
         var emptyEl = document.getElementById("chartsEmpty");
@@ -7882,6 +7932,49 @@
           eqHint.textContent = "(final $" +
             Number(curve[curve.length - 1].equity).toLocaleString() + ")";
         }
+
+        // Equity vs benchmark (SPY) overlay — normalized to the same start (P1-12).
+        var hasBench = curve.some(function (p) { return p.benchmark != null; });
+        var benchHint = document.getElementById("chartBenchHint");
+        if (hasBench) {
+          if (benchHint) benchHint.textContent = "(" + (eq.benchmark || "SPY") + ", normalized)";
+          _mkChart("chartBenchmark", { type: "line",
+            data: { labels: labels, datasets: [
+              { label: "Portfolio", data: curve.map(function (p) { return p.equity; }),
+                borderColor: "#2ecc71", pointRadius: 0, borderWidth: 2, tension: 0.15 },
+              { label: eq.benchmark || "SPY", data: curve.map(function (p) { return p.benchmark; }),
+                borderColor: "#f59e0b", borderDash: [5, 4], pointRadius: 0, borderWidth: 2, tension: 0.15, spanGaps: true }
+            ] },
+            options: { responsive: true, maintainAspectRatio: false, animation: false,
+              plugins: { legend: { position: "bottom" } },
+              scales: { x: { ticks: { maxTicksLimit: 8 } } } } });
+        } else if (benchHint) {
+          benchHint.textContent = "(benchmark unavailable)";
+        }
+
+        // Rolling 30-day annualized Sharpe from the daily equity series (P1-12).
+        var WIN = 30;
+        var rets = [];
+        for (var i = 1; i < curve.length; i++) {
+          var prev = Number(curve[i - 1].equity), cur = Number(curve[i].equity);
+          rets.push(prev > 0 ? (cur / prev - 1) : 0);
+        }
+        var sharpe = labels.map(function () { return null; });
+        for (var j = WIN; j <= rets.length; j++) {
+          var win = rets.slice(j - WIN, j);
+          var mean = win.reduce(function (a, b) { return a + b; }, 0) / WIN;
+          var variance = win.reduce(function (a, b) { return a + (b - mean) * (b - mean); }, 0) / WIN;
+          var sd = Math.sqrt(variance);
+          sharpe[j] = sd > 0 ? (mean / sd) * Math.sqrt(252) : 0;   // align to curve index (rets[k] -> curve[k+1])
+        }
+        _mkChart("chartRollingSharpe", { type: "line",
+          data: { labels: labels, datasets: [{ label: "Sharpe (30d)", data: sharpe,
+            borderColor: "#a855f7", backgroundColor: "rgba(168,85,247,.12)", fill: true,
+            pointRadius: 0, borderWidth: 2, tension: 0.25, spanGaps: true }] },
+          options: { responsive: true, maintainAspectRatio: false, animation: false,
+            plugins: { legend: { display: false } },
+            scales: { x: { ticks: { maxTicksLimit: 8 } },
+              y: { grid: { color: function (ctx) { return ctx.tick && ctx.tick.value === 0 ? "rgba(255,255,255,.35)" : "rgba(128,128,128,.12)"; } } } } } });
       }
     } catch (e) {}
     try {

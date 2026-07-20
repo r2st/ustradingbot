@@ -9,6 +9,7 @@ import pytest
 
 from analytics.performance import (
     analyze_journal,
+    benchmark_curve,
     breakdown_by,
     build_equity_curve,
     build_report,
@@ -163,3 +164,27 @@ def test_analyze_missing_journal_is_empty(tmp_path) -> None:
     report = analyze_journal(tmp_path / "nope.csv", starting_capital=1_000.0)
     assert report.summary["total_trades"] == 0
     assert report.equity_curve == []
+
+
+class TestBenchmarkCurve:
+    _CLOSES = {"2026-01-02": 100.0, "2026-01-05": 110.0, "2026-01-06": 121.0}
+
+    def test_normalizes_to_start_equity(self):
+        out = benchmark_curve(["2026-01-02", "2026-01-06"], 10_000.0, self._CLOSES)
+        assert out[0] == 10_000.0            # base = first close
+        assert out[1] == pytest.approx(12_100.0)  # 121/100 * 10000
+
+    def test_weekend_maps_to_prior_close(self):
+        # 2026-01-04 is a Sunday -> uses the 2026-01-02 close.
+        out = benchmark_curve(["2026-01-02", "2026-01-04", "2026-01-06"], 10_000.0, self._CLOSES)
+        assert out[1] == 10_000.0
+
+    def test_dates_before_history_are_none(self):
+        out = benchmark_curve(["2025-12-01", "2026-01-06"], 10_000.0, self._CLOSES)
+        assert out[0] is None
+        assert out[1] == pytest.approx(12_100.0)
+
+    def test_empty_inputs(self):
+        assert benchmark_curve([], 10_000.0, self._CLOSES) == []
+        assert benchmark_curve(["2026-01-02"], 10_000.0, {}) == [None]
+        assert benchmark_curve(["2026-01-02"], 0.0, self._CLOSES) == [None]
