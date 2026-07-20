@@ -25,7 +25,7 @@ import asyncio
 import smtplib
 from email.message import EmailMessage
 from pathlib import Path
-from typing import Dict, Optional, Sequence
+from typing import Any, Dict, Optional, Sequence
 
 import structlog
 
@@ -104,10 +104,19 @@ class AlertManager:
         settings: Settings,
         telegram: Optional[TelegramNotifier] = None,
         email: Optional[EmailNotifier] = None,
+        slack: Optional[Any] = None,
+        discord: Optional[Any] = None,
+        sms: Optional[Any] = None,
     ) -> None:
         self._settings = settings
         self.telegram = telegram or TelegramNotifier(settings)
         self.email = email or EmailNotifier(settings)
+        # Additional channels (P1-9) — each a no-op unless configured.
+        from agent.channels import DiscordNotifier, SlackNotifier, SMSNotifier
+
+        self.slack = slack or SlackNotifier(settings)
+        self.discord = discord or DiscordNotifier(settings)
+        self.sms = sms or SMSNotifier(settings)
         self._log = log.bind(component="AlertManager")
         self._data_dir = Path(settings.DATA_DIR)
         # Alert rules (F6): mtime-cached so a dashboard save takes effect on
@@ -120,7 +129,13 @@ class AlertManager:
 
     @property
     def any_channel_enabled(self) -> bool:
-        return self.telegram.enabled or self.email.enabled
+        return (
+            self.telegram.enabled
+            or self.email.enabled
+            or self.slack.enabled
+            or self.discord.enabled
+            or self.sms.enabled
+        )
 
     # ------------------------------------------------------------- rule lookup
 
@@ -196,6 +211,20 @@ class AlertManager:
         if "push" in channels:
             if self._push(subject, text):
                 results["push"] = True
+        # Extra channels (P1-9) — routed purely by the rule's channel list so an
+        # operator controls them per alert type; not constrained by the legacy
+        # default_channels.  SMS is additionally gated to critical events only.
+        rule_channels = rule.get("channels", alert_config.CHANNELS)
+        if "slack" in rule_channels and self.slack.enabled:
+            results["slack"] = bool(await self.slack.send(text))
+        if "discord" in rule_channels and self.discord.enabled:
+            results["discord"] = bool(await self.discord.send(text))
+        if (
+            "sms" in rule_channels
+            and self.sms.enabled
+            and event_type in alert_config.SMS_CRITICAL_EVENTS
+        ):
+            results["sms"] = bool(await self.sms.send(text))
         alert_config.append_history(self._data_dir, event_type, text, results)
         return bool(results)
 

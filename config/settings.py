@@ -266,6 +266,19 @@ class Settings(BaseSettings):
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_CHAT_ID: str = ""
 
+    # ── Additional alert channels (P1-9) ────────────────────────────────────
+    # Slack / Discord incoming-webhook URLs — set to enable that channel.  Which
+    # alert types actually route to each channel is per-event in the alert rules
+    # (alert_rules.json / the dashboard).  SMS via Twilio is reserved for the
+    # critical event types (daily-loss limit, broker disconnect) — see
+    # ``agent.alert_config.SMS_CRITICAL_EVENTS``.
+    SLACK_WEBHOOK_URL: str = ""
+    DISCORD_WEBHOOK_URL: str = ""
+    TWILIO_ACCOUNT_SID: str = ""
+    TWILIO_AUTH_TOKEN: str = ""
+    TWILIO_FROM_NUMBER: str = ""
+    TWILIO_TO_NUMBER: str = ""
+
     # ── Dashboard (FastAPI) ─────────────────────────────────────────────────
     # HTTP Basic Auth guards the dashboard.  Auth is ENABLED by default; if no
     # password is configured the app refuses to start (fail-closed) so the

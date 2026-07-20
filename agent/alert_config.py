@@ -33,7 +33,14 @@ STATE_FILE = "alerts_state.json"
 
 MAX_HISTORY_BYTES = 5 * 1024 * 1024
 
-CHANNELS = ("telegram", "email", "push")
+CHANNELS = ("telegram", "email", "push", "slack", "discord", "sms")
+
+#: Event types the SMS channel is allowed to fire on (critical only).  Every
+#: other event silently skips SMS even if the rule lists it, so a chatty rule
+#: cannot rack up Twilio charges.
+SMS_CRITICAL_EVENTS = frozenset(
+    {"daily_loss", "broker_disconnect", "drawdown", "engine_error"}
+)
 
 EVENT_TYPES = (
     "entry",
