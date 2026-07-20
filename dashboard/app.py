@@ -873,6 +873,9 @@ def _build_section_guides() -> List[Dict[str, Any]]:
                 "Rejections to see why candidate signals were skipped.",
                 "Each results row can be ticked to add that symbol to Engine Trade Selection (see the "
                 "Backtest performance table there).",
+                "“Walk-Forward” (further down this section) repeatedly optimizes on an in-sample window and "
+                "validates on the following out-of-sample window, rolling forward by a step — a large gap "
+                "between in- and out-of-sample results is the classic overfitting tell.",
             ],
             "examples": [
                 "To test a momentum play on big tech: type “AAPL, MSFT, NVDA, AMZN, META”, set a 1-2 year "
@@ -880,6 +883,8 @@ def _build_section_guides() -> List[Dict[str, Any]]:
                 "Factor and max drawdown from the metric cards.",
                 "To sanity-check a single name: leave the list empty, type just “NVDA”, tick every strategy, "
                 "and see which strategy produced the best R on it.",
+                "To check a strategy is not overfit: set in-sample and out-of-sample month lengths under "
+                "Walk-Forward, Run it, and confirm the out-of-sample equity curve tracks the in-sample one.",
             ],
             "mistakes": [
                 "Testing only a bull-market window — a strategy that only works in an uptrend is fragile. "
@@ -1631,6 +1636,12 @@ def _build_section_guides() -> List[Dict[str, Any]]:
                 "“⬇ 8949 CSV” downloads IRS Form 8949 rows; “⬇ Schedule D CSV” downloads the short/long "
                 "summary.",
             ],
+            "examples": [
+                "To file for last year: set “Tax year” to that year, then click “⬇ 8949 CSV” and "
+                "“⬇ Schedule D CSV” — both scope to the selected year.",
+                "To find a year-end write-off: read the “Total harvestable loss” tile, then pick a "
+                "candidate whose wash-sale badge reads “clear”.",
+            ],
             "mistakes": [
                 "Treating these numbers as filed tax advice — they are computed from the journal and should "
                 "be confirmed with a professional.",
@@ -1657,6 +1668,12 @@ def _build_section_guides() -> List[Dict[str, Any]]:
                 "“Apply” asks for the admin password and only returns a trim plan — orders are still placed "
                 "deliberately via the manual-trade path.",
             ],
+            "examples": [
+                "To check if you have drifted: open the section and read the drift bars — any bar past the "
+                "threshold line is a bucket worth rebalancing.",
+                "To see the trades a rebalance would suggest: click “Preview” and read the trim/add list; "
+                "no orders are placed.",
+            ],
             "mistakes": [
                 "Expecting Apply to place live orders automatically — it never does; it returns a plan.",
                 "Rebalancing on tiny drift and churning commissions; respect the drift threshold.",
@@ -1680,6 +1697,18 @@ def _build_section_guides() -> List[Dict[str, Any]]:
                 "The bar chart shows trailing monthly dividend income.",
                 "“Yield on Cost” divides trailing income by each position's cost basis.",
             ],
+            "examples": [
+                "To avoid a surprise around an ex-date: scan “Upcoming Ex-Dividend” for the next date on a "
+                "holding you plan to trade this week.",
+                "To spot your best income compounder: sort your attention by the “Yield on Cost” column and "
+                "find the highest figure.",
+            ],
+            "mistakes": [
+                "Reading the price drop on an ex-dividend date as a loss — it reflects the dividend paid out, "
+                "not a real drawdown.",
+                "Comparing raw yield across holdings without cost basis — yield-on-cost is the personalised "
+                "figure that matters for your book.",
+            ],
             "tips": [
                 "Yield-on-cost rises over time as a holding grows its dividend — a sign of a compounding payer.",
             ],
@@ -1697,6 +1726,17 @@ def _build_section_guides() -> List[Dict[str, Any]]:
                 "The blackout indicator turns amber when now falls inside an event's blackout window.",
                 "The table lists each event's date/time (ET), importance and type.",
                 "Use the importance filter to hide low-impact events.",
+            ],
+            "examples": [
+                "To understand why the engine stopped opening trades: check whether the blackout indicator "
+                "is amber — a macro window may be suppressing new entries.",
+                "To plan around the week's volatility: set the importance filter to high and read the ET "
+                "times for FOMC, CPI or NFP.",
+            ],
+            "mistakes": [
+                "Assuming the calendar times are in your local zone — they are shown in US Eastern (ET).",
+                "Opening a large new position minutes before a high-importance release and getting gapped "
+                "through your stop.",
             ],
             "tips": [
                 "High-importance events (FOMC, CPI, NFP) are the ones most likely to gap your stops.",
@@ -1716,6 +1756,12 @@ def _build_section_guides() -> List[Dict[str, Any]]:
                 "Copy the endpoint URL and the HMAC secret (masked; reveal to copy) into your alert.",
                 "“Veto Rules” blocks new entries for a symbol; add or delete rules inline.",
                 "“Recent Deliveries” logs the last inbound webhook calls with their outcome.",
+            ],
+            "examples": [
+                "To wire up a TradingView alert: reveal and copy the endpoint URL and HMAC secret, then paste "
+                "them into the alert's webhook settings.",
+                "To halt new entries on a symbol without touching the strategy: add a Veto Rule for that "
+                "symbol under “Veto Rules”.",
             ],
             "mistakes": [
                 "Sending trades while WEBHOOK_ALLOW_TRADES is off — they are rejected.",
@@ -1740,27 +1786,18 @@ def _build_section_guides() -> List[Dict[str, Any]]:
                 "“Check Now” evaluates all armed rules and reports which fired.",
                 "The history feed shows recently triggered rules.",
             ],
+            "examples": [
+                "To watch for an oversold bounce: add an RSI rule on your symbol with condition “below” and "
+                "threshold 30, then Add rule to arm it.",
+                "To verify a rule works before relying on it: click “Check Now” and confirm the rule appears "
+                "in the fired list when its condition is met.",
+            ],
+            "mistakes": [
+                "Leaving a rule disarmed (Active off) and expecting it to notify you — only armed rules fire.",
+                "Setting a volume-spike threshold so low that every normal session triggers it.",
+            ],
             "tips": [
                 "An RSI-below-30 cross flags oversold; a golden cross (50/200) flags a longer-term uptrend.",
-            ],
-        },
-        {
-            "key": "walk-forward",
-            "title": "Walk-Forward Backtest",
-            "summary": "Rolling in-sample/out-of-sample backtest with an overfitting (IS vs OOS) check.",
-            "quickstart": "Set in-sample and out-of-sample month lengths and a step, run it, then compare the "
-                          "in-sample and out-of-sample equity curves for overfitting.",
-            "what": "Walk-forward testing repeatedly optimizes on an in-sample window and validates on the "
-                    "following out-of-sample window, rolling forward by a step. A large gap between in- and "
-                    "out-of-sample performance is the classic overfitting tell. Use it to sanity-check a "
-                    "strategy before trusting a single backtest.",
-            "how": [
-                "Set in-sample months, out-of-sample months and the step size.",
-                "Run it and read the per-window results and the IS-vs-OOS comparison chart.",
-                "The overfitting indicator summarizes how much OOS lagged IS.",
-            ],
-            "tips": [
-                "Prefer strategies whose out-of-sample results hold up close to their in-sample results.",
             ],
         },
         {
@@ -1776,6 +1813,17 @@ def _build_section_guides() -> List[Dict[str, Any]]:
                 "The waterfall shows each sector's contribution to total P&L, largest first.",
                 "The market-factor tiles show portfolio beta, alpha, and the systematic/specific P&L split.",
                 "Positive alpha means return beyond what market exposure alone would explain.",
+            ],
+            "examples": [
+                "To find your biggest P&L driver: read the top bar of the sector waterfall — it is the "
+                "sector that contributed the most.",
+                "To judge whether returns were skill or the market: compare the alpha tile against beta — "
+                "meaningful positive alpha points to strategy edge.",
+            ],
+            "mistakes": [
+                "Reading one strong month of alpha as durable skill — attribution needs a run of periods to "
+                "be meaningful.",
+                "Ignoring beta when the whole market rallied — a rising tide can flatter a high-beta book.",
             ],
             "tips": [
                 "High beta with low alpha means the market did the work, not the strategy.",
@@ -1793,6 +1841,18 @@ def _build_section_guides() -> List[Dict[str, Any]]:
                 "Pick the period (monthly or quarterly).",
                 "The preview shows the statement subject, body and line items.",
                 "“Download PDF” saves the rendered statement.",
+            ],
+            "examples": [
+                "To archive last month's performance: select “monthly”, preview it, then “Download PDF” for "
+                "your records.",
+                "To share a clean quarter summary: select “quarterly” and download the PDF — it mirrors the "
+                "statement the scheduler emails.",
+            ],
+            "mistakes": [
+                "Expecting a downloaded statement to update itself later — it is a snapshot of the period at "
+                "download time.",
+                "Relying on the manual download for recurring records instead of enabling the scheduled "
+                "email statements.",
             ],
             "tips": [
                 "Quarterly statements smooth out month-to-month noise for a cleaner trend.",

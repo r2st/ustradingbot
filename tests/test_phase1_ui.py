@@ -106,10 +106,12 @@ def test_theme_toggle_still_present(html) -> None:
 
 # ───────────────────── 3. Collapsible sidebar nav ────────────────────────
 
-def test_sidebar_has_five_collapsible_categories(html) -> None:
-    for cat in ("trading", "analytics", "market", "ai", "settings"):
+def test_sidebar_has_six_collapsible_categories(html) -> None:
+    # "reports" was added alongside the Reports section (Tax, Attribution,
+    # Statements, Walk-Forward, etc.), bringing the sidebar to six categories.
+    for cat in ("trading", "analytics", "market", "ai", "reports", "settings"):
         assert f'data-cat="{cat}"' in html
-    assert html.count('class="nav-cat"') == 5
+    assert html.count('class="nav-cat"') == 6
     assert "function toggleNavCat" in html
     # Category headers rendered as toggle buttons.
     assert 'class="nav-cat-toggle"' in html

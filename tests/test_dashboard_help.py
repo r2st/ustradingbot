@@ -93,7 +93,8 @@ def test_every_content_section_has_a_help_link(client: TestClient) -> None:
     # header must expose exactly one help link. (The Help section itself has no
     # guide/"?" — it is the destination.)
     keys = {g["key"] for g in dash._build_section_guides()}
-    section_ids = set(re.findall(r'id="nav-([a-z]+)"', html))
+    # Section ids are lowercase and may be hyphenated (e.g. nav-indicator-alerts).
+    section_ids = set(re.findall(r'id="nav-([a-z][a-z-]*)"', html))
     # Every guide key is a real section on the page.
     assert keys <= section_ids, f"guides without a section: {keys - section_ids}"
     # The help link and subtitle counts line up with the number of guides.
