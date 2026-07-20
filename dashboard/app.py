@@ -1611,6 +1611,193 @@ def _build_section_guides() -> List[Dict[str, Any]]:
                 "Use the CSV exports to analyse performance in a spreadsheet or notebook.",
             ],
         },
+        {
+            "key": "tax",
+            "title": "Tax Center",
+            "summary": "Realized gains, tax-loss-harvest candidates and IRS 8949 / Schedule D exports.",
+            "quickstart": "Pick a tax year, review realized gains and wash-sale flags, then download the "
+                          "IRS 8949 CSV or Schedule D CSV for your filing.",
+            "what": "This section turns your trade journal into a US-style realized-gains report using "
+                    "FIFO cost basis. It splits short- vs long-term gains, flags wash sales, and surfaces "
+                    "open positions you could harvest for a loss. Use it around quarterly estimates and "
+                    "at year end.",
+            "how": [
+                "“Tax year” scopes every table to one year; leave it on “All years” for the full picture.",
+                "The stat tiles show total realized gain, the short/long split, proceeds, wash-sale count "
+                "and the total harvestable loss.",
+                "“Realized Gains & Losses” lists each closed lot with its holding period and wash-sale flag.",
+                "“Tax-Loss Harvest Candidates” lists open losers; a red “risk” badge means selling now would "
+                "trip the 30-day wash-sale rule — the earliest clean rebuy date is shown.",
+                "“⬇ 8949 CSV” downloads IRS Form 8949 rows; “⬇ Schedule D CSV” downloads the short/long "
+                "summary.",
+            ],
+            "mistakes": [
+                "Treating these numbers as filed tax advice — they are computed from the journal and should "
+                "be confirmed with a professional.",
+                "Harvesting a position flagged as wash-sale risk before its earliest clean rebuy date.",
+            ],
+            "tips": [
+                "Harvest losses before year end to offset realized gains, respecting the wash-sale window.",
+            ],
+        },
+        {
+            "key": "rebalance",
+            "title": "Rebalancing",
+            "summary": "Current vs target allocation, per-bucket drift, and a suggested trim/add plan.",
+            "quickstart": "Set target weights per bucket, read the drift bars, then Preview the suggested "
+                          "trades. Apply is gated behind the admin password and REBALANCE_AUTO.",
+            "what": "This section compares your live allocation (by sector, strategy or asset type) against "
+                    "operator-defined targets and flags buckets that have drifted past the threshold. It "
+                    "matters because drift quietly changes your risk profile. Use it periodically to keep "
+                    "the book aligned with your plan.",
+            "how": [
+                "The paired donuts show current vs target allocation side by side.",
+                "Each drift bar shows how far a bucket is over (red) or under (blue) its target.",
+                "“Preview” lists the suggested trims and adds without placing any orders.",
+                "“Apply” asks for the admin password and only returns a trim plan — orders are still placed "
+                "deliberately via the manual-trade path.",
+            ],
+            "mistakes": [
+                "Expecting Apply to place live orders automatically — it never does; it returns a plan.",
+                "Rebalancing on tiny drift and churning commissions; respect the drift threshold.",
+            ],
+            "tips": [
+                "Rebalance on a fixed cadence (e.g. monthly) rather than reacting to every wiggle.",
+            ],
+        },
+        {
+            "key": "dividends",
+            "title": "Dividends",
+            "summary": "Upcoming ex-dividend dates, trailing income, and yield-on-cost per position.",
+            "quickstart": "Scan upcoming ex-div dates, check the trailing monthly income chart, and read "
+                          "yield-on-cost per holding.",
+            "what": "This section tracks the income side of total return: which holdings pay, when they go "
+                    "ex-dividend, how much you have accrued, and each position's yield on its cost basis. "
+                    "Use it to plan around ex-dates and to understand income contribution.",
+            "how": [
+                "The total-income tile sums accrued dividend income across the open book.",
+                "“Upcoming Ex-Dividend” lists the next ex-dates from each holding's dividend history.",
+                "The bar chart shows trailing monthly dividend income.",
+                "“Yield on Cost” divides trailing income by each position's cost basis.",
+            ],
+            "tips": [
+                "Yield-on-cost rises over time as a holding grows its dividend — a sign of a compounding payer.",
+            ],
+        },
+        {
+            "key": "economic",
+            "title": "Economic Calendar",
+            "summary": "This-week macro events (FOMC, CPI, NFP, GDP) with importance and blackout status.",
+            "quickstart": "Check whether a macro blackout is active, then scan the week's events; filter by "
+                          "importance to focus on the market-movers.",
+            "what": "This section lists scheduled macro releases that move the whole market and shows whether "
+                    "the engine is currently in a macro blackout window (when it avoids new entries). Use it "
+                    "to anticipate volatility around FOMC, CPI, NFP and GDP.",
+            "how": [
+                "The blackout indicator turns amber when now falls inside an event's blackout window.",
+                "The table lists each event's date/time (ET), importance and type.",
+                "Use the importance filter to hide low-impact events.",
+            ],
+            "tips": [
+                "High-importance events (FOMC, CPI, NFP) are the ones most likely to gap your stops.",
+            ],
+        },
+        {
+            "key": "webhooks",
+            "title": "Webhooks",
+            "summary": "Inbound webhook status, HMAC secret, veto rules and recent deliveries (TradingView).",
+            "quickstart": "Confirm webhooks are enabled, copy the endpoint URL and HMAC secret, then point a "
+                          "TradingView alert at it. Manage entry vetoes and review recent deliveries here.",
+            "what": "This section manages the inbound webhook that lets external systems (e.g. TradingView "
+                    "alerts) submit trades or veto new entries. It matters for automation and for cutting off "
+                    "a symbol quickly. Use it to wire up alerts and audit what has been received.",
+            "how": [
+                "The status pill shows whether WEBHOOKS_ENABLED is on; trades require WEBHOOK_ALLOW_TRADES too.",
+                "Copy the endpoint URL and the HMAC secret (masked; reveal to copy) into your alert.",
+                "“Veto Rules” blocks new entries for a symbol; add or delete rules inline.",
+                "“Recent Deliveries” logs the last inbound webhook calls with their outcome.",
+            ],
+            "mistakes": [
+                "Sending trades while WEBHOOK_ALLOW_TRADES is off — they are rejected.",
+                "Posting without the HMAC signature when a secret is configured.",
+            ],
+            "tips": [
+                "Rotate the HMAC secret if it may have leaked; update your alert at the same time.",
+            ],
+        },
+        {
+            "key": "indicator-alerts",
+            "title": "Indicator Alerts",
+            "summary": "Custom RSI / moving-average / volume / drawdown alert rules with a manual check.",
+            "quickstart": "Build a rule (symbol × indicator × condition × threshold), arm it, and use “Check "
+                          "Now” to evaluate every rule immediately.",
+            "what": "This section lets you define technical and portfolio alert rules beyond simple price "
+                    "levels — RSI crosses, golden/death moving-average crosses, volume spikes, drawdown and "
+                    "daily-loss limits. Use it to get notified when a condition you care about fires.",
+            "how": [
+                "Pick a rule type, fill its parameters, and “Add rule” to arm it.",
+                "The rules table lists every rule; toggle Active to arm/disarm (re-arming clears a trigger).",
+                "“Check Now” evaluates all armed rules and reports which fired.",
+                "The history feed shows recently triggered rules.",
+            ],
+            "tips": [
+                "An RSI-below-30 cross flags oversold; a golden cross (50/200) flags a longer-term uptrend.",
+            ],
+        },
+        {
+            "key": "walk-forward",
+            "title": "Walk-Forward Backtest",
+            "summary": "Rolling in-sample/out-of-sample backtest with an overfitting (IS vs OOS) check.",
+            "quickstart": "Set in-sample and out-of-sample month lengths and a step, run it, then compare the "
+                          "in-sample and out-of-sample equity curves for overfitting.",
+            "what": "Walk-forward testing repeatedly optimizes on an in-sample window and validates on the "
+                    "following out-of-sample window, rolling forward by a step. A large gap between in- and "
+                    "out-of-sample performance is the classic overfitting tell. Use it to sanity-check a "
+                    "strategy before trusting a single backtest.",
+            "how": [
+                "Set in-sample months, out-of-sample months and the step size.",
+                "Run it and read the per-window results and the IS-vs-OOS comparison chart.",
+                "The overfitting indicator summarizes how much OOS lagged IS.",
+            ],
+            "tips": [
+                "Prefer strategies whose out-of-sample results hold up close to their in-sample results.",
+            ],
+        },
+        {
+            "key": "attribution",
+            "title": "Performance Attribution",
+            "summary": "P&L attributed to sectors and the market factor (beta / alpha decomposition).",
+            "quickstart": "Read the sector waterfall to see which sectors drove P&L, then the market-factor "
+                          "split into systematic (beta) and specific (alpha) return.",
+            "what": "This section explains where returns came from: a sector-by-sector waterfall of realized "
+                    "P&L and a market-factor decomposition (how much of the return was market beta vs "
+                    "strategy-specific alpha). Use it to understand whether you were paid for skill or beta.",
+            "how": [
+                "The waterfall shows each sector's contribution to total P&L, largest first.",
+                "The market-factor tiles show portfolio beta, alpha, and the systematic/specific P&L split.",
+                "Positive alpha means return beyond what market exposure alone would explain.",
+            ],
+            "tips": [
+                "High beta with low alpha means the market did the work, not the strategy.",
+            ],
+        },
+        {
+            "key": "statements",
+            "title": "Statements",
+            "summary": "Generate and download monthly or quarterly performance statements.",
+            "quickstart": "Choose monthly or quarterly, preview the statement, and download the PDF.",
+            "what": "This section produces a periodic performance statement (the same one the scheduler can "
+                    "email) with headline figures and line items. Use it for record-keeping or to share a "
+                    "clean summary for a period.",
+            "how": [
+                "Pick the period (monthly or quarterly).",
+                "The preview shows the statement subject, body and line items.",
+                "“Download PDF” saves the rendered statement.",
+            ],
+            "tips": [
+                "Quarterly statements smooth out month-to-month noise for a cleaner trend.",
+            ],
+        },
     ]
 
 

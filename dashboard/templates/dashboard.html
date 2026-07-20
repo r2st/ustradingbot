@@ -1766,9 +1766,22 @@
       <div class="nav-cat-items">
         <a href="#nav-risk" data-icon="🛡" onclick="closeNav()">Risk</a>
         <a href="#nav-charts" data-icon="📈" onclick="closeNav()">P&amp;L Charts</a>
+        <a href="#nav-rebalance" data-icon="⚖" onclick="closeNav()">Rebalancing</a>
+        <a href="#nav-dividends" data-icon="💵" onclick="closeNav()">Dividends</a>
         <a href="#nav-strategy" data-icon="♟" onclick="closeNav()">Strategies</a>
         <a href="#nav-backtest" data-icon="🧪" onclick="closeNav()">Backtest</a>
         <a href="#nav-montecarlo" data-icon="🎲" onclick="closeNav()">Monte&nbsp;Carlo</a>
+      </div>
+    </div>
+
+    <div class="nav-cat" data-cat="reports">
+      <button type="button" class="nav-cat-toggle" aria-expanded="true" onclick="toggleNavCat(this)">
+        <span>Reports</span><span class="nav-cat-caret" aria-hidden="true">▾</span>
+      </button>
+      <div class="nav-cat-items">
+        <a href="#nav-tax" data-icon="🧮" onclick="closeNav()">Tax Center</a>
+        <a href="#nav-attribution" data-icon="🧩" onclick="closeNav()">Attribution</a>
+        <a href="#nav-statements" data-icon="📄" onclick="closeNav()">Statements</a>
       </div>
     </div>
 
@@ -1779,6 +1792,8 @@
       <div class="nav-cat-items">
         <a href="#nav-watchlist" data-icon="👁" onclick="closeNav()">Watchlist</a>
         <a href="#nav-alerts" data-icon="🔔" onclick="closeNav()">Price Alerts</a>
+        <a href="#nav-indicator-alerts" data-icon="📐" onclick="closeNav()">Indicator Alerts</a>
+        <a href="#nav-economic" data-icon="🗓" onclick="closeNav()">Economic Calendar</a>
         <a href="#nav-scanner" data-icon="📡" onclick="closeNav()">Scanner</a>
         <a href="#nav-sectors" data-icon="🏦" onclick="closeNav()">Sectors</a>
         <a href="#nav-universe" data-icon="🌐" onclick="closeNav()">Universe</a>
@@ -1805,6 +1820,7 @@
         <a href="#nav-engine" data-icon="⚙" onclick="closeNav()">Engine Control</a>
         <a href="#nav-provider" data-icon="🛰" onclick="closeNav()">Data Provider</a>
         <a href="#nav-api" data-icon="🔌" onclick="closeNav()">API</a>
+        <a href="#nav-webhooks" data-icon="🪝" onclick="closeNav()">Webhooks</a>
         <a href="#nav-status" data-icon="🖥" onclick="closeNav()">System</a>
         <a href="#nav-help" data-icon="❓" onclick="closeNav()">Help</a>
       </div>
@@ -4009,6 +4025,223 @@
     </div>
   </div>
 </div>
+
+<!-- ═══════════════════ SHARED STYLES FOR NEW PANELS (P0/P1) ═══════════════════ -->
+<style>
+  /* Sticky-header scroll containers reused by tax / attribution / calendar tables */
+  .tbl-scroll { max-height: 440px; overflow: auto; -webkit-overflow-scrolling: touch;
+    border: 1px solid var(--border); border-radius: 8px; }
+  .data-table.sticky-head thead th {
+    position: sticky; top: 0; z-index: 1; background: var(--surface-2);
+    box-shadow: inset 0 -1px 0 var(--border); }
+  .panel-toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end;
+    margin-bottom: 14px; }
+  .panel-toolbar .form-field { margin: 0; }
+  .num-pos { color: var(--green); } .num-neg { color: var(--red); }
+  /* Importance badges (economic calendar) */
+  .imp-badge { display: inline-block; padding: 2px 9px; border-radius: 11px; font-size: 11px;
+    font-weight: 700; text-transform: uppercase; letter-spacing: .4px; }
+  .imp-high { background: #7a2020; color: #ff9b9b; }
+  .imp-med  { background: #7a4a12; color: #ffc38a; }
+  .imp-low  { background: var(--surface-2); color: var(--text-muted); }
+  /* Drift bars (rebalance) — centered zero, over/under */
+  .drift-row { display: grid; grid-template-columns: 120px 1fr 92px; gap: 10px; align-items: center;
+    padding: 5px 0; }
+  .drift-track { position: relative; height: 14px; background: var(--surface-2); border-radius: 7px; }
+  .drift-track::before { content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px;
+    width: 1px; background: var(--border); }
+  .drift-fill { position: absolute; top: 0; bottom: 0; border-radius: 7px; }
+  .drift-over  { background: var(--red); }
+  .drift-under { background: var(--accent); }
+  /* Waterfall bars (attribution) */
+  .wf-row { display: grid; grid-template-columns: 140px 1fr 96px; gap: 10px; align-items: center;
+    padding: 4px 0; font-size: 13px; }
+  .wf-track { position: relative; height: 16px; background: var(--surface-2); border-radius: 4px; }
+  .wf-fill { position: absolute; top: 0; bottom: 0; border-radius: 4px; }
+  /* Secret reveal (webhooks) */
+  .secret-box { display: inline-flex; align-items: center; gap: 8px; }
+  .secret-val { font-family: ui-monospace, Menlo, monospace; background: var(--surface-2);
+    padding: 4px 10px; border-radius: 6px; user-select: all; }
+  /* KPI dot for donut legends reused */
+  .kpi-delta { font-size: 12px; color: var(--text-muted); }
+  .chart-box { position: relative; height: 240px; }
+  .chart-box canvas { max-height: 240px; }
+</style>
+
+<!-- ═══════════════════ TAX CENTER (P0-1) ═══════════════════ -->
+<div class="section lazy-pending" id="nav-tax">
+  <div class="section-header">
+    <div class="section-icon icon-scoring">🧮</div>
+    <div class="section-titles">
+      <h2>Tax Center</h2>
+      <p class="section-sub">{{ guides_map.tax.summary }}</p>
+    </div>
+    <a class="section-help-link" href="#help-tax" title="How to use this section — opens the Help reference" aria-label="Help and how-to for Tax Center">?</a>
+  </div>
+  <div class="section-body">
+    <div class="panel-toolbar">
+      <div class="form-field">
+        <label for="taxYear">Tax year</label>
+        <select id="taxYear" onchange="taxRefresh()"><option value="">All years</option></select>
+      </div>
+      <button type="button" class="btn-primary btn-sm" onclick="taxRefresh()">Refresh</button>
+      <a class="chip" id="taxDl8949" href="#" style="cursor:pointer;" title="Download IRS Form 8949 rows as CSV">⬇ 8949 CSV</a>
+      <button type="button" class="chip" onclick="taxDownloadScheduleD()" title="Download Schedule D summary as CSV">⬇ Schedule&nbsp;D CSV</button>
+    </div>
+
+    <div class="stat-cards" id="taxStatCards" aria-live="polite">
+      <div class="stat-card"><div class="label">Total Realized Gain</div><div class="value" id="taxTotalGain">—</div></div>
+      <div class="stat-card"><div class="label">Short-Term</div><div class="value small" id="taxShort">—</div></div>
+      <div class="stat-card"><div class="label">Long-Term</div><div class="value small" id="taxLong">—</div></div>
+      <div class="stat-card"><div class="label">Proceeds</div><div class="value small" id="taxProceeds">—</div></div>
+      <div class="stat-card"><div class="label">Wash Sales</div><div class="value small" id="taxWash">—</div></div>
+      <div class="stat-card"><div class="label">Harvestable Loss</div><div class="value small" id="taxHarvestable">—</div></div>
+    </div>
+
+    <h4 style="margin-top:18px;">Realized Gains &amp; Losses</h4>
+    <div class="tbl-scroll table-wrap">
+      <table class="data-table sticky-head"><caption class="sr-only">Realized tax lots</caption>
+        <thead><tr>
+          <th scope="col">Symbol</th><th scope="col">Term</th><th scope="col">Acquired</th>
+          <th scope="col">Disposed</th><th scope="col">Held (d)</th><th scope="col">Proceeds</th>
+          <th scope="col">Cost Basis</th><th scope="col">Gain/Loss</th><th scope="col">Wash</th>
+        </tr></thead>
+        <tbody id="taxLotRows"><tr><td colspan="9" class="empty-note">Loading…</td></tr></tbody>
+      </table>
+    </div>
+
+    <h4 style="margin-top:18px;">Tax-Loss Harvest Candidates
+      <span class="info-tip" tabindex="0" role="note"
+        data-tip="Open positions sitting at an unrealized loss you could realize to offset gains. Wash-sale-flagged rows would trigger the 30-day rule.">i</span></h4>
+    <div class="tbl-scroll table-wrap">
+      <table class="data-table sticky-head"><caption class="sr-only">Tax-loss harvest candidates</caption>
+        <thead><tr>
+          <th scope="col">Symbol</th><th scope="col">Qty</th><th scope="col">Entry</th>
+          <th scope="col">Price</th><th scope="col">Unrealized Loss</th><th scope="col">Term</th>
+          <th scope="col">Held (d)</th><th scope="col">Wash Risk</th><th scope="col">Earliest Rebuy</th>
+        </tr></thead>
+        <tbody id="taxHarvestRows"><tr><td colspan="9" class="empty-note">Loading…</td></tr></tbody>
+      </table>
+    </div>
+    <p class="muted-note">Reports are computed from your trade journal (FIFO cost basis). Not tax advice —
+      confirm figures with a professional before filing.</p>
+  </div>
+</div>
+<script>
+(function () {
+  "use strict";
+  function ready(fn) {
+    if (document.readyState !== "loading") fn();
+    else document.addEventListener("DOMContentLoaded", fn);
+  }
+  function money(v) {
+    if (v == null || isNaN(v)) return "—";
+    var n = Number(v);
+    return (n < 0 ? "-$" : "$") + Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function gainCell(v) {
+    var n = Number(v || 0);
+    return '<td class="' + (n >= 0 ? "num-pos" : "num-neg") + '">' + money(n) + "</td>";
+  }
+  var _sched = null;   // cache Schedule-D JSON for client-side CSV export
+
+  window.taxRefresh = async function () {
+    var yearSel = document.getElementById("taxYear");
+    var year = yearSel ? yearSel.value : "";
+    var qs = year ? ("?year=" + encodeURIComponent(year)) : "";
+    // Update the 8949 download link to match the selected year.
+    var dl = document.getElementById("taxDl8949");
+    if (dl) dl.setAttribute("href", "/api/tax/8949?format=csv" + (year ? "&year=" + encodeURIComponent(year) : ""));
+
+    renderSkeleton("taxLotRows", 4);
+    renderSkeleton("taxHarvestRows", 3);
+    try {
+      var rep = await jget("/api/tax/report" + qs, { key: "tax-report", report: true, context: "Tax report" });
+      var s = rep.summary || {};
+      var st = s.short_term || {}, lt = s.long_term || {};
+      document.getElementById("taxTotalGain").textContent = money(s.total_gain);
+      document.getElementById("taxTotalGain").className = "value " + (Number(s.total_gain || 0) >= 0 ? "num-pos" : "num-neg");
+      document.getElementById("taxShort").textContent = money(st.gain);
+      document.getElementById("taxLong").textContent = money(lt.gain);
+      document.getElementById("taxProceeds").textContent = money(s.total_proceeds);
+      document.getElementById("taxWash").textContent = (rep.wash_sale_count || 0) +
+        (rep.total_disallowed_loss ? " (" + money(rep.total_disallowed_loss) + ")" : "");
+
+      var lots = rep.lots || [];
+      var tb = document.getElementById("taxLotRows");
+      if (!lots.length) { tb.innerHTML = '<tr><td colspan="9" class="empty-note">No realized lots for this period.</td></tr>'; }
+      else {
+        tb.innerHTML = lots.map(function (l) {
+          return "<tr><td>" + esc(l.symbol) + "</td><td>" + esc(l.term) + "</td><td>" +
+            esc(l.acquired) + "</td><td>" + esc(l.disposed) + "</td><td>" + (l.holding_days != null ? l.holding_days : "—") +
+            "</td><td>" + money(l.proceeds) + "</td><td>" + money(l.cost_basis) + "</td>" + gainCell(l.gain) +
+            "<td>" + (l.wash_sale ? '<span class="imp-badge imp-med">wash</span>' : "—") + "</td></tr>";
+        }).join("");
+      }
+    } catch (e) {
+      document.getElementById("taxLotRows").innerHTML = '<tr><td colspan="9" class="empty-note">Could not load tax report.</td></tr>';
+    }
+
+    // Harvest candidates (independent — a failure here shouldn't blank the report).
+    try {
+      var h = await jget("/api/tax/harvest", { key: "tax-harvest", report: true, context: "Harvest scan" });
+      document.getElementById("taxHarvestable").textContent = money(h.total_harvestable_loss);
+      var ops = h.opportunities || [];
+      var ht = document.getElementById("taxHarvestRows");
+      if (!ops.length) { renderEmpty(ht.parentNode.parentNode, "No harvest candidates — no open positions sitting at a loss."); ht.innerHTML = '<tr><td colspan="9" class="empty-note">No harvest candidates right now.</td></tr>'; }
+      else {
+        ht.innerHTML = ops.map(function (o) {
+          return "<tr><td>" + esc(o.symbol) + "</td><td>" + (o.quantity != null ? o.quantity : "—") +
+            "</td><td>" + money(o.entry_price) + "</td><td>" + money(o.current_price) + "</td>" +
+            '<td class="num-neg">' + money(-Math.abs(o.unrealized_loss || 0)) + "</td><td>" + esc(o.term) +
+            "</td><td>" + (o.holding_days != null ? o.holding_days : "—") + "</td><td>" +
+            (o.wash_sale_risk ? '<span class="imp-badge imp-high">risk</span>' : '<span class="imp-badge imp-low">clear</span>') +
+            "</td><td>" + esc(o.earliest_rebuy_date || "—") + "</td></tr>";
+        }).join("");
+      }
+    } catch (e) {
+      document.getElementById("taxHarvestRows").innerHTML = '<tr><td colspan="9" class="empty-note">Could not load harvest scan.</td></tr>';
+    }
+
+    // Schedule-D summary cached for CSV export.
+    try { _sched = await jget("/api/tax/schedule-d" + qs, { key: "tax-sched" }); } catch (e) { _sched = null; }
+  };
+
+  window.taxDownloadScheduleD = function () {
+    if (!_sched) { reportApiError("Schedule D", "No data loaded yet.", "warn"); return; }
+    var rows = [["term", "proceeds", "cost_basis", "adjustments", "gain_loss", "count"]];
+    ["short_term", "long_term"].forEach(function (k) {
+      var t = _sched[k] || {};
+      rows.push([k, t.proceeds || 0, t.cost_basis || 0, t.adjustments || 0, t.gain_loss || 0, t.count || 0]);
+    });
+    rows.push(["net", "", "", "", _sched.net_gain_loss || 0, ""]);
+    var csv = rows.map(function (r) { return r.join(","); }).join("\n");
+    var blob = new Blob([csv], { type: "text/csv" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "schedule_d.csv";
+    document.body.appendChild(a); a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+  };
+
+  async function taxInit() {
+    try {
+      var y = await jget("/api/tax/years", { key: "tax-years" });
+      var sel = document.getElementById("taxYear");
+      (y.years || []).forEach(function (yr) {
+        var opt = document.createElement("option");
+        opt.value = yr; opt.textContent = yr; sel.appendChild(opt);
+      });
+    } catch (e) { /* years are best-effort; "All years" still works */ }
+    await window.taxRefresh();
+  }
+
+  ready(function () {
+    if (window.lazySection) window.lazySection("nav-tax", taxInit);
+    else taxInit();
+  });
+})();
+</script>
 
 <!-- ═══════════════════ HELP: PAPER TRADING ═══════════════════ -->
 <div class="section" id="nav-help">
@@ -7826,6 +8059,9 @@
   </button>
   <button type="button" class="bn-item" data-cat="analytics" data-target="#nav-risk" onclick="bottomNavGo(this)">
     <span class="bn-ico" aria-hidden="true">📊</span><span>Analytics</span>
+  </button>
+  <button type="button" class="bn-item" data-cat="reports" data-target="#nav-tax" onclick="bottomNavGo(this)">
+    <span class="bn-ico" aria-hidden="true">🧮</span><span>Reports</span>
   </button>
   <button type="button" class="bn-item" data-cat="market" data-target="#nav-watchlist" onclick="bottomNavGo(this)">
     <span class="bn-ico" aria-hidden="true">🌐</span><span>Market</span>
