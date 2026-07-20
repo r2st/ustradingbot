@@ -672,6 +672,21 @@ class TradingEngine:
         except Exception as exc:  # noqa: BLE001
             log.warning("engine.price_alerts_failed", error=str(exc))
 
+        # ── Custom indicator & portfolio alerts (P1-4) ────────────────
+        # RSI/MA/volume-spike rules plus portfolio drawdown & daily-loss
+        # limits, evaluated against the same cached bars.  Best-effort.
+        try:
+            from alerts.indicator_alerts import check_indicator_alerts
+
+            ctx = self._portfolio_alert_ctx()
+            fired = await asyncio.to_thread(
+                check_indicator_alerts, self.settings, None, ctx
+            )
+            if fired:
+                log.info("engine.indicator_alerts_fired", count=len(fired))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("engine.indicator_alerts_failed", error=str(exc))
+
     def _run_short_scan(self, scan_symbols, selection) -> List[Signal]:
         """Run the short-strategy scan for this cycle (empty when disabled).
 
@@ -1219,6 +1234,41 @@ class TradingEngine:
             if series is not None and not series.empty:
                 out[sym] = series
         return out
+
+    def _portfolio_alert_ctx(self) -> Dict[str, Any]:
+        """Build the portfolio-state context for indicator/portfolio alerts (P1-4).
+
+        Cheap parts (today's loss %) are always populated; the drawdown figures
+        are best-effort from the risk report and degrade to absent (their rules
+        simply don't fire) on any error.
+        """
+        ctx: Dict[str, Any] = {}
+        try:
+            cap = float(self.settings.TOTAL_CAPITAL or 0.0)
+            if cap > 0:
+                ctx["daily_loss_pct"] = max(
+                    0.0, -float(self.risk_manager.daily_pnl) / cap * 100.0
+                )
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            from analytics.risk_dashboard import build_risk_report
+
+            report = build_risk_report(
+                self.settings.DATA_DIR,
+                dict(self.settings.CAPITAL_BY_CURRENCY),
+                self.settings.TOTAL_CAPITAL,
+                ohlcv_fetcher=lambda s: None,  # skip correlation fetches here
+                daily_loss_limit_pct=self.settings.DAILY_LOSS_LIMIT_PCT,
+            )
+            dd = report.drawdown or {}
+            cur = dd.get("current_drawdown_pct")
+            if cur is not None:
+                # Stored as a fraction/percentage of equity; expose as a positive %.
+                ctx["drawdown_pct"] = abs(float(cur))
+        except Exception:  # noqa: BLE001
+            pass
+        return ctx
 
     def _on_rejection_activity(self, sig, reason: str, detail: str) -> None:
         """Mirror every gate rejection into the activity feed (F4)."""
