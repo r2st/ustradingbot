@@ -110,6 +110,27 @@ def test_ws_streams_pnl_frame(client, env, monkeypatch):
     assert frame["positions"][0]["symbol"] == "TEST"
 
 
+def test_ws_client_disconnect_mid_stream_is_clean(client, env, monkeypatch):
+    """A client that drops after the first frame must not raise server-side.
+
+    Exercises the ``except WebSocketDisconnect: return`` lifecycle path
+    (ws_pnl.py) — the loop should exit cleanly when the peer goes away between
+    pushes (audit B-7).
+    """
+    # Shrink the push interval so the loop reaches its second `send_json`
+    # (and thus a WebSocketDisconnect) quickly after we close the client.
+    monkeypatch.setattr(ws_pnl, "PNL_PUSH_INTERVAL_OPEN", 0.01)
+    monkeypatch.setattr(ws_pnl, "PNL_PUSH_INTERVAL_CLOSED", 0.01)
+
+    with client.websocket_connect("/ws/pnl") as ws:
+        first = ws.receive_json()
+        assert first["type"] == "pnl"
+        # Leaving the context manager closes the client mid-stream; the server
+        # handler must swallow the resulting WebSocketDisconnect. raise_server_
+        # exceptions=False on the TestClient means any leaked server exception
+        # would surface here — its absence is the assertion.
+
+
 def test_ws_market_open_flag_reflects_clock(client, env, monkeypatch):
     monkeypatch.setattr(ws_pnl, "_market_open", lambda settings: True)
     with client.websocket_connect("/ws/pnl") as ws:
