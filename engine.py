@@ -947,6 +947,19 @@ class TradingEngine:
         if earnings_check.mode == "flag":
             bound_log.info("engine.earnings_flag", reason=earnings_check.reason)
 
+        # (a0) Operator / webhook veto gate (P0-3).  An external system or the
+        #      dashboard may block new entries for a symbol; honour that before
+        #      any risk/AI work.  Fail-open on any store error.
+        try:
+            from execution.veto import is_vetoed
+
+            if is_vetoed(self.settings.DATA_DIR, sig.symbol, sig.strategy):
+                bound_log.info("engine.rejected", gate="veto", reason="symbol_vetoed")
+                self.rejected_logger.log_rejection(sig, "veto", "symbol vetoed")
+                return False
+        except Exception:  # noqa: BLE001 -- veto store must never break the loop
+            pass
+
         # (a) Risk manager pre-check (already-held, cooldown, daily loss,
         #     max positions, invalid stop/target, R:R minimum).
         ok, reason = self.risk_manager.pre_check(sig)

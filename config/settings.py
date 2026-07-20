@@ -244,6 +244,21 @@ class Settings(BaseSettings):
     # (no browser open -> no provider/LLM spend).
     AI_COMMENTARY_IDLE_SUPPRESS_MINUTES: int = 15
 
+    # ── Inbound webhooks + writable control API (P0-3) ──────────────────────
+    # POST endpoints for external trade submission / veto (TradingView alerts,
+    # custom systems).  Authenticated with an API key (reusing the REST-API key
+    # store) and, when a secret is set, an HMAC-SHA256 body signature in the
+    # X-Signature header.  Disabled by default — this is a money path.
+    WEBHOOKS_ENABLED: bool = False
+    # Shared secret for HMAC signature verification.  When empty, signature
+    # verification is skipped (API-key auth still required); set it to require a
+    # valid ``X-Signature: sha256=<hex>`` header on every webhook.
+    WEBHOOK_HMAC_SECRET: str = ""
+    # Allow webhooks to actually place orders.  When False, trade webhooks are
+    # validated + logged but not executed (dry-run) — a safe default that lets
+    # operators wire up alerts before granting live-order authority.
+    WEBHOOK_ALLOW_TRADES: bool = False
+
     # ── Legacy Anthropic key (unused; kept for backward compat) ─────────────
     ANTHROPIC_API_KEY: str = ""
 

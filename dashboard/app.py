@@ -2235,6 +2235,7 @@ from dashboard.memory_router import router as _memory_router  # noqa: E402
 from dashboard.ws_pnl import router as _ws_pnl_router  # noqa: E402
 from dashboard.tax_router import router as _tax_router  # noqa: E402
 from dashboard.price_alerts_router import router as _price_alerts_router  # noqa: E402
+from dashboard.webhook_router import router as _webhook_router  # noqa: E402
 
 for _r in (
     _universe_router,
@@ -2260,6 +2261,7 @@ for _r in (
     _ws_pnl_router,
     _tax_router,
     _price_alerts_router,
+    _webhook_router,
 ):
     app.include_router(_r)
 
