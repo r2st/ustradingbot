@@ -46,6 +46,20 @@ import structlog
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
+
+def _count_llm_call(result: str) -> None:
+    """Record one OpenRouter call outcome into the metrics registry (B-3)."""
+    try:
+        from dashboard import metrics
+
+        metrics.inc(
+            "ustb_ai_llm_calls_total", labels={"result": result},
+            help_text="OpenRouter LLM calls by outcome (ok/http_error/error).",
+        )
+    except Exception:  # noqa: BLE001 — telemetry must never break commentary
+        pass
+
+
 ET = ZoneInfo("America/New_York")
 COMMENTARY_FILE = "ai_commentary.json"
 
@@ -1165,11 +1179,13 @@ class CommentaryEngine:
                 resp.raise_for_status()
                 data = resp.json()
             self._auth_failed = False
+            _count_llm_call("ok")
             return (
                 data.get("choices", [{}])[0].get("message", {}).get("content", "")
             ) or None
         except httpx.HTTPStatusError as exc:  # noqa: PERF203 -- fail-open
             status = exc.response.status_code
+            _count_llm_call("http_error")
             if status in (401, 403):
                 # A rejected key fails every call identically — flag it so
                 # the rest of this refresh skips the LLM instead of burning
@@ -1180,6 +1196,7 @@ class CommentaryEngine:
             log.warning("commentary.llm_failed", status=status, error=str(exc))
             return None
         except Exception as exc:  # noqa: BLE001 -- fail-open
+            _count_llm_call("error")
             self._last_error = f"OpenRouter call failed: {exc}"
             log.warning("commentary.llm_failed", error=str(exc))
             return None

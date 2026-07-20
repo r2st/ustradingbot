@@ -26,7 +26,7 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from starlette.concurrency import run_in_threadpool
 
@@ -1678,7 +1678,12 @@ def _build_backtest_options() -> Dict[str, Any]:
 
 @app.get("/health", tags=["System"])
 async def health():
-    """Simple health-check endpoint (also reports the trading mode)."""
+    """Liveness probe — "is the process up?" (also reports the trading mode).
+
+    Deliberately unconditional and dependency-free so an orchestrator's liveness
+    check never restarts the container over a *dependency* being down.  Use
+    ``/readyz`` for the "can it actually trade?" readiness question.
+    """
     settings = get_settings()
     return {
         "status": "ok",
@@ -1686,6 +1691,48 @@ async def health():
         "broker": settings.BROKER,
         "timestamp": datetime.now(tz=EASTERN).isoformat(),
     }
+
+
+@app.get("/readyz", tags=["System"])
+async def readyz():
+    """Readiness probe — pings broker/provider + reports engine-loop liveness.
+
+    Returns 200 only when the market-data provider is credentialed, the broker
+    is reachable, and the engine heartbeat (if present) is fresh; otherwise 503
+    with the per-check detail so a monitor goes red when the bot is silently
+    disconnected from the market (audit B-3).
+    """
+    from dashboard.ops import readiness_report
+
+    report = await run_in_threadpool(readiness_report, get_settings())
+    status_code = 200 if report["ready"] else status.HTTP_503_SERVICE_UNAVAILABLE
+    return JSONResponse(status_code=status_code, content=report)
+
+
+@app.get("/version", tags=["System"])
+async def version():
+    """Build/release identity (git SHA + version) baked in at deploy time."""
+    from dashboard.ops import version_info
+
+    return version_info(app.version)
+
+
+@app.get("/metrics", tags=["System"])
+async def metrics_endpoint():
+    """Prometheus-format application metrics (audit B-3).
+
+    Counters (requests, errors, manual trades, AI/LLM calls), gauges (engine
+    liveness, open positions, last-cycle age), and latency histograms — a
+    lightweight hand-rolled set with no ``prometheus_client`` dependency.
+    """
+    from dashboard import metrics as _metrics
+    from dashboard.ops import refresh_engine_gauges
+
+    refresh_engine_gauges(get_settings())
+    return PlainTextResponse(
+        _metrics.render(),
+        media_type="text/plain; version=0.0.4; charset=utf-8",
+    )
 
 
 # ---------------------------------------------------------------------------

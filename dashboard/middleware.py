@@ -67,6 +67,47 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
+def _route_label(request: Request) -> str:
+    """A low-cardinality route label for metrics (the matched path template).
+
+    Uses the resolved route pattern (``/api/backtest/status/{job_id}``) rather
+    than the concrete path so per-id URLs don't explode the metric cardinality.
+    Falls back to the raw path when no route matched (404s).
+    """
+    route = request.scope.get("route")
+    path = getattr(route, "path", None)
+    return path or request.url.path
+
+
+def _record_request_metrics(request: Request, status_code: int, duration_ms: float) -> None:
+    """Record request count, error count, and latency into the metrics registry.
+
+    Best-effort — a metrics hiccup must never disturb the request path.
+    """
+    try:
+        from dashboard import metrics
+
+        labels = {"method": request.method, "route": _route_label(request),
+                  "status": str(status_code)}
+        metrics.inc(
+            "ustb_http_requests_total", labels=labels,
+            help_text="Total HTTP requests handled, by method/route/status.",
+        )
+        if status_code >= 500:
+            metrics.inc(
+                "ustb_http_errors_total",
+                labels={"method": request.method, "route": _route_label(request)},
+                help_text="HTTP responses with a 5xx status.",
+            )
+        metrics.observe(
+            "ustb_http_request_duration_ms", duration_ms,
+            labels={"route": _route_label(request)},
+            help_text="HTTP request latency in milliseconds, by route.",
+        )
+    except Exception:  # noqa: BLE001 — telemetry must never break the request
+        pass
+
+
 # ---------------------------------------------------------------------------
 # B9 — request logging + correlation id
 # ---------------------------------------------------------------------------
@@ -93,6 +134,7 @@ def install_request_logging(app: FastAPI) -> None:
             return response
         finally:
             duration_ms = round((time.perf_counter() - start) * 1000.0, 2)
+            _record_request_metrics(request, status_code, duration_ms)
             # /health is polled constantly by monitors — keep it at debug so it
             # doesn't drown the access log.
             emit = log.debug if request.url.path == "/health" else log.info

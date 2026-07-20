@@ -68,6 +68,12 @@ async def place(
             user=_user,
             ip=ip,
         )
+        from dashboard import metrics
+
+        metrics.inc(
+            "ustb_manual_trades_total", labels={"result": "bad_password"},
+            help_text="Manual-trade attempts by outcome.",
+        )
         raise HTTPException(status_code=403, detail="Admin password required.")
 
     from execution.manual_trade import place_manual_trade
@@ -84,23 +90,31 @@ async def place(
 
     # Audit trail for the single most sensitive action in the system: log the
     # full trade envelope (who/what/when/where) on both success and failure.
-    event = "manual_trade.placed" if result.ok else "manual_trade.rejected"
-    emit = log.info if result.ok else log.warning
+    ok = bool(getattr(result, "ok", True))
+    event = "manual_trade.placed" if ok else "manual_trade.rejected"
+    emit = log.info if ok else log.warning
     emit(
         event,
-        symbol=result.symbol or symbol,
-        quantity=result.quantity or payload.quantity,
+        symbol=getattr(result, "symbol", "") or symbol,
+        quantity=getattr(result, "quantity", 0) or payload.quantity,
         side=side,
         entry_price=payload.entry_price,
         stop_price=payload.stop_price,
         target_price=payload.target_price,
-        fill_price=result.fill_price,
-        order_id=result.order_id,
+        fill_price=getattr(result, "fill_price", None),
+        order_id=getattr(result, "order_id", ""),
         trading_mode=settings.TRADING_MODE,
         broker=settings.BROKER,
         user=_user,
         ip=ip,
-        ok=result.ok,
-        message=result.message,
+        ok=ok,
+        message=getattr(result, "message", ""),
+    )
+    from dashboard import metrics
+
+    metrics.inc(
+        "ustb_manual_trades_total",
+        labels={"result": "placed" if ok else "rejected"},
+        help_text="Manual-trade attempts by outcome.",
     )
     return result.to_dict()

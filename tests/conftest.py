@@ -49,6 +49,12 @@ def _reset_rate_limits() -> None:
         reset()
     except Exception:  # pragma: no cover - dashboard optional in some suites
         pass
+    try:
+        from dashboard import metrics
+
+        metrics.reset()
+    except Exception:  # pragma: no cover - dashboard optional in some suites
+        pass
 
 
 # ---------------------------------------------------------------------------
