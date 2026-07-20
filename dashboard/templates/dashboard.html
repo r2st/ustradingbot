@@ -2418,8 +2418,188 @@
         </table>
       </div>
     </div>
+
+    <!-- Walk-Forward analysis (P0-7) — reuses the symbols/strategies/dates above -->
+    <h4 style="margin-top:22px;">Walk-Forward Analysis
+      <span class="info-tip" tabindex="0" role="note"
+        data-tip="Repeatedly optimizes on an in-sample window and validates on the next out-of-sample window, rolling forward. A big in-sample→out-of-sample drop is the overfitting tell.">i</span>
+    </h4>
+    <p class="bt-hint">Uses the symbols, strategies and date range selected above. Optimizes on each
+      in-sample window, then measures the following out-of-sample window.</p>
+    <div class="bt-grid">
+      <div class="bt-field">
+        <label for="wfTrain">In-sample months</label>
+        <input type="number" id="wfTrain" min="1" value="12">
+        <label for="wfTest" style="margin-top:10px;">Out-of-sample months</label>
+        <input type="number" id="wfTest" min="1" value="3">
+      </div>
+      <div class="bt-field">
+        <label for="wfStep">Step (months)</label>
+        <input type="number" id="wfStep" min="1" value="3">
+        <span class="bt-hint">How far the window slides each iteration.</span>
+        <label for="wfObjective" style="margin-top:10px;">Optimize for</label>
+        <select id="wfObjective">
+          <option value="sharpe_ratio">Sharpe ratio</option>
+          <option value="total_return_pct">Total return %</option>
+          <option value="profit_factor">Profit factor</option>
+          <option value="win_rate">Win rate</option>
+        </select>
+      </div>
+      <div class="bt-field">
+        <button type="button" class="btn-primary" id="wfRunBtn" style="margin-top:14px;" onclick="runWalkForward()">Run Walk-Forward</button>
+      </div>
+    </div>
+    <div id="wfStatus" class="bt-status-line"></div>
+
+    <div class="bt-results" id="wfResults" style="display:none;">
+      <div id="wfOverfit" class="modal-result" aria-live="polite" style="margin:6px 0;"></div>
+      <div class="stat-cards" id="wfAggCards"></div>
+      <h4 style="margin:12px 0 2px;">In-sample vs Out-of-sample</h4>
+      <div class="chart-box"><canvas id="wfCompareChart" aria-label="In-sample vs out-of-sample metric comparison"></canvas></div>
+      <h4 style="margin:14px 0 2px;">Out-of-sample return by window</h4>
+      <div class="chart-box" style="height:200px;"><canvas id="wfWindowChart" aria-label="Out-of-sample return per walk-forward window"></canvas></div>
+      <h4 style="margin:14px 0 2px;">Windows</h4>
+      <div class="table-wrap">
+        <table class="data-table"><caption class="sr-only">Walk-forward windows</caption>
+          <thead><tr><th scope="col">#</th><th scope="col">Test Period</th><th scope="col">Best Params</th>
+            <th scope="col">IS Return</th><th scope="col">OOS Return</th><th scope="col">OOS Trades</th></tr></thead>
+          <tbody id="wfWindowRows"></tbody>
+        </table>
+      </div>
+    </div>
   </div>
 </div>
+<script>
+(function () {
+  "use strict";
+  function ready(fn) { if (document.readyState !== "loading") fn(); else document.addEventListener("DOMContentLoaded", fn); }
+  var _reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function themeColor(v) { return getComputedStyle(document.documentElement).getPropertyValue(v).trim() || "#888"; }
+  var _wfTimer = null, _cmpChart = null, _winChart = null;
+
+  function wfSymbols() {
+    var out = [];
+    var sel = document.getElementById("btSymbols");
+    if (sel) Array.prototype.forEach.call(sel.selectedOptions || [], function (o) { out.push(o.value); });
+    var extra = (document.getElementById("btSymbolsExtra") || {}).value || "";
+    extra.split(/[\s,]+/).forEach(function (s) { s = s.trim().toUpperCase(); if (s && out.indexOf(s) === -1) out.push(s); });
+    return out;
+  }
+  function wfStrategies() {
+    var out = [];
+    document.querySelectorAll("#btStrategies input:checked").forEach(function (c) { out.push(c.value); });
+    return out;
+  }
+  function metric(summary, keys) {
+    for (var i = 0; i < keys.length; i++) { if (summary && summary[keys[i]] != null) return Number(summary[keys[i]]); }
+    return null;
+  }
+  function pct(v) { return v == null ? "—" : Number(v).toFixed(2) + "%"; }
+
+  window.runWalkForward = async function () {
+    var status = document.getElementById("wfStatus");
+    var btn = document.getElementById("wfRunBtn");
+    var symbols = wfSymbols(), strategies = wfStrategies();
+    if (!symbols.length) { status.className = "bt-status-line neg"; status.textContent = "Select at least one symbol above."; return; }
+    if (!strategies.length) { status.className = "bt-status-line neg"; status.textContent = "Select at least one strategy above."; return; }
+    var payload = {
+      symbols: symbols, strategies: strategies,
+      start: document.getElementById("btStart").value, end: document.getElementById("btEnd").value,
+      min_grade: document.getElementById("btMinGrade").value, starting_capital: document.getElementById("btCapital").value,
+      train_months: parseInt(document.getElementById("wfTrain").value, 10),
+      test_months: parseInt(document.getElementById("wfTest").value, 10),
+      step_months: parseInt(document.getElementById("wfStep").value, 10),
+      objective: document.getElementById("wfObjective").value
+    };
+    btn.disabled = true; window.__pauseAutoRefresh = true;
+    status.className = "bt-status-line"; status.innerHTML = '<span class="spinner"></span>Starting walk-forward…';
+    try {
+      var data = await jsend("POST", "/api/backtest/walk-forward", payload, { context: "Walk-forward", quiet: true });
+      if (!data.ok) { status.className = "bt-status-line neg"; status.textContent = data.message || "Could not start."; btn.disabled = false; return; }
+      _pollWF(data.job_id);
+    } catch (e) { status.className = "bt-status-line neg"; status.textContent = "Request failed: " + e; btn.disabled = false; }
+  };
+
+  function _pollWF(jobId) {
+    if (_wfTimer) clearInterval(_wfTimer);
+    var status = document.getElementById("wfStatus"), btn = document.getElementById("wfRunBtn");
+    _wfTimer = setInterval(async function () {
+      try {
+        var resp = await fetch("/api/backtest/status/" + jobId);
+        if (!resp.ok) throw new Error("job not found");
+        var job = await resp.json();
+        if (job.state === "running") { status.innerHTML = '<span class="spinner"></span>' + (job.message || "Running…"); return; }
+        clearInterval(_wfTimer); _wfTimer = null; btn.disabled = false;
+        if (job.state === "done") { status.className = "bt-status-line pos"; status.textContent = job.message || "Walk-forward complete."; renderWalkForward(job.result); }
+        else { status.className = "bt-status-line neg"; status.textContent = job.message || "Walk-forward failed."; }
+      } catch (e) { clearInterval(_wfTimer); _wfTimer = null; btn.disabled = false; status.className = "bt-status-line neg"; status.textContent = "Lost track of the job: " + e; }
+    }, 2000);
+  }
+
+  window.renderWalkForward = function (result) {
+    if (!result) return;
+    document.getElementById("wfResults").style.display = "";
+    var of = result.overfitting || {};
+    var ofEl = document.getElementById("wfOverfit");
+    var deg = of.degradation_ratio != null ? (of.degradation_ratio * 100).toFixed(0) + "%" : "—";
+    if (of.warning) {
+      ofEl.innerHTML = '<span class="imp-badge imp-high">⚠ Overfitting risk</span> Objective degraded ' + deg +
+        ' out-of-sample. ' + esc((of.reasons || []).join("; "));
+      ofEl.style.color = "var(--red)";
+    } else {
+      ofEl.innerHTML = '<span class="imp-badge imp-low">Holds up out-of-sample</span> Objective degradation ' + deg + '.';
+      ofEl.style.color = "var(--green)";
+    }
+
+    var is = result.aggregate_is || {}, oos = result.aggregate_oos || {};
+    var isRet = metric(is, ["total_return_pct"]), oosRet = metric(oos, ["total_return_pct"]);
+    var isSharpe = metric(is, ["sharpe_ratio"]), oosSharpe = metric(oos, ["sharpe_ratio"]);
+    var isWin = metric(is, ["win_rate"]), oosWin = metric(oos, ["win_rate"]);
+    document.getElementById("wfAggCards").innerHTML =
+      '<div class="stat-card"><div class="label">IS Return</div><div class="value small">' + pct(isRet) + '</div></div>' +
+      '<div class="stat-card"><div class="label">OOS Return</div><div class="value small ' + (oosRet >= 0 ? "num-pos" : "num-neg") + '">' + pct(oosRet) + '</div></div>' +
+      '<div class="stat-card"><div class="label">IS Sharpe</div><div class="value small">' + (isSharpe != null ? isSharpe.toFixed(2) : "—") + '</div></div>' +
+      '<div class="stat-card"><div class="label">OOS Sharpe</div><div class="value small">' + (oosSharpe != null ? oosSharpe.toFixed(2) : "—") + '</div></div>';
+
+    // IS vs OOS grouped comparison.
+    if (_cmpChart) { _cmpChart.destroy(); _cmpChart = null; }
+    if (typeof Chart !== "undefined") {
+      var winScale = function (v) { return v != null && v <= 1 ? v * 100 : v; };
+      _cmpChart = new Chart(document.getElementById("wfCompareChart"), {
+        type: "bar",
+        data: { labels: ["Return %", "Sharpe", "Win %"],
+          datasets: [
+            { label: "In-sample", data: [isRet, isSharpe, winScale(isWin)], backgroundColor: themeColor("--accent") },
+            { label: "Out-of-sample", data: [oosRet, oosSharpe, winScale(oosWin)], backgroundColor: themeColor("--purple") }
+          ] },
+        options: { responsive: true, maintainAspectRatio: false, animation: _reduce ? false : { duration: 350 },
+          plugins: { legend: { position: "bottom" } } }
+      });
+    }
+
+    // Per-window OOS return bars + table.
+    var wins = result.windows || [];
+    if (_winChart) { _winChart.destroy(); _winChart = null; }
+    if (typeof Chart !== "undefined") {
+      _winChart = new Chart(document.getElementById("wfWindowChart"), {
+        type: "bar",
+        data: { labels: wins.map(function (w) { return "W" + (w.index != null ? w.index + 1 : "?"); }),
+          datasets: [{ label: "OOS return %", data: wins.map(function (w) { return metric(w.out_of_sample, ["total_return_pct"]); }),
+            backgroundColor: wins.map(function (w) { var r = metric(w.out_of_sample, ["total_return_pct"]); return (r != null && r >= 0) ? themeColor("--green") : themeColor("--red"); }) }] },
+        options: { responsive: true, maintainAspectRatio: false, animation: _reduce ? false : { duration: 350 }, plugins: { legend: { display: false } } }
+      });
+    }
+    var tb = document.getElementById("wfWindowRows");
+    tb.innerHTML = wins.length ? wins.map(function (w) {
+      var params = Object.keys(w.best_params || {}).map(function (k) { return k + "=" + w.best_params[k]; }).join(", ") || "—";
+      return "<tr><td>" + ((w.index != null ? w.index + 1 : "?")) + "</td><td>" + esc((w.test_start || "").slice(0, 10)) + " → " + esc((w.test_end || "").slice(0, 10)) +
+        "</td><td>" + esc(params) + "</td><td>" + pct(metric(w.in_sample, ["total_return_pct"])) + "</td><td class='" +
+        (metric(w.out_of_sample, ["total_return_pct"]) >= 0 ? "num-pos" : "num-neg") + "'>" + pct(metric(w.out_of_sample, ["total_return_pct"])) +
+        "</td><td>" + (metric(w.out_of_sample, ["trades"]) != null ? metric(w.out_of_sample, ["trades"]) : "—") + "</td></tr>";
+    }).join("") : '<tr><td colspan="6" class="empty-note">No windows produced — widen the date range or shorten the windows.</td></tr>';
+  };
+})();
+</script>
 
 <!-- ═══════════════════ ENGINE TRADE SELECTION (feature 1) ═══════════════════ -->
 <div class="section" id="nav-selection">
@@ -4866,7 +5046,7 @@
       tb.innerHTML = rows.length ? rows.map(function (v) {
         return "<tr><td>" + esc(v.symbol) + "</td><td>" + esc(v.strategy || "—") + "</td><td>" + esc(v.note || "—") +
           "</td><td>" + esc(v.expires_at || "—") + '</td><td><button type="button" class="chip mt-del" onclick="whDelVeto(\'' +
-          esc(v.id) + '\')">Delete</button></td></tr>";
+          esc(v.id) + '\')">Delete</button></td></tr>';
       }).join("") : '<tr><td colspan="5" class="empty-note">No active veto rules.</td></tr>';
     } catch (e) {
       document.getElementById("whVetoRows").innerHTML = '<tr><td colspan="5" class="empty-note">Could not load veto rules.</td></tr>';
@@ -5063,7 +5243,7 @@
         var toggle = '<button type="button" class="chip" onclick="iaToggle(\'' + esc(r.id) + '\',' + (!r.active) + ')">' + (r.active ? "on" : "off") + "</button>";
         return "<tr><td>" + ruleSummary(r) + "</td><td>" + toggle + "</td><td>" + (r.last_value != null ? r.last_value : "—") +
           "</td><td>" + (r.triggered_at ? esc(r.triggered_at) : "—") + '</td><td><button type="button" class="chip mt-del" onclick="iaDelete(\'' +
-          esc(r.id) + '\')">Delete</button></td></tr>";
+          esc(r.id) + '\')">Delete</button></td></tr>';
       }).join("") : '<tr><td colspan="5" class="empty-note">No rules yet — build one above.</td></tr>';
 
       var fired = rules.filter(function (r) { return r.triggered_at; });
