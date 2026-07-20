@@ -179,6 +179,43 @@ def _asset_type(symbol: Optional[str]) -> str:
         return "stock"
 
 
+def _leverage_meta(symbol: Optional[str]) -> Dict[str, str]:
+    """Return ``{"leverage", "leverage_label"}`` for a card identity (fail-safe).
+
+    Pure/static classification (no network), so it is cheap enough to run for
+    every card.  ``leverage_label`` is empty for plain / unknown ETFs, which the
+    UI reads as "no warning pill".
+    """
+    try:
+        from config.etf_classification import classify_leverage, leverage_label
+
+        category = classify_leverage(str(symbol or ""))
+        return {"leverage": category, "leverage_label": leverage_label(category)}
+    except Exception:  # noqa: BLE001
+        return {"leverage": "regular", "leverage_label": ""}
+
+
+def build_etf_info(symbol: Optional[str], asset_type: str) -> Optional[Dict[str, Any]]:
+    """Return the *ETF Info* card section for an ETF, or ``None``.
+
+    Only populated when *asset_type* is ``"etf"``; fetches TTL-cached fund
+    fundamentals (expense ratio, NAV, category, fund family, top-10 holdings,
+    leverage) via :func:`data.etf_metadata.get_etf_info`.  Fail-open — any error
+    or missing data returns ``None`` so the section is simply hidden.
+    """
+    if asset_type != "etf" or not symbol:
+        return None
+    try:
+        from data.etf_metadata import get_etf_info
+
+        info = get_etf_info(str(symbol))
+        if info is None:
+            return None
+        return info.to_dict()
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def strategy_tag(strategy: str, is_position: bool) -> str:
     tag = STRATEGY_TAGS.get(str(strategy or "").lower())
     if tag:
@@ -832,7 +869,11 @@ def build_position_card(row: Dict[str, Any],
             "tag": strategy_tag(row.get("strategy", ""), is_position=True),
             "direction": "short" if is_short else "long",
             "asset_type": _asset_type(row.get("symbol")),
+            **_leverage_meta(row.get("symbol")),
         },
+        "etf_info": build_etf_info(
+            row.get("symbol"), _asset_type(row.get("symbol"))
+        ),
         "summary": _position_summary(row, is_short),
         "ratings": build_ratings(row),
         "conditions": build_conditions(ind, is_short),
@@ -911,7 +952,11 @@ def build_watchlist_card(row: Dict[str, Any], settings,
                     if strategy else "Watchlist"),
             "direction": "short" if is_short else "long",
             "asset_type": _asset_type(row.get("symbol")),
+            **_leverage_meta(row.get("symbol")),
         },
+        "etf_info": build_etf_info(
+            row.get("symbol"), _asset_type(row.get("symbol"))
+        ),
         "summary": _watchlist_summary(row),
         "status_plain": rejection_plain,
         "ratings": build_ratings(row),

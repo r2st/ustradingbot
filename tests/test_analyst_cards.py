@@ -8,6 +8,7 @@ from config.settings import Settings
 from dashboard.analyst_cards import (
     PLAIN_LANGUAGE,
     build_conditions,
+    build_etf_info,
     build_position_card,
     build_stress_test,
     build_watchlist_card,
@@ -279,3 +280,67 @@ def test_shared_content_source_has_definitions():
     for key in ("rsi", "support", "resistance", "r_multiple", "stop",
                 "target", "hypothetical"):
         assert PLAIN_LANGUAGE[key]["define"], key
+
+
+# ------------------------------------------------------------- ETF info (Gap 2)
+
+
+def test_watchlist_card_leverage_badge():
+    """A geared ETF exposes a leverage label in its card identity."""
+    card = build_watchlist_card(_watchlist_row(symbol="TQQQ"), Settings())
+    idn = card["identity"]
+    assert idn["asset_type"] == "etf"
+    assert idn["leverage"] == "leveraged_3x"
+    assert idn["leverage_label"] == "3x Leveraged"
+
+
+def test_watchlist_card_plain_etf_no_leverage_label():
+    card = build_watchlist_card(_watchlist_row(symbol="SPY"), Settings())
+    idn = card["identity"]
+    assert idn["asset_type"] == "etf"
+    assert idn["leverage"] == "regular"
+    assert idn["leverage_label"] == ""
+
+
+def test_stock_card_has_no_etf_info():
+    # A stock never gets an ETF Info section, regardless of metadata.
+    assert build_etf_info("NVDA", "stock") is None
+    card = build_watchlist_card(_watchlist_row(symbol="NVDA"), Settings())
+    assert card["etf_info"] is None
+
+
+def test_build_etf_info_returns_metadata(monkeypatch):
+    """build_etf_info surfaces TTL-cached fund fundamentals for an ETF."""
+    from data import etf_metadata
+
+    class _T:
+        @property
+        def info(self):
+            return {
+                "quoteType": "ETF",
+                "annualReportExpenseRatio": 0.0003,
+                "category": "Large Blend",
+                "fundFamily": "Vanguard",
+                "longName": "Vanguard Total Stock Market ETF",
+            }
+
+    monkeypatch.setattr(etf_metadata, "_ticker_factory", lambda sym: _T())
+    etf_metadata.clear_cache()
+
+    info = build_etf_info("VTI", "etf")
+    assert info is not None
+    assert info["expense_ratio_pct"] == pytest.approx(0.03)
+    assert info["category"] == "Large Blend"
+    assert info["fund_family"] == "Vanguard"
+    assert info["is_leveraged"] is False
+
+
+def test_build_etf_info_failopen(monkeypatch):
+    from data import etf_metadata
+
+    def _boom(sym):
+        raise RuntimeError("down")
+
+    monkeypatch.setattr(etf_metadata, "_ticker_factory", _boom)
+    etf_metadata.clear_cache()
+    assert build_etf_info("VTI", "etf") is None

@@ -139,6 +139,37 @@
     border-radius: 4px; padding: 1px 5px; margin-left: 6px;
     text-transform: uppercase; white-space: nowrap;
   }
+  .card-head .leverage-badge {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.3px;
+    color: #b45309; background: rgba(245, 158, 11, 0.14);
+    border: 1px solid var(--warn, #f59e0b); border-radius: 4px;
+    padding: 1px 6px; margin-left: 6px; white-space: nowrap;
+  }
+  .etf-info {
+    margin-top: 10px; padding: 8px 10px; border: 1px solid var(--border);
+    border-radius: 8px; background: var(--surface); font-size: 12px;
+  }
+  .etf-info .ei-head {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.4px;
+    color: var(--text-muted); text-transform: uppercase; margin-bottom: 6px;
+  }
+  .etf-info .ei-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 4px 12px;
+  }
+  .etf-info .ei-k { color: var(--text-muted); font-size: 11px; }
+  .etf-info .ei-v { font-variant-numeric: tabular-nums; }
+  .etf-info .ei-holdings { margin-top: 6px; }
+  .etf-info .ei-holdings .ei-k { margin-bottom: 3px; }
+  .etf-info .ei-hold-row {
+    display: flex; justify-content: space-between; gap: 8px;
+    padding: 1px 0; font-size: 11px;
+  }
+  .etf-info .ei-hold-row .sym { font-weight: 600; }
+  .etf-info .ei-hold-row .pct {
+    color: var(--text-muted); font-variant-numeric: tabular-nums;
+  }
+  .etf-info .ei-warn { color: var(--warn, #f59e0b); font-weight: 600; }
   .ratings-line {
     margin-top: 8px; font-size: 12px; color: var(--text-muted);
     display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
@@ -606,6 +637,31 @@ function renderDetail(d) {
     </div></details>`;
 }
 
+function renderEtfInfo(info) {
+  if (!info) return "";
+  const rows = [];
+  if (info.expense_ratio_pct != null)
+    rows.push(["Expense ratio", info.expense_ratio_pct.toFixed(2) + "%"]);
+  if (info.category) rows.push(["Category", info.category]);
+  if (info.fund_family) rows.push(["Fund family", info.fund_family]);
+  if (info.nav_price != null) rows.push(["NAV", money(info.nav_price)]);
+  if (info.is_leveraged && info.leverage_label)
+    rows.push(["Leverage", `<span class="ei-warn">⚠️ ${esc(info.leverage_label)}</span>`]);
+  const grid = rows.length
+    ? `<div class="ei-grid">${rows.map(([k, v]) =>
+        `<div><div class="ei-k">${esc(k)}</div><div class="ei-v">${v}</div></div>`).join("")}</div>`
+    : "";
+  const holds = Array.isArray(info.top_holdings) && info.top_holdings.length
+    ? `<div class="ei-holdings"><div class="ei-k">Top holdings</div>${
+        info.top_holdings.slice(0, 10).map(h =>
+          `<div class="ei-hold-row"><span class="sym">${esc(h.symbol || h.name || "—")}</span>` +
+          `<span class="pct">${h.pct != null ? Number(h.pct).toFixed(1) + "%" : ""}</span></div>`).join("")
+      }</div>`
+    : "";
+  if (!grid && !holds) return "";
+  return `<div class="etf-info"><div class="ei-head">ETF Info</div>${grid}${holds}</div>`;
+}
+
 function renderRatings(r) {
   if (!r || !r.quant_rating) return "";
   const rank = r.quant_rating_rank;
@@ -635,6 +691,7 @@ function renderCard(card) {
     <div class="card-head" data-tour="identity">
       <span class="sym">${esc(idn.symbol)}</span>
       ${idn.asset_type === "etf" ? '<span class="etf-badge" title="Exchange-traded fund">ETF</span>' : ""}
+      ${idn.leverage_label ? `<span class="leverage-badge" title="Leveraged or inverse ETF — sized with reduced risk">⚠️ ${esc(idn.leverage_label)}</span>` : ""}
       <span class="px">${idn.price != null ? money(idn.price) : "—"}
         <span class="${pctCls(idn.change_pct)}">${signPct(idn.change_pct)}</span>
         <span style="color:var(--text-muted);font-size:11px;">${esc(idn.change_label || "")}</span></span>
@@ -644,6 +701,7 @@ function renderCard(card) {
     <div class="summary-line" data-tour="summary">${esc(card.summary || "")}</div>
     ${card.status_plain ? `<div class="status-plain">${esc(card.status_plain)}</div>` : ""}
     ${renderRatings(card.ratings)}
+    ${renderEtfInfo(card.etf_info)}
     ${unavailable ? `<div class="unavailable-note">${esc(card.data_state_message)}</div>` : `
       <div data-tour="conditions">${renderConditions(card.conditions)}</div>
       <div data-tour="reasoning">${renderReasoning(card.reasoning)}</div>
