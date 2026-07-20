@@ -38,6 +38,8 @@ def test_jsend_surfaces_errors_by_default():
 def test_jget_is_quiet_by_default_for_pollers():
     idx = _HTML.find("async function jget(url, opts)")
     assert idx != -1
-    body = _HTML[idx:idx + 600]
+    # Window widened: jget now also carries the per-key AbortController logic
+    # (F-4) between the signature and the report gate.
+    body = _HTML[idx:idx + 1500]
     # Only reports when a caller explicitly opts in (user-initiated loads).
     assert "opts && opts.report" in body
