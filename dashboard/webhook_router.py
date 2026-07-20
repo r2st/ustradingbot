@@ -27,8 +27,11 @@ from __future__ import annotations
 
 import hmac
 import json
+from collections import deque
+from datetime import datetime, timezone
 from hashlib import sha256
-from typing import Any, Dict, Optional
+from threading import Lock
+from typing import Any, Dict, List, Optional
 
 import structlog
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -36,11 +39,43 @@ from starlette.concurrency import run_in_threadpool
 
 from config.settings import get_settings
 from dashboard.api_keys import get_api_key_store
+from dashboard.auth import require_auth
+from dashboard.http_util import parse_json_body
 from dashboard.rate_limit import rate_limit
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/api/webhooks", tags=["Webhooks"])
+
+
+# ---------------------------------------------------------------------------
+# Recent-deliveries ring buffer (in-memory, best-effort audit trail for the UI)
+# ---------------------------------------------------------------------------
+
+_DELIVERIES: "deque[Dict[str, Any]]" = deque(maxlen=50)
+_DELIVERIES_LOCK = Lock()
+
+
+def record_delivery(
+    source: str, kind: str, symbol: str, ok: bool, detail: str = ""
+) -> None:
+    """Append a webhook delivery to the ring buffer shown in the dashboard."""
+    with _DELIVERIES_LOCK:
+        _DELIVERIES.appendleft(
+            {
+                "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "source": str(source),
+                "kind": str(kind),
+                "symbol": str(symbol or ""),
+                "ok": bool(ok),
+                "detail": str(detail or "")[:200],
+            }
+        )
+
+
+def recent_deliveries() -> List[Dict[str, Any]]:
+    with _DELIVERIES_LOCK:
+        return list(_DELIVERIES)
 
 
 def _client_ip(request: Request | None) -> str:
@@ -216,6 +251,7 @@ async def _submit_trade(params: Dict[str, Any], ip: str, source: str) -> Dict[st
 
     if not getattr(settings, "WEBHOOK_ALLOW_TRADES", False):
         log.info("webhook.trade_dryrun", source=source, ip=ip, **body)
+        record_delivery(source, "trade", body.get("symbol", ""), True, "dry-run")
         return {
             "ok": True,
             "dry_run": True,
@@ -242,6 +278,13 @@ async def _submit_trade(params: Dict[str, Any], ip: str, source: str) -> Dict[st
         "ustb_webhook_trades_total",
         labels={"result": "placed" if ok else "rejected", "source": source},
         help_text="Inbound webhook trade submissions by outcome.",
+    )
+    record_delivery(
+        source,
+        "trade",
+        getattr(result, "symbol", "") or body.get("symbol", ""),
+        ok,
+        getattr(result, "message", "placed" if ok else "rejected"),
     )
     return result.to_dict()
 
@@ -286,6 +329,7 @@ async def webhook_veto(
     except VetoError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     log.info("webhook.veto_added", ip=_client_ip(request), symbol=rule["symbol"])
+    record_delivery("direct", "veto", rule["symbol"], True, "veto added")
     return {"ok": True, "veto": rule}
 
 
@@ -340,8 +384,98 @@ async def webhook_tradingview(
             )
         except VetoError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
+        record_delivery("tradingview", "veto", rule["symbol"], True, "veto added")
         return {"ok": True, "intent": "veto", "veto": rule}
 
     return await _submit_trade(
         envelope, _client_ip(request), source="tradingview"
     )
+
+
+# ---------------------------------------------------------------------------
+# Dashboard-authenticated admin surface (Basic Auth, not the webhook API key)
+#
+# These power the Webhooks Manager panel: status, HMAC secret reveal, the veto
+# list with create/delete, and the recent-deliveries log. They use the standard
+# dashboard auth guard so the operator can manage webhooks from the UI without
+# holding a webhook API key.
+# ---------------------------------------------------------------------------
+
+
+def _mask_secret(secret: str) -> str:
+    if not secret:
+        return ""
+    if len(secret) <= 8:
+        return "•" * len(secret)
+    return secret[:2] + "•" * (len(secret) - 6) + secret[-4:]
+
+
+@router.get("/admin/status")
+async def webhook_admin_status(request: Request, _user: str = Depends(require_auth)):
+    """Webhook configuration for the dashboard (secret masked)."""
+    settings = get_settings()
+    secret = getattr(settings, "WEBHOOK_HMAC_SECRET", "") or ""
+    base = str(request.base_url).rstrip("/")
+    return {
+        "enabled": bool(getattr(settings, "WEBHOOKS_ENABLED", False)),
+        "allow_trades": bool(getattr(settings, "WEBHOOK_ALLOW_TRADES", False)),
+        "has_secret": bool(secret),
+        "secret_masked": _mask_secret(secret),
+        "trade_url": base + "/api/webhooks/trade",
+        "veto_url": base + "/api/webhooks/veto",
+        "tradingview_url": base + "/api/webhooks/tradingview",
+    }
+
+
+@router.get("/admin/secret")
+async def webhook_admin_secret(_user: str = Depends(require_auth)):
+    """Reveal the full HMAC secret (dashboard-auth gated)."""
+    settings = get_settings()
+    return {"secret": getattr(settings, "WEBHOOK_HMAC_SECRET", "") or ""}
+
+
+@router.get("/admin/deliveries")
+async def webhook_admin_deliveries(_user: str = Depends(require_auth)):
+    """Recent inbound webhook deliveries (most recent first)."""
+    return {"deliveries": recent_deliveries()}
+
+
+@router.get("/admin/vetoes")
+async def webhook_admin_list_vetoes(_user: str = Depends(require_auth)):
+    """Active trade-veto rules."""
+    from execution.veto import get_veto_store
+
+    settings = get_settings()
+    return {"vetoes": get_veto_store(settings.DATA_DIR).list_active()}
+
+
+@router.post("/admin/veto")
+async def webhook_admin_add_veto(request: Request, _user: str = Depends(require_auth)):
+    """Add a veto rule: body ``{symbol, strategy?, ttl_minutes?, note?}``."""
+    from execution.veto import VetoError, get_veto_store
+
+    body = await parse_json_body(request)
+    settings = get_settings()
+    try:
+        rule = get_veto_store(settings.DATA_DIR).add(
+            symbol=str(body.get("symbol", "")),
+            strategy=str(body.get("strategy", "") or ""),
+            ttl_minutes=body.get("ttl_minutes"),
+            note=str(body.get("note", "") or ""),
+        )
+    except VetoError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    return {"ok": True, "veto": rule}
+
+
+@router.delete("/admin/veto/{veto_id}")
+async def webhook_admin_remove_veto(
+    veto_id: str, _user: str = Depends(require_auth)
+):
+    """Remove a veto rule by id."""
+    from execution.veto import get_veto_store
+
+    settings = get_settings()
+    if not get_veto_store(settings.DATA_DIR).remove(veto_id):
+        raise HTTPException(status_code=404, detail="Veto not found.")
+    return {"ok": True, "removed": veto_id}

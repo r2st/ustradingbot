@@ -4661,6 +4661,181 @@
 })();
 </script>
 
+<!-- ═══════════════════ WEBHOOKS MANAGER (P0-5) ═══════════════════ -->
+<div class="section lazy-pending" id="nav-webhooks">
+  <div class="section-header">
+    <div class="section-icon icon-status">🪝</div>
+    <div class="section-titles">
+      <h2>Webhooks</h2>
+      <p class="section-sub">{{ guides_map.webhooks.summary }}</p>
+    </div>
+    <a class="section-help-link" href="#help-webhooks" title="How to use this section — opens the Help reference" aria-label="Help and how-to for Webhooks">?</a>
+  </div>
+  <div class="section-body">
+    <div class="stat-cards">
+      <div class="stat-card"><div class="label">Status</div><div class="value small" id="whEnabled">—</div></div>
+      <div class="stat-card"><div class="label">Trades</div><div class="value small" id="whAllowTrades">—</div></div>
+      <div class="stat-card"><div class="label">HMAC Signing</div><div class="value small" id="whSigning">—</div></div>
+    </div>
+    <p class="muted-note" id="whEnabledNote">The master switch is set via the <code>WEBHOOKS_ENABLED</code>
+      environment variable (a money path, off by default). <code>WEBHOOK_ALLOW_TRADES</code> gates real order
+      placement.</p>
+
+    <h4 style="margin-top:16px;">Endpoint URLs</h4>
+    <div id="whUrls"><div class="empty-note">Loading…</div></div>
+
+    <h4 style="margin-top:16px;">HMAC Secret</h4>
+    <div class="secret-box">
+      <span class="secret-val" id="whSecret">—</span>
+      <button type="button" class="chip" id="whReveal" onclick="whToggleSecret()">Reveal</button>
+      <button type="button" class="chip" onclick="whCopySecret()">Copy</button>
+    </div>
+    <p class="muted-note">Sign the request body with <code>X-Signature: sha256=&lt;hex&gt;</code> using this secret
+      (set via <code>WEBHOOK_HMAC_SECRET</code>). When empty, signatures are not required.</p>
+
+    <h4 style="margin-top:16px;">Trade Veto Rules</h4>
+    <div class="form-row" style="flex-wrap:wrap;">
+      <div class="form-field" style="width:120px;"><label>Symbol</label><input type="text" id="whVetoSym" placeholder="AAPL"></div>
+      <div class="form-field" style="width:120px;"><label>Strategy</label><input type="text" id="whVetoStrat" placeholder="(any)"></div>
+      <div class="form-field" style="width:120px;"><label>TTL (min)</label><input type="number" id="whVetoTtl" min="1" placeholder="∞"></div>
+      <div class="form-field" style="flex:1;min-width:140px;"><label>Note</label><input type="text" id="whVetoNote" placeholder="optional"></div>
+      <button type="button" class="chip" onclick="whAddVeto()" style="align-self:flex-end;">Add veto</button>
+    </div>
+    <div id="whVetoResult" class="modal-result"></div>
+    <div class="table-wrap">
+      <table class="data-table"><caption class="sr-only">Active trade veto rules</caption>
+        <thead><tr><th scope="col">Symbol</th><th scope="col">Strategy</th><th scope="col">Note</th>
+          <th scope="col">Expires</th><th scope="col"></th></tr></thead>
+        <tbody id="whVetoRows"><tr><td colspan="5" class="empty-note">Loading…</td></tr></tbody>
+      </table>
+    </div>
+
+    <h4 style="margin-top:16px;">Recent Deliveries</h4>
+    <div class="tbl-scroll table-wrap">
+      <table class="data-table sticky-head"><caption class="sr-only">Recent webhook deliveries</caption>
+        <thead><tr><th scope="col">Time (UTC)</th><th scope="col">Source</th><th scope="col">Kind</th>
+          <th scope="col">Symbol</th><th scope="col">Result</th><th scope="col">Detail</th></tr></thead>
+        <tbody id="whDeliveryRows"><tr><td colspan="6" class="empty-note">No deliveries recorded yet.</td></tr></tbody>
+      </table>
+    </div>
+
+    <h4 style="margin-top:16px;">TradingView Integration</h4>
+    <ol class="help-list">
+      <li>In TradingView, open an alert and set the webhook URL to the <strong>TradingView</strong> endpoint above.</li>
+      <li>Set the alert message to JSON, e.g.
+        <code>{"symbol":"{{ '{{ticker}}' }}","side":"buy","quantity":10,"stop_price":0,"target_price":0}</code>.</li>
+      <li>Send the API key as <code>Authorization: Bearer &lt;key&gt;</code> (create one under the API section).</li>
+      <li>If an HMAC secret is set, sign the body and send it as <code>X-Signature: sha256=&lt;hex&gt;</code>.</li>
+    </ol>
+  </div>
+</div>
+<script>
+(function () {
+  "use strict";
+  function ready(fn) { if (document.readyState !== "loading") fn(); else document.addEventListener("DOMContentLoaded", fn); }
+  var _secretShown = false, _secretVal = null, _masked = "—";
+
+  function pillHtml(on, onText, offText) {
+    return '<span class="pill ' + (on ? "pill-ok" : "pill-warn") + '">' + (on ? onText : offText) + "</span>";
+  }
+  function copy(text, note) {
+    if (navigator.clipboard) navigator.clipboard.writeText(text).then(function () { if (note) reportApiError(note, "Copied to clipboard", "warn"); }, function () {});
+  }
+  window.whCopyUrl = function (u) { copy(u, "Webhook URL"); };
+
+  function renderUrls(s) {
+    var el = document.getElementById("whUrls");
+    var rows = [["Trade", s.trade_url], ["TradingView", s.tradingview_url], ["Veto", s.veto_url]];
+    el.innerHTML = rows.map(function (r) {
+      return '<div class="secret-box" style="margin:4px 0;"><strong style="width:90px;display:inline-block;">' + r[0] +
+        '</strong><span class="secret-val">' + esc(r[1]) + '</span>' +
+        '<button type="button" class="chip" onclick="whCopyUrl(\'' + esc(r[1]) + '\')">Copy</button></div>';
+    }).join("");
+  }
+
+  window.whToggleSecret = async function () {
+    var btn = document.getElementById("whReveal");
+    var span = document.getElementById("whSecret");
+    if (_secretShown) { span.textContent = _masked; btn.textContent = "Reveal"; _secretShown = false; return; }
+    if (_secretVal == null) {
+      try { var r = await jget("/api/webhooks/admin/secret", { key: "wh-secret", report: true, context: "Reveal secret" }); _secretVal = r.secret || ""; }
+      catch (e) { return; }
+    }
+    span.textContent = _secretVal || "(none set)"; btn.textContent = "Hide"; _secretShown = true;
+  };
+  window.whCopySecret = async function () {
+    if (_secretVal == null) { try { var r = await jget("/api/webhooks/admin/secret", { key: "wh-secret" }); _secretVal = r.secret || ""; } catch (e) { return; } }
+    if (_secretVal) copy(_secretVal, "HMAC secret"); else reportApiError("HMAC secret", "No secret configured", "warn");
+  };
+
+  async function whLoadVetoes() {
+    try {
+      var d = await jget("/api/webhooks/admin/vetoes", { key: "wh-vetoes", report: true, context: "Veto rules" });
+      var rows = d.vetoes || [];
+      var tb = document.getElementById("whVetoRows");
+      tb.innerHTML = rows.length ? rows.map(function (v) {
+        return "<tr><td>" + esc(v.symbol) + "</td><td>" + esc(v.strategy || "—") + "</td><td>" + esc(v.note || "—") +
+          "</td><td>" + esc(v.expires_at || "—") + '</td><td><button type="button" class="chip mt-del" onclick="whDelVeto(\'' +
+          esc(v.id) + '\')">Delete</button></td></tr>";
+      }).join("") : '<tr><td colspan="5" class="empty-note">No active veto rules.</td></tr>';
+    } catch (e) {
+      document.getElementById("whVetoRows").innerHTML = '<tr><td colspan="5" class="empty-note">Could not load veto rules.</td></tr>';
+    }
+  }
+  window.whAddVeto = async function () {
+    var sym = document.getElementById("whVetoSym").value.trim();
+    if (!sym) { setMsg("whVetoResult", "Symbol is required.", false); return; }
+    var body = { symbol: sym, strategy: document.getElementById("whVetoStrat").value.trim(), note: document.getElementById("whVetoNote").value.trim() };
+    var ttl = parseInt(document.getElementById("whVetoTtl").value, 10);
+    if (!isNaN(ttl)) body.ttl_minutes = ttl;
+    try {
+      await jsend("POST", "/api/webhooks/admin/veto", body, { context: "Add veto" });
+      setMsg("whVetoResult", "Veto added for " + sym + ".", true);
+      document.getElementById("whVetoSym").value = ""; document.getElementById("whVetoNote").value = "";
+      whLoadVetoes();
+    } catch (e) { /* jsend surfaces the error */ }
+  };
+  window.whDelVeto = async function (id) {
+    try { await jsend("DELETE", "/api/webhooks/admin/veto/" + encodeURIComponent(id), null, { context: "Delete veto" }); whLoadVetoes(); }
+    catch (e) { /* surfaced */ }
+  };
+
+  async function whLoadDeliveries() {
+    try {
+      var d = await jget("/api/webhooks/admin/deliveries", { key: "wh-deliveries" });
+      var rows = d.deliveries || [];
+      var tb = document.getElementById("whDeliveryRows");
+      if (rows.length) {
+        tb.innerHTML = rows.map(function (r) {
+          return "<tr><td>" + esc((r.at || "").replace("T", " ").replace("+00:00", "")) + "</td><td>" + esc(r.source) +
+            "</td><td>" + esc(r.kind) + "</td><td>" + esc(r.symbol || "—") + "</td><td>" +
+            (r.ok ? '<span class="imp-badge imp-low">ok</span>' : '<span class="imp-badge imp-high">fail</span>') +
+            "</td><td>" + esc(r.detail || "") + "</td></tr>";
+        }).join("");
+      }
+    } catch (e) { /* best-effort */ }
+  }
+
+  window.whLoad = async function () {
+    try {
+      var s = await jget("/api/webhooks/admin/status", { key: "wh-status", report: true, context: "Webhooks" });
+      document.getElementById("whEnabled").innerHTML = pillHtml(s.enabled, "enabled", "disabled");
+      document.getElementById("whAllowTrades").innerHTML = pillHtml(s.allow_trades, "live orders", "dry-run");
+      document.getElementById("whSigning").innerHTML = pillHtml(s.has_secret, "required", "off");
+      _masked = s.secret_masked || "(none set)";
+      if (!_secretShown) document.getElementById("whSecret").textContent = _masked;
+      renderUrls(s);
+    } catch (e) {
+      document.getElementById("whUrls").innerHTML = '<div class="empty-note">Could not load webhook status.</div>';
+    }
+    whLoadVetoes();
+    whLoadDeliveries();
+  };
+
+  ready(function () { if (window.lazySection) window.lazySection("nav-webhooks", window.whLoad); else window.whLoad(); });
+})();
+</script>
+
 <!-- ═══════════════════ HELP: PAPER TRADING ═══════════════════ -->
 <div class="section" id="nav-help">
   <div class="section-header">

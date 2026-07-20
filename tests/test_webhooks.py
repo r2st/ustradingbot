@@ -225,3 +225,62 @@ def test_webhook_tradingview_routes_veto(monkeypatch, tmp_path):
     )
     assert resp.status_code == 200
     assert resp.json()["intent"] == "veto"
+
+
+# ---------------------------------------------------------------------------
+# Dashboard-authenticated admin surface (Webhooks Manager panel)
+# ---------------------------------------------------------------------------
+
+
+def test_admin_status_masks_secret(monkeypatch, tmp_path):
+    client, _key = _client(monkeypatch, tmp_path, enabled=True,
+                           secret="supersecretvalue123", allow_trades=True)
+    resp = client.get("/api/webhooks/admin/status")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["enabled"] is True
+    assert body["allow_trades"] is True
+    assert body["has_secret"] is True
+    # Masked, never the raw secret.
+    assert body["secret_masked"] != "supersecretvalue123"
+    assert "•" in body["secret_masked"]
+    assert body["trade_url"].endswith("/api/webhooks/trade")
+
+
+def test_admin_secret_reveal(monkeypatch, tmp_path):
+    client, _key = _client(monkeypatch, tmp_path, secret="revealme12345")
+    resp = client.get("/api/webhooks/admin/secret")
+    assert resp.status_code == 200
+    assert resp.json()["secret"] == "revealme12345"
+
+
+def test_admin_veto_crud_and_deliveries(monkeypatch, tmp_path):
+    client, _key = _client(monkeypatch, tmp_path)
+    # Add
+    resp = client.post("/api/webhooks/admin/veto",
+                       json={"symbol": "NVDA", "note": "cool off"})
+    assert resp.status_code == 200
+    vid = resp.json()["veto"]["id"]
+    # List
+    resp = client.get("/api/webhooks/admin/vetoes")
+    assert any(v["id"] == vid for v in resp.json()["vetoes"])
+    # Delete
+    resp = client.delete(f"/api/webhooks/admin/veto/{vid}")
+    assert resp.status_code == 200
+    # Delete again -> 404
+    assert client.delete(f"/api/webhooks/admin/veto/{vid}").status_code == 404
+    # Deliveries endpoint returns a list.
+    resp = client.get("/api/webhooks/admin/deliveries")
+    assert resp.status_code == 200
+    assert isinstance(resp.json()["deliveries"], list)
+
+
+def test_record_delivery_ring_buffer():
+    from dashboard import webhook_router as wr
+
+    before = len(wr.recent_deliveries())
+    wr.record_delivery("tradingview", "trade", "AAPL", True, "dry-run")
+    after = wr.recent_deliveries()
+    assert len(after) == before + 1
+    assert after[0]["symbol"] == "AAPL"
+    assert after[0]["source"] == "tradingview"
