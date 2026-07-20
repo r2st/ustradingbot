@@ -8,11 +8,18 @@
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/pwa/icon.svg">
 <title>US Trading Bot Dashboard</title>
-<!-- Apply the saved theme before first paint to avoid a flash of the wrong theme. -->
+<!-- Apply the saved theme before first paint to avoid a flash of the wrong theme.
+     With no stored preference, honour the OS `prefers-color-scheme` (F-5) so a
+     light-mode user doesn't get a dark flash-and-stay on first visit. -->
 <script>
   (function () {
     try {
       var t = localStorage.getItem("ustb_theme");
+      if (!t &&
+          window.matchMedia &&
+          window.matchMedia("(prefers-color-scheme: light)").matches) {
+        t = "light";
+      }
       if (t === "light") document.documentElement.setAttribute("data-theme", "light");
     } catch (e) {}
   })();
@@ -1010,6 +1017,18 @@
     overflow: hidden; clip: rect(0, 0, 0, 0);
     white-space: nowrap; border: 0;
   }
+  /* Skip-to-content link: off-screen until keyboard-focused (a11y F-2). */
+  .skip-link {
+    position: absolute; left: 8px; top: -48px; z-index: 2000;
+    background: var(--accent, #3B82F6); color: #fff;
+    padding: 10px 16px; border-radius: 8px; font-weight: 600;
+    text-decoration: none; transition: top 0.15s ease;
+  }
+  .skip-link:focus { top: 8px; outline: 2px solid #fff; outline-offset: 2px; }
+  /* Keyboard focus ring for click-handling elements promoted to buttons (F-5). */
+  [data-clickable][tabindex]:focus-visible {
+    outline: 2px solid var(--accent, #3B82F6); outline-offset: 2px;
+  }
   .callout {
     background: var(--surface, rgba(127,127,127,0.08));
     border: 1px solid var(--border, rgba(127,127,127,0.3));
@@ -1263,6 +1282,10 @@
 </head>
 <body>
 
+<!-- Skip-to-content link for keyboard/AT users to bypass the header + nav (F-2).
+     Visually hidden until focused (see .skip-link in the stylesheet). -->
+<a class="skip-link" href="#mainContent">Skip to main content</a>
+
 <!-- ═══════════════════ HEADER ═══════════════════ -->
 <div class="header">
   <div class="header-row">
@@ -1449,7 +1472,7 @@
 </div>
 {% endif %}
 
-<div class="container">
+<div class="container" id="mainContent" role="main" tabindex="-1">
 
 <!-- ═══════════════════ MARKET DATA PROVIDER ═══════════════════ -->
 <div class="section" id="nav-provider">
@@ -4372,17 +4395,42 @@
   // jget: background reads. Quiet by default (pollers call it on a timer and a
   // transient blip should self-heal without a toast); pass {report:true} for a
   // user-initiated load that should surface failures.
+  // Per-key in-flight fetch controllers. When a new request is issued under a
+  // key (e.g. a section id or a filter name), the previous in-flight request
+  // for that key is aborted — so a slow earlier response can't resolve after a
+  // newer one and overwrite fresh data with stale data (F-4).
+  var _inflight = {};
+  function _abortKey(key) {
+    var c = _inflight[key];
+    if (c) { try { c.abort(); } catch (e) {} delete _inflight[key]; }
+  }
   async function jget(url, opts) {
+    var key = opts && opts.key;
+    var controller = null;
+    if (key && typeof AbortController !== "undefined") {
+      _abortKey(key);
+      controller = new AbortController();
+      _inflight[key] = controller;
+    }
     try {
-      var r = await fetch(url, { credentials: "same-origin" });
+      var init = { credentials: "same-origin" };
+      if (controller) init.signal = controller.signal;
+      var r = await fetch(url, init);
       if (!r.ok) {
         var body = await r.json().catch(function () { return {}; });
         return Promise.reject(body && Object.keys(body).length ? body : { detail: "HTTP " + r.status });
       }
       return await r.json();
     } catch (e) {
+      // A deliberate abort (superseded by a newer request) is not an error.
+      // Hang this stale call so its caller never proceeds to render — that
+      // prevents both a stale-data overwrite and a spurious "failed" flash;
+      // the newer request is what paints.
+      if (e && e.name === "AbortError") return await new Promise(function () {});
       if (opts && opts.report) reportApiError(opts.context || "Load failed", e, "warn");
       throw e;
+    } finally {
+      if (key && _inflight[key] === controller) delete _inflight[key];
     }
   }
   // jsend: mutations (POST/PUT/DELETE) — always user-initiated, so failures are
@@ -5522,7 +5570,7 @@
   async function searchNotes() {
     var q = document.getElementById("noteQuery").value, tag = document.getElementById("noteTagFilter").value;
     try {
-      var d = await jget("/api/notes?q=" + encodeURIComponent(q) + "&tag=" + encodeURIComponent(tag));
+      var d = await jget("/api/notes?q=" + encodeURIComponent(q) + "&tag=" + encodeURIComponent(tag), { key: "notes" });
       document.getElementById("noteTagCloud").innerHTML = (d.all_tags || []).map(function (t) {
         return '<span class="chip" style="cursor:pointer;" onclick="filterByTag(\'' + esc(t) + '\')">#' + esc(t) + '</span>';
       }).join("");
@@ -5735,7 +5783,7 @@
   async function loadHistory() {
     try {
       var d = await jget("/api/history/trades?limit=" + _histLimit +
-        "&offset=" + _histOffset + "&" + _histQuery());
+        "&offset=" + _histOffset + "&" + _histQuery(), { key: "history" });
       _histTotal = d.total;
       var tb = document.getElementById("histRows");
       tb.innerHTML = d.trades.length ? d.trades.map(function (t, i) {
@@ -5811,7 +5859,7 @@
     if (!canvas || typeof Chart === "undefined") return;
     try {
       var w = document.getElementById("histWrWindow").value;
-      var d = await jget("/api/history/win-rate-trend?window=" + w);
+      var d = await jget("/api/history/win-rate-trend?window=" + w, { key: "winrate" });
       var pts = d.points || [];
       var labels = pts.map(function (p) { return String(p.exit_time).slice(0, 10); });
       var data = pts.map(function (p) { return p.win_rate * 100; });
@@ -5959,7 +6007,7 @@
     try {
       var sym = document.getElementById("actSymbol").value;
       var d = await jget("/api/activity?limit=200&event=" + encodeURIComponent(_actEvent) +
-        "&symbol=" + encodeURIComponent(sym));
+        "&symbol=" + encodeURIComponent(sym), { key: "activity" });
       var feed = document.getElementById("actFeed");
       feed.innerHTML = d.events.length ? d.events.map(_actLine).join("")
         : '<div class="empty-note">No activity yet — the feed fills once the engine runs.</div>';
@@ -6049,7 +6097,7 @@
   async function loadAlertHistory() {
     try {
       var t = document.getElementById("alertHistType").value;
-      var d = await jget("/api/alerts/history?limit=100&type=" + encodeURIComponent(t));
+      var d = await jget("/api/alerts/history?limit=100&type=" + encodeURIComponent(t), { key: "alertHistory" });
       var feed = document.getElementById("alertHistFeed");
       feed.innerHTML = d.alerts.length ? d.alerts.map(function (a) {
         var chs = Object.keys(a.channels || {}).map(function (c) {
@@ -7316,6 +7364,139 @@
   // Initial paint.
   updateSpy();
 })();
+</script>
+
+<!-- ═══════════════════ ACCESSIBILITY ENHANCEMENTS (F-2 / F-5) ═══════════════════ -->
+<script>
+  (function () {
+    "use strict";
+    var FOCUSABLE =
+      'a[href],button:not([disabled]),textarea:not([disabled]),' +
+      'input:not([disabled]):not([type=hidden]),select:not([disabled]),' +
+      '[tabindex]:not([tabindex="-1"])';
+
+    // ── Modal focus management ──────────────────────────────────────────
+    // The dialogs open through several code paths (classList "open" or an
+    // inline display style), so rather than edit every call site we observe
+    // each .modal-overlay for a visibility change and manage focus centrally:
+    // set aria-modal, move focus in, trap Tab, restore focus on close, Esc to
+    // close.
+    var _lastFocus = null;
+    var _activeModal = null;
+
+    function isVisible(el) {
+      return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+    }
+    function dialogOf(overlay) {
+      return overlay.querySelector(".modal, .notif-dropdown") || overlay;
+    }
+    function focusables(container) {
+      return Array.prototype.filter.call(
+        container.querySelectorAll(FOCUSABLE), isVisible
+      );
+    }
+    function onOpen(overlay) {
+      if (_activeModal === overlay) return;
+      _activeModal = overlay;
+      _lastFocus = document.activeElement;
+      var dlg = dialogOf(overlay);
+      dlg.setAttribute("role", dlg.getAttribute("role") || "dialog");
+      dlg.setAttribute("aria-modal", "true");
+      var f = focusables(dlg);
+      (f[0] || dlg).focus({ preventScroll: true });
+      if (!f.length) dlg.setAttribute("tabindex", "-1");
+    }
+    function onClose(overlay) {
+      if (_activeModal !== overlay) return;
+      _activeModal = null;
+      var dlg = dialogOf(overlay);
+      dlg.setAttribute("aria-modal", "false");
+      if (_lastFocus && typeof _lastFocus.focus === "function") {
+        try { _lastFocus.focus({ preventScroll: true }); } catch (e) {}
+      }
+      _lastFocus = null;
+    }
+    function hideOverlay(overlay) {
+      // Generic close covering both open patterns (class + inline display).
+      overlay.classList.remove("open");
+      if (overlay.style.display && overlay.style.display !== "none") {
+        overlay.style.display = "none";
+      }
+    }
+
+    document.addEventListener("keydown", function (e) {
+      if (!_activeModal) return;
+      if (e.key === "Escape") {
+        hideOverlay(_activeModal);  // MutationObserver fires onClose()
+        return;
+      }
+      if (e.key === "Tab") {
+        var dlg = dialogOf(_activeModal);
+        var f = focusables(dlg);
+        if (!f.length) { e.preventDefault(); return; }
+        var first = f[0], last = f[f.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault(); last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault(); first.focus();
+        } else if (!dlg.contains(document.activeElement)) {
+          e.preventDefault(); first.focus();
+        }
+      }
+    });
+
+    function watchOverlay(overlay) {
+      var obs = new MutationObserver(function () {
+        if (isVisible(overlay)) onOpen(overlay);
+        else onClose(overlay);
+      });
+      obs.observe(overlay, { attributes: true,
+        attributeFilter: ["class", "style", "hidden"] });
+    }
+
+    // ── Make onclick-bearing non-buttons keyboard-operable (F-5) ────────
+    // Any element carrying an onclick that isn't a native button/link/input is
+    // promoted to a real button role with tabindex, and Enter/Space activate
+    // it — so mouse-only affordances become reachable by keyboard/AT.
+    function enhanceClickables(root) {
+      var NATIVE = { BUTTON: 1, A: 1, INPUT: 1, SELECT: 1, TEXTAREA: 1 };
+      var nodes = root.querySelectorAll("[onclick]");
+      Array.prototype.forEach.call(nodes, function (el) {
+        if (NATIVE[el.tagName]) return;
+        if (el.hasAttribute("data-clickable")) return;
+        el.setAttribute("data-clickable", "");
+        if (!el.hasAttribute("role")) el.setAttribute("role", "button");
+        if (!el.hasAttribute("tabindex")) el.setAttribute("tabindex", "0");
+      });
+    }
+    document.addEventListener("keydown", function (e) {
+      if (e.key !== "Enter" && e.key !== " " && e.key !== "Spacebar") return;
+      var el = e.target;
+      if (el && el.hasAttribute && el.hasAttribute("data-clickable")) {
+        e.preventDefault();
+        el.click();
+      }
+    });
+
+    function init() {
+      Array.prototype.forEach.call(
+        document.querySelectorAll(".modal-overlay, .notif-dropdown"), watchOverlay
+      );
+      enhanceClickables(document);
+      // Re-scan when dynamic tables/cards inject new onclick elements.
+      var mo = new MutationObserver(function (muts) {
+        for (var i = 0; i < muts.length; i++) {
+          if (muts[i].addedNodes && muts[i].addedNodes.length) {
+            enhanceClickables(document); break;
+          }
+        }
+      });
+      mo.observe(document.body, { childList: true, subtree: true });
+    }
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", init);
+    } else { init(); }
+  })();
 </script>
 
 <script src="/pwa/pwa.js" defer></script>

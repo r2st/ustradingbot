@@ -70,3 +70,54 @@ def test_every_table_is_named(html) -> None:
 def test_scope_values_are_valid(html) -> None:
     for val in re.findall(r"scope=['\"]([^'\"]+)['\"]", html):
         assert val in ("col", "row", "colgroup", "rowgroup"), val
+
+
+# ---------------------------------------------------------------------------
+# F-2 — skip link + main landmark + modal focus management
+# ---------------------------------------------------------------------------
+
+def test_skip_link_present(html) -> None:
+    assert 'class="skip-link"' in html
+    assert 'href="#mainContent"' in html
+    assert ".skip-link" in html  # CSS rule
+
+
+def test_main_landmark_present(html) -> None:
+    assert 'id="mainContent"' in html
+    assert 'role="main"' in html
+
+
+def test_modal_focus_manager_present(html) -> None:
+    # Central focus manager: aria-modal, focus trap, Esc-to-close, restore.
+    assert "aria-modal" in html
+    assert "MutationObserver" in html
+    assert 'e.key === "Escape"' in html
+    assert 'e.key === "Tab"' in html
+
+
+# ---------------------------------------------------------------------------
+# F-4 — AbortController wired into the shared fetch helper
+# ---------------------------------------------------------------------------
+
+def test_abortcontroller_in_jget(html) -> None:
+    assert "AbortController" in html
+    assert "_inflight" in html
+    assert 'e.name === "AbortError"' in html
+    # A few race-prone sections pass an abort key.
+    for key in ('key: "history"', 'key: "activity"', 'key: "notes"'):
+        assert key in html
+
+
+# ---------------------------------------------------------------------------
+# F-5 — OS theme preference + keyboard-operable click handlers
+# ---------------------------------------------------------------------------
+
+def test_prefers_color_scheme_on_first_load(html) -> None:
+    assert "prefers-color-scheme: light" in html
+
+
+def test_onclick_keyboard_enhancement(html) -> None:
+    assert "enhanceClickables" in html
+    assert "data-clickable" in html
+    # Enter/Space activate promoted click handlers.
+    assert 'e.key === "Enter"' in html
