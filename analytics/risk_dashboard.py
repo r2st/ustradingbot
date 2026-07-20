@@ -629,6 +629,14 @@ def build_risk_report(
             var_cvar = portfolio_var_cvar(
                 returns, var_weights, var_confidence, var_horizon_days
             )
+            # Stash the aligned portfolio return series so the /api/risk/var
+            # endpoint can re-derive VaR at any confidence and draw a
+            # distribution histogram without recomputing the alignment.
+            from risk.limits import portfolio_returns
+
+            port = portfolio_returns(returns, var_weights)
+            if port is not None and not port.empty:
+                var_cvar["returns"] = [round(float(x), 6) for x in port.tolist()][-1000:]
         except Exception as exc:  # noqa: BLE001 -- additive; degrade gracefully
             log.warning("risk.var_failed", error=str(exc),
                         error_type=type(exc).__name__)

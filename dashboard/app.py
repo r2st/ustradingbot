@@ -2339,13 +2339,29 @@ async def economic_calendar_api(
 
 
 @app.get("/api/risk/var", tags=["Analytics"])
-async def risk_var(_user: str = Depends(require_auth)):
+async def risk_var(
+    confidence: float = 0.95, _user: str = Depends(require_auth)
+):
     """Portfolio Value-at-Risk / CVaR (parametric + historical) and the
-    configured hard-limit thresholds."""
+    configured hard-limit thresholds.
+
+    ``?confidence=0.95|0.99`` re-derives VaR at 1- and 10-day horizons plus a
+    return-distribution histogram from the portfolio's aligned return series,
+    alongside the report's portfolio beta.
+    """
     settings = get_settings()
+    conf = 0.99 if float(confidence) >= 0.975 else 0.95
     report = _risk_report()
+    returns = (report.var_cvar or {}).get("returns") or []
+    from risk.limits import var_summary
+
+    summary = var_summary(returns, conf)
+    beta = (report.beta or {}).get("portfolio_beta")
     return {
         "var_cvar": report.var_cvar,
+        "summary": summary,
+        "beta": beta,
+        "confidence": conf,
         "limits": {
             "max_sector_concentration_pct": settings.MAX_SECTOR_CONCENTRATION_PCT,
             "enforce_sector_limit": settings.ENFORCE_SECTOR_LIMIT,

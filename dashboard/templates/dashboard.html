@@ -3024,6 +3024,33 @@
     </div>
     <p class="muted-note" id="riskCorrNote">Green = positively correlated, red = inversely.
       A book of highly-correlated names is really one bet.</p>
+
+    <!-- Value-at-Risk / CVaR (P0-8) -->
+    <h4 style="margin-top:18px;">Value at Risk (VaR / CVaR)
+      <span class="info-tip" tabindex="0" role="note"
+        data-tip="The loss the portfolio is not expected to exceed on a normal day at the chosen confidence. CVaR is the average loss in the worst tail.">i</span>
+    </h4>
+    <div class="panel-toolbar">
+      <div class="form-field">
+        <label for="varConfidence">Confidence</label>
+        <select id="varConfidence" onchange="loadVarPanel()">
+          <option value="0.95">95%</option>
+          <option value="0.99">99%</option>
+        </select>
+      </div>
+      <span class="muted-note" id="varObs" style="align-self:flex-end;"></span>
+    </div>
+    <div class="stat-cards" id="varStatCards" aria-live="polite">
+      <div class="stat-card"><div class="label">1-Day VaR</div><div class="value" id="var1d">—</div></div>
+      <div class="stat-card"><div class="label">10-Day VaR</div><div class="value small" id="var10d">—</div></div>
+      <div class="stat-card"><div class="label">CVaR (tail)</div><div class="value small" id="varCvar">—</div></div>
+      <div class="stat-card"><div class="label">Portfolio Beta</div><div class="value small" id="varBeta">—</div></div>
+    </div>
+    <div class="chart-box" style="height:220px;margin-top:10px;">
+      <canvas id="varHistogram" aria-label="Portfolio daily-return distribution with VaR threshold"></canvas>
+    </div>
+    <p class="muted-note">The dashed line marks the 1-day VaR threshold on the daily-return distribution.
+      Figures are loss fractions of portfolio value.</p>
   </div>
 </div>
 <script>
@@ -3164,6 +3191,69 @@
     }).join("");
     table.innerHTML = head + body;
   }
+</script>
+
+<!-- Value-at-Risk panel loader (P0-8) — lazy, so it runs when Risk nears view. -->
+<script>
+(function () {
+  "use strict";
+  function ready(fn) { if (document.readyState !== "loading") fn(); else document.addEventListener("DOMContentLoaded", fn); }
+  var _reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function themeColor(v) { return getComputedStyle(document.documentElement).getPropertyValue(v).trim() || "#888"; }
+  function pctLoss(v) { return v == null ? "—" : "-" + (Number(v) * 100).toFixed(2) + "%"; }
+  var _hist = null;
+
+  function drawHistogram(hist, varThreshold) {
+    var canvas = document.getElementById("varHistogram");
+    if (!canvas || typeof Chart === "undefined") return;
+    if (_hist) { _hist.destroy(); _hist = null; }
+    var bins = (hist && hist.bins) || [];
+    var counts = (hist && hist.counts) || [];
+    if (!bins.length) { canvas.style.display = "none"; return; }
+    canvas.style.display = "";
+    // The VaR loss threshold sits at a negative return (-var).
+    var thr = varThreshold != null ? -Math.abs(varThreshold) : null;
+    var colors = bins.map(function (b) { return (thr != null && b <= thr) ? themeColor("--red") : themeColor("--accent"); });
+    _hist = new Chart(canvas, {
+      type: "bar",
+      data: { labels: bins.map(function (b) { return (b * 100).toFixed(1) + "%"; }),
+        datasets: [{ label: "Days", data: counts, backgroundColor: colors, borderWidth: 0, barPercentage: 1.0, categoryPercentage: 1.0 }] },
+      options: { responsive: true, maintainAspectRatio: false, animation: _reduce ? false : { duration: 350 },
+        scales: { x: { title: { display: true, text: "Daily return" }, ticks: { maxTicksLimit: 8 } }, y: { title: { display: true, text: "Days" } } },
+        plugins: { legend: { display: false },
+          tooltip: { callbacks: { title: function (items) { return "Return " + items[0].label; }, label: function (c) { return c.parsed.y + " day(s)"; } } } } }
+    });
+  }
+
+  window.loadVarPanel = async function () {
+    var conf = document.getElementById("varConfidence").value;
+    try {
+      var d = await jget("/api/risk/var?confidence=" + encodeURIComponent(conf), { key: "risk-var", report: true, context: "VaR" });
+      var s = d.summary || {};
+      document.getElementById("var1d").textContent = pctLoss(s.var_1d);
+      document.getElementById("var10d").textContent = pctLoss(s.var_10d);
+      document.getElementById("varCvar").textContent = pctLoss(s.cvar);
+      document.getElementById("varBeta").textContent = d.beta != null ? Number(d.beta).toFixed(2) : "—";
+      var obs = document.getElementById("varObs");
+      obs.textContent = s.observations ? (s.observations + " obs @ " + (Number(d.confidence) * 100).toFixed(0) + "% confidence")
+        : "Not enough position history to estimate VaR yet.";
+      drawHistogram(s.histogram, s.var_1d);
+    } catch (e) {
+      document.getElementById("varObs").textContent = "Could not load VaR.";
+    }
+  };
+
+  ready(function () {
+    // Independent observer (the Risk section already registers a lazySection
+    // loader, and lazySection's shared _lazyDone guard would skip a second one).
+    var el = document.getElementById("nav-risk");
+    if (!el || typeof IntersectionObserver === "undefined") { window.loadVarPanel(); return; }
+    var io = new IntersectionObserver(function (entries) {
+      if (entries.some(function (e) { return e.isIntersecting; })) { io.disconnect(); window.loadVarPanel(); }
+    }, { rootMargin: "300px 0px" });
+    io.observe(el);
+  });
+})();
 </script>
 
 <!-- ═══════════════════ ENGINE CONTROL ═══════════════════ -->

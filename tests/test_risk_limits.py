@@ -19,6 +19,7 @@ from risk.limits import (
     portfolio_var_cvar,
     projected_sector_pct,
     sector_cap_check,
+    var_summary,
 )
 from risk.manager import RiskManager
 from signals.signal_types import Grade, Signal
@@ -266,3 +267,34 @@ class TestPreCheckGates:
         assert reason.startswith("daily_loss_halt:") or reason.startswith(
             "daily_loss_limit_reached:"
         )
+
+
+class TestVarSummary:
+    def _returns(self):
+        rng = np.random.default_rng(7)
+        return list(rng.normal(-0.001, 0.02, 300))
+
+    def test_summary_keys_and_horizon_scaling(self):
+        s = var_summary(self._returns(), 0.95)
+        assert set(s) == {"var_1d", "var_10d", "historical_var", "cvar",
+                          "confidence", "observations", "histogram"}
+        assert s["observations"] == 300
+        # 10-day parametric VaR exceeds the 1-day figure (sqrt-time scaling).
+        assert s["var_10d"] > s["var_1d"] > 0
+        # CVaR is at least as severe as historical VaR.
+        assert s["cvar"] >= s["historical_var"]
+
+    def test_higher_confidence_increases_var(self):
+        r = self._returns()
+        assert var_summary(r, 0.99)["var_1d"] > var_summary(r, 0.95)["var_1d"]
+
+    def test_histogram_covers_all_observations(self):
+        s = var_summary(self._returns(), 0.95, histogram_bins=20)
+        assert len(s["histogram"]["bins"]) == 20
+        assert sum(s["histogram"]["counts"]) == 300
+
+    def test_empty_returns_are_zeroed(self):
+        s = var_summary([], 0.95)
+        assert s["observations"] == 0
+        assert s["var_1d"] == 0.0 and s["cvar"] == 0.0
+        assert s["histogram"] == {"bins": [], "counts": []}

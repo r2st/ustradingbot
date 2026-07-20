@@ -299,6 +299,43 @@ def portfolio_returns(
     return pd.Series(port, index=frame.index)
 
 
+def var_summary(
+    returns: Sequence[float] | pd.Series,
+    confidence: float = 0.95,
+    histogram_bins: int = 24,
+) -> Dict[str, Any]:
+    """Multi-horizon VaR/CVaR summary + a return-distribution histogram.
+
+    Computes parametric VaR at 1- and 10-day horizons, historical VaR and CVaR
+    (all positive loss fractions) at *confidence*, and buckets the return
+    series into *histogram_bins* bins for the distribution chart. Everything is
+    zeroed with ``observations == 0`` when there is too little history.
+    """
+    arr = np.asarray(list(returns), dtype=float)
+    arr = arr[~np.isnan(arr)]
+    conf = float(confidence)
+    if arr.size < 2:
+        return {
+            "var_1d": 0.0, "var_10d": 0.0, "historical_var": 0.0, "cvar": 0.0,
+            "confidence": conf, "observations": int(arr.size),
+            "histogram": {"bins": [], "counts": []},
+        }
+    counts, edges = np.histogram(arr, bins=max(4, int(histogram_bins)))
+    centers = ((edges[:-1] + edges[1:]) / 2.0)
+    return {
+        "var_1d": round(parametric_var(arr, conf, 1), 6),
+        "var_10d": round(parametric_var(arr, conf, 10), 6),
+        "historical_var": round(historical_var(arr, conf), 6),
+        "cvar": round(conditional_var(arr, conf), 6),
+        "confidence": conf,
+        "observations": int(arr.size),
+        "histogram": {
+            "bins": [round(float(c), 6) for c in centers],
+            "counts": [int(c) for c in counts],
+        },
+    }
+
+
 def portfolio_var_cvar(
     returns_by_symbol: Dict[str, pd.Series],
     weights: Dict[str, float],
