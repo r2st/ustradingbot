@@ -759,6 +759,19 @@ class Settings(BaseSettings):
     MACRO_BLACKOUT_EVENT_TYPES: list[str] = Field(
         default_factory=lambda: ["fomc", "cpi", "nfp"]
     )
+    # ── Portfolio rebalancing / target allocation (P1-8) ────────────────────
+    # Target allocation by ``REBALANCE_DIMENSION`` (sector | strategy |
+    # asset_type).  ``REBALANCE_TARGETS`` maps a bucket name to a target weight
+    # (percent or fraction — normalised internally).  A bucket that drifts past
+    # ``REBALANCE_DRIFT_THRESHOLD_PCT`` percentage points is flagged; the report
+    # emits the buy/sell to restore it.  ``REBALANCE_AUTO`` opts into acting on
+    # the suggestions (still admin-gated at the API).
+    REBALANCE_ENABLED: bool = False
+    REBALANCE_DIMENSION: str = "sector"
+    REBALANCE_TARGETS: dict[str, float] = Field(default_factory=dict)
+    REBALANCE_DRIFT_THRESHOLD_PCT: float = 5.0
+    REBALANCE_AUTO: bool = False
+
     # ── Dividend tracking / total-return accounting (P1-6) ──────────────────
     # Track ex-dividend dates + amounts, attribute dividend income to open
     # positions, and (when the gap guard is on) avoid tripping health/stop exits

@@ -2297,6 +2297,7 @@ from dashboard.tax_router import router as _tax_router  # noqa: E402
 from dashboard.price_alerts_router import router as _price_alerts_router  # noqa: E402
 from dashboard.webhook_router import router as _webhook_router  # noqa: E402
 from dashboard.indicator_alerts_router import router as _indicator_alerts_router  # noqa: E402
+from dashboard.rebalance_router import router as _rebalance_router  # noqa: E402
 
 for _r in (
     _universe_router,
@@ -2324,6 +2325,7 @@ for _r in (
     _price_alerts_router,
     _webhook_router,
     _indicator_alerts_router,
+    _rebalance_router,
 ):
     app.include_router(_r)
 
