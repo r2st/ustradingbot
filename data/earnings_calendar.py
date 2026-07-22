@@ -26,6 +26,16 @@ _cache: Dict[str, tuple[float, Optional[date]]] = {}
 _cache_lock = RLock()
 
 
+def _is_etf(symbol: str) -> bool:
+    """Whether *symbol* is a known ETF (fail-open: ``False`` on any error)."""
+    try:
+        from config.etf_universe import is_etf
+
+        return is_etf(symbol)
+    except Exception:  # noqa: BLE001 — never block earnings on a lookup hiccup
+        return False
+
+
 @dataclass
 class EarningsEntry:
     """Next-earnings info for a single symbol."""
@@ -50,7 +60,15 @@ def clear_cache() -> None:
 
 
 def next_earnings_date(symbol: str) -> Optional[date]:
-    """Return the next future earnings date for *symbol* (cached; yfinance)."""
+    """Return the next future earnings date for *symbol* (cached; yfinance).
+
+    ETFs (SPY, SOXL, XLK, …) hold no single company, so they have no earnings
+    date — we short-circuit them to ``None`` without hitting yfinance. Besides
+    saving a network round-trip, this avoids yfinance logging a spurious ERROR
+    ("No earnings dates found, symbol may be delisted") for every ETF scanned.
+    """
+    if _is_etf(symbol):
+        return None
     now = time.monotonic()
     with _cache_lock:
         entry = _cache.get(symbol)

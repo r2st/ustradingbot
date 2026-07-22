@@ -240,3 +240,47 @@ def test_push_assets_and_flow(client):
     nid = r.json()["notification"]["id"]
     r = client.get("/api/push/poll", params={"since": nid - 1})
     assert any(n["id"] == nid for n in r.json()["notifications"])
+
+
+# ------------------------------------------------------------------ excursion
+
+
+def test_excursion_endpoint_empty(client):
+    """With no journal, /api/excursion returns a well-formed empty payload."""
+    r = client.get("/api/excursion")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["trades"] == 0
+    assert "distributions" in body and "efficiency" in body
+    assert "mae_r" in body["distributions"]
+
+
+def test_excursion_endpoint_with_trades(client):
+    """A journal carrying excursion columns yields distributions + advisories."""
+    import csv
+
+    from journal.trade_logger import SCHEMA_COLUMNS
+
+    csv_path = client._data_dir / "trades.csv"  # type: ignore[attr-defined]
+    with open(csv_path, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=SCHEMA_COLUMNS)
+        w.writeheader()
+        # 12 winners that peaked ~3R but realised ~1R -> targets-too-conservative.
+        for i in range(12):
+            row = {c: "" for c in SCHEMA_COLUMNS}
+            row.update({
+                "trade_id": str(i), "symbol": "AAPL", "strategy": "momentum",
+                "direction": "long", "entry_time": f"2026-06-{i % 28 + 1:02d}T14:00:00",
+                "exit_time": f"2026-06-{i % 28 + 1:02d}T15:00:00",
+                "pnl_net": "50", "r_multiple": "1.0",
+                "mae_pct": "0.01", "mfe_pct": "0.09", "mae_r": "0.3", "mfe_r": "3.0",
+            })
+            w.writerow(row)
+
+    r = client.get("/api/excursion")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["trades"] == 12
+    ids = {a["id"] for a in body["efficiency"]["advisories"] if a["severity"] == "warn"}
+    assert "targets_too_conservative" in ids
+    assert body["distributions"]["mfe_r"]["summary"]["count"] == 12

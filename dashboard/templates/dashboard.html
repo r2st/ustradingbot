@@ -1781,6 +1781,7 @@
       <div class="nav-cat-items">
         <a href="#nav-tax" data-icon="🧮" onclick="closeNav()">Tax Center</a>
         <a href="#nav-attribution" data-icon="🧩" onclick="closeNav()">Attribution</a>
+        <a href="#nav-excursion" data-icon="📉" onclick="closeNav()">MAE / MFE</a>
         <a href="#nav-statements" data-icon="📄" onclick="closeNav()">Statements</a>
       </div>
     </div>
@@ -5417,6 +5418,113 @@
   };
 
   ready(function () { if (window.lazySection) window.lazySection("nav-attribution", window.attrLoad); else window.attrLoad(); });
+})();
+</script>
+
+<!-- ═══════════════════ MAE / MFE EXCURSION ═══════════════════ -->
+<div class="section lazy-pending" id="nav-excursion">
+  <div class="section-header">
+    <div class="section-icon icon-strategy">📉</div>
+    <div class="section-titles">
+      <h2>MAE / MFE Excursion</h2>
+      <p class="section-sub">{{ guides_map.excursion.summary }}</p>
+    </div>
+    <a class="section-help-link" href="#help-excursion" title="How to use this section — opens the Help reference" aria-label="Help and how-to for MAE / MFE Excursion">?</a>
+  </div>
+  <div class="section-body">
+    <div class="stat-cards">
+      <div class="stat-card"><div class="label">Trades analysed</div><div class="value" id="excTrades">—</div></div>
+      <div class="stat-card"><div class="label">Median MAE (R)</div><div class="value small" id="excMaeMed">—</div></div>
+      <div class="stat-card"><div class="label">90th-pct MAE (R)</div><div class="value small" id="excMaeP90">—</div></div>
+      <div class="stat-card"><div class="label">Median MFE (R)</div><div class="value small" id="excMfeMed">—</div></div>
+      <div class="stat-card"><div class="label">Winners' median MAE (R)</div><div class="value small" id="excWinMae">—</div></div>
+    </div>
+
+    <div id="excAdvisories" aria-live="polite" style="margin-top:14px;"></div>
+
+    <div class="chart-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-top:16px;">
+      <div>
+        <h4 style="margin:0 0 6px;">Adverse excursion (MAE, R)</h4>
+        <p class="muted-note" style="margin:0 0 6px;">How deep trades dipped against entry before closing. A stop at 1.0R sits at the right edge.</p>
+        <div style="position:relative;height:240px;"><canvas id="excMaeHist"></canvas></div>
+      </div>
+      <div>
+        <h4 style="margin:0 0 6px;">Favourable excursion (MFE, R)</h4>
+        <p class="muted-note" style="margin:0 0 6px;">Peak unrealised profit reached. A long right tail past your target means money left on the table.</p>
+        <div style="position:relative;height:240px;"><canvas id="excMfeHist"></canvas></div>
+      </div>
+    </div>
+    <p class="muted-note" id="excNote" style="margin-top:10px;"></p>
+  </div>
+</div>
+<script>
+(function () {
+  "use strict";
+  function ready(fn) { if (document.readyState !== "loading") fn(); else document.addEventListener("DOMContentLoaded", fn); }
+  var _reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function themeColor(v) { return getComputedStyle(document.documentElement).getPropertyValue(v).trim() || "#888"; }
+  function rr(v) { return (v == null || isNaN(v)) ? "—" : Number(v).toFixed(2) + "R"; }
+  var _maeChart = null, _mfeChart = null;
+
+  function drawHist(canvasId, hist, color, xlabel, existing) {
+    var canvas = document.getElementById(canvasId);
+    if (!canvas || typeof Chart === "undefined") return existing;
+    if (existing) { existing.destroy(); }
+    var bins = (hist && hist.bins) || [];
+    var counts = (hist && hist.counts) || [];
+    if (!bins.length) { canvas.style.display = "none"; return null; }
+    canvas.style.display = "";
+    return new Chart(canvas, {
+      type: "bar",
+      data: { labels: bins.map(function (b) { return Number(b).toFixed(2) + "R"; }),
+        datasets: [{ label: "Trades", data: counts, backgroundColor: themeColor(color), borderWidth: 0, barPercentage: 1.0, categoryPercentage: 1.0 }] },
+      options: { responsive: true, maintainAspectRatio: false, animation: _reduce ? false : { duration: 300 },
+        scales: { x: { title: { display: true, text: xlabel }, ticks: { maxTicksLimit: 8 } }, y: { title: { display: true, text: "Trades" }, ticks: { precision: 0 } } },
+        plugins: { legend: { display: false },
+          tooltip: { callbacks: { label: function (c) { return c.parsed.y + " trade(s)"; } } } } }
+    });
+  }
+
+  function renderAdvisories(eff) {
+    var el = document.getElementById("excAdvisories");
+    var items = (eff && eff.advisories) || [];
+    var warns = items.filter(function (a) { return a.severity === "warn"; });
+    if (!warns.length) {
+      el.innerHTML = '<div class="empty-note">No stop/target inefficiencies flagged — stops and targets look well-calibrated for the trades analysed.</div>';
+      return;
+    }
+    el.innerHTML = warns.map(function (a) {
+      return '<div class="callout" style="border-left:3px solid var(--amber,#e0a800);padding:8px 12px;margin-bottom:8px;background:var(--accent-dim);border-radius:4px;">' +
+        '<strong>⚠ ' + esc(a.title || a.id) + '</strong><br><span class="muted-note">' + esc(a.message || "") + '</span></div>';
+    }).join("");
+  }
+
+  window.excLoad = async function () {
+    try {
+      var d = await jget("/api/excursion", { key: "excursion", report: true, context: "MAE/MFE" });
+      var dist = d.distributions || {};
+      var maeR = (dist.mae_r && dist.mae_r.summary) || {};
+      var mfeR = (dist.mfe_r && dist.mfe_r.summary) || {};
+      document.getElementById("excTrades").textContent = d.trades != null ? d.trades : "—";
+      document.getElementById("excMaeMed").textContent = rr(maeR.p50);
+      document.getElementById("excMaeP90").textContent = rr(maeR.p90);
+      document.getElementById("excMfeMed").textContent = rr(mfeR.p50);
+      var winMae = (d.winners && d.winners.mae_r) || {};
+      document.getElementById("excWinMae").textContent = rr(winMae.p50);
+
+      _maeChart = drawHist("excMaeHist", dist.mae_r && dist.mae_r.histogram, "--red", "Adverse excursion (R)", _maeChart);
+      _mfeChart = drawHist("excMfeHist", dist.mfe_r && dist.mfe_r.histogram, "--accent", "Favourable excursion (R)", _mfeChart);
+      renderAdvisories(d.efficiency);
+
+      document.getElementById("excNote").textContent = d.trades
+        ? ("Based on " + d.trades + " closed trade(s) carrying excursion data. Trades closed before excursion tracking are excluded.")
+        : "No closed trades with excursion data yet — this fills in as new trades open and close under the current engine.";
+    } catch (e) {
+      document.getElementById("excAdvisories").innerHTML = '<div class="empty-note">Could not load excursion analytics.</div>';
+    }
+  };
+
+  ready(function () { if (window.lazySection) window.lazySection("nav-excursion", window.excLoad); else window.excLoad(); });
 })();
 </script>
 

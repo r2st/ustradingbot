@@ -38,6 +38,37 @@ def _eastern_timestamper(_: object, __: str, event_dict: dict) -> dict:
     return event_dict
 
 
+class _YFinanceBenignFilter(logging.Filter):
+    """Downgrade yfinance's *expected* "no data" ERRORs to WARNING.
+
+    yfinance logs at ERROR level whenever a symbol has no earnings/fundamentals/
+    price data — which is routine for ETFs (SOXL, SPY, sector funds have no
+    single-company earnings) and for genuinely delisted tickers. Those are not
+    failures of our bot, so leaving them at ERROR pollutes the ops log's ERROR
+    stream and masks real problems. This filter never drops a record; it only
+    relabels these known-benign messages to WARNING so the signal stays clean.
+    """
+
+    _BENIGN = (
+        "no earnings dates found",
+        "no fundamentals data found",
+        "no price data found",
+        "possibly delisted",
+        "symbol may be delisted",
+    )
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno >= logging.ERROR:
+            try:
+                message = str(record.getMessage()).lower()
+            except Exception:  # noqa: BLE001 — never let logging break on format
+                return True
+            if any(token in message for token in self._BENIGN):
+                record.levelno = logging.WARNING
+                record.levelname = "WARNING"
+        return True
+
+
 def setup_logging(log_level: str = "INFO") -> None:
     """Initialise structured logging for the entire application.
 
@@ -91,6 +122,10 @@ def setup_logging(log_level: str = "INFO") -> None:
 
     handler = logging.StreamHandler(sys.stderr)
     handler.setFormatter(formatter)
+    # Relabel yfinance's routine "no earnings/price/fundamentals data" ERRORs
+    # (ETFs, delisted tickers) down to WARNING so they stop polluting the ERROR
+    # stream. On the handler so it also catches any ``yfinance.*`` sub-loggers.
+    handler.addFilter(_YFinanceBenignFilter())
 
     root_logger = logging.getLogger()
     root_logger.handlers.clear()
@@ -98,5 +133,5 @@ def setup_logging(log_level: str = "INFO") -> None:
     root_logger.setLevel(numeric_level)
 
     # Quieten noisy third-party loggers.
-    for noisy in ("ib_insync", "asyncio", "urllib3", "httpx", "httpcore"):
+    for noisy in ("ib_insync", "asyncio", "urllib3", "httpx", "httpcore", "yfinance"):
         logging.getLogger(noisy).setLevel(max(numeric_level, logging.WARNING))

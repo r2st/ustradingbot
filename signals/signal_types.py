@@ -250,6 +250,10 @@ class ExitEvent:
         pnl_gross: Gross P&L before commissions = ``(exit - entry) * qty``.
         fill_details: Broker-level fill information (order IDs, partial
             fills, commissions) stored as a free-form dict.
+        mae_pct/mfe_pct: Maximum adverse / favourable excursion over the trade's
+            life, as a non-negative fraction of the entry price. ``None`` until
+            the exit manager snapshots them from the position's tracked extremes.
+        mae_r/mfe_r: The same excursions in units of the trade's initial risk.
     """
 
     symbol: str
@@ -258,3 +262,7 @@ class ExitEvent:
     exit_date: Optional[datetime] = None
     pnl_gross: float = 0.0
     fill_details: Dict[str, Any] = field(default_factory=dict)
+    mae_pct: Optional[float] = None
+    mfe_pct: Optional[float] = None
+    mae_r: Optional[float] = None
+    mfe_r: Optional[float] = None

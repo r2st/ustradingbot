@@ -95,6 +95,10 @@ class ExitManager:
         """Run all four exit checks in order and return a summary."""
         self._reconcile_stores()
         self._events: list = []
+        # Ratchet each open position's MAE/MFE extremes *before* running exits so
+        # that on the cycle a stop or target fires, the recorded excursion
+        # already reflects the intraday extreme that triggered it.
+        self._update_excursions()
         summary = ExitSummary()
         summary.broker_exits = self._check_broker_exits()
         summary.time_exits = self._check_time_based_exits()
@@ -130,6 +134,41 @@ class ExitManager:
                 detail="These positions are tracked by the broker but not by "
                        "the risk manager — they won't count toward limits.",
             )
+
+    # --------------------------------------------------- 0. MAE/MFE tracking
+
+    def _update_excursions(self) -> None:
+        """Update every open position's MAE/MFE from the latest intraday bar.
+
+        Best-effort and side-effect-only: for each open position (longs, shorts,
+        and manual alike) it reads the current session's high/low from the
+        cached OHLCV frame and hands them to the risk manager, which widens the
+        tracked extremes and persists them in one write.  Any data miss for a
+        symbol is skipped silently — a missing excursion update never blocks the
+        exit sweep.
+        """
+        bars: Dict[str, tuple] = {}
+        for symbol in list(self._risk.get_open_positions().keys()):
+            high = low = None
+            try:
+                df = fetch_ohlcv(symbol)
+                if df is not None and len(df) > 0:
+                    last = df.iloc[-1]
+                    high = float(last["High"])
+                    low = float(last["Low"])
+            except Exception:  # noqa: BLE001 — fall back to a spot price
+                high = low = None
+            if high is None or low is None:
+                price = fetch_current_price(symbol)
+                if price is not None:
+                    high = low = float(price)
+            if high is not None and low is not None:
+                bars[symbol] = (high, low)
+        if bars:
+            try:
+                self._risk.record_excursions(bars)
+            except Exception:  # noqa: BLE001 — never fail the cycle on tracking
+                self._log.warning("exit.excursion_update_failed", exc_info=True)
 
     # --------------------------------------------------- 1. broker exits
 
@@ -351,6 +390,10 @@ class ExitManager:
         the same commission so the loss limit is measured on a net basis.
         """
         exit_commission = float(event.fill_details.get("commission", 0.0) or 0.0)
+        # Snapshot the trade's excursion onto the event (from the extremes
+        # tracked on the still-open position) so the journal row records how much
+        # heat it took (MAE) and how far it ran (MFE).
+        self._attach_excursion(event)
         self._journal.log_exit(event.symbol, event, exit_commission=exit_commission)
         self._risk.remove_position(event.symbol, event)
         self._risk.record_daily_pnl(event.pnl_gross - exit_commission)
@@ -362,6 +405,25 @@ class ExitManager:
             pnl_gross=round(event.pnl_gross, 2),
             exit_commission=round(exit_commission, 4),
         )
+
+    def _attach_excursion(self, event: ExitEvent) -> None:
+        """Copy the open position's tracked MAE/MFE onto *event*.
+
+        Reads the excursion the ``_update_excursions`` sweep persisted on the
+        position and writes the pct / R metrics onto the exit event so the
+        journal's ``mae_*`` / ``mfe_*`` columns are populated.  A no-op when the
+        position is untracked (already gone) — the event keeps its ``None``s.
+        """
+        pos = self._risk.get_open_positions().get(event.symbol)
+        if not pos:
+            return
+        from analytics.excursion import position_excursion
+
+        metrics = position_excursion(pos)
+        event.mae_pct = metrics.get("mae_pct")
+        event.mfe_pct = metrics.get("mfe_pct")
+        event.mae_r = metrics.get("mae_r")
+        event.mfe_r = metrics.get("mfe_r")
 
     def _force_exit(self, symbol: str, reason: ExitReason) -> None:
         """Close *symbol* at market via the broker and finalise it."""

@@ -33,9 +33,12 @@ import secrets
 import time
 from typing import Optional
 
+import contextlib
+
 import structlog
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from starlette.concurrency import run_in_threadpool
+from starlette.websockets import WebSocketState
 
 from dashboard.auth import get_settings, require_auth
 from dashboard.live_router import build_pnl_snapshot
@@ -146,25 +149,65 @@ async def ws_pnl(websocket: WebSocket) -> None:
         return
 
     await websocket.accept()
+
+    # Proactively watch for the client going away.  Without this, a browser that
+    # closes its tab (or a half-open TCP connection) is only noticed the *next*
+    # time we try to send — and on some disconnects the send is silently dropped
+    # by the transport rather than raising, so the push loop would keep firing
+    # every interval forever, spamming asyncio's "socket.send() raised exception."
+    # warning.  Draining ``receive()`` in parallel surfaces the disconnect
+    # immediately so the loop exits the moment the client leaves.  The watcher is
+    # started only after the first frame ships, so the initial-frame error path
+    # stays a simple accept → build → close.
+    disconnected = asyncio.Event()
+    watcher: Optional["asyncio.Task[None]"] = None
+
+    async def _watch_disconnect() -> None:
+        try:
+            while True:
+                message = await websocket.receive()
+                if message.get("type") == "websocket.disconnect":
+                    break
+        except (WebSocketDisconnect, RuntimeError):
+            pass
+        finally:
+            disconnected.set()
+
     try:
         # Immediate first frame so the UI paints without waiting a tick.
         frame = await _build_frame()
         await websocket.send_json(frame)
 
-        while True:
+        watcher = asyncio.create_task(_watch_disconnect())
+        while not disconnected.is_set():
             interval = (
                 PNL_PUSH_INTERVAL_OPEN
                 if frame.get("market_open")
                 else PNL_PUSH_INTERVAL_CLOSED
             )
-            await asyncio.sleep(interval)
+            # Sleep until the interval elapses *or* the client disconnects,
+            # whichever comes first — so a disconnect ends the loop promptly
+            # instead of after a full (possibly 30s) sleep.
+            try:
+                await asyncio.wait_for(disconnected.wait(), timeout=interval)
+                break  # disconnected during the wait
+            except asyncio.TimeoutError:
+                pass  # interval elapsed — time to push the next frame
+            if disconnected.is_set() or \
+                    websocket.client_state != WebSocketState.CONNECTED:
+                break
             frame = await _build_frame()
             await websocket.send_json(frame)
     except WebSocketDisconnect:
-        return
+        pass
     except Exception:  # noqa: BLE001 — client gone / transient; close cleanly
         log.debug("ws_pnl.stream_error", exc_info=True)
-        try:
-            await websocket.close()
-        except Exception:  # noqa: BLE001 — socket already gone; nothing to do
-            log.debug("ws_pnl.close_after_error_failed", exc_info=True)
+    finally:
+        disconnected.set()
+        if watcher is not None:
+            watcher.cancel()
+            with contextlib.suppress(Exception):
+                await watcher
+        if websocket.client_state == WebSocketState.CONNECTED:
+            with contextlib.suppress(Exception):
+                await websocket.close()

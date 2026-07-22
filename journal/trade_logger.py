@@ -97,10 +97,15 @@ SCHEMA_COLUMNS: List[str] = [
     "hold_duration_hours",
     "capture_ratio",
     "r_multiple",
+    # -- excursion (MAE/MFE): worst / best the trade looked over its life --
+    "mae_pct",  # max adverse excursion, fraction of entry (>= 0)
+    "mfe_pct",  # max favourable excursion, fraction of entry (>= 0)
+    "mae_r",    # max adverse excursion in units of initial risk
+    "mfe_r",    # max favourable excursion in units of initial risk
 ]
 
 _NUM_COLUMNS = len(SCHEMA_COLUMNS)
-assert _NUM_COLUMNS == 38, f"Expected 38 columns, got {_NUM_COLUMNS}"
+assert _NUM_COLUMNS == 42, f"Expected 42 columns, got {_NUM_COLUMNS}"
 
 
 class TradeLogger:
@@ -326,6 +331,16 @@ class TradeLogger:
         df.at[idx, "hold_duration_hours"] = str(hold_duration_hours)
         df.at[idx, "capture_ratio"] = str(capture_ratio)
         df.at[idx, "r_multiple"] = str(r_multiple)
+        # MAE/MFE excursion snapshot (blank when the exit event carries none, e.g.
+        # a manual close of a position that was never excursion-tracked).
+        for _col, _val in (
+            ("mae_pct", exit_event.mae_pct),
+            ("mfe_pct", exit_event.mfe_pct),
+            ("mae_r", exit_event.mae_r),
+            ("mfe_r", exit_event.mfe_r),
+        ):
+            if _col in df.columns:
+                df.at[idx, _col] = "" if _val is None else str(_val)
 
         # Write back atomically
         self._write_dataframe(df)

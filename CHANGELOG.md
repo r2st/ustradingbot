@@ -10,6 +10,15 @@ Production-readiness audit remediation (P1–P3 items).
 
 ### Added
 
+- **MAE / MFE excursion analytics** (`analytics/excursion.py`): per-trade
+  Maximum Adverse / Favourable Excursion is captured intraday for every open
+  position (longs, shorts, and manual), persisted on the position and journaled
+  at exit (new `mae_pct`/`mfe_pct`/`mae_r`/`mfe_r` columns). A new
+  `/api/excursion` endpoint and **MAE / MFE** dashboard panel (under Reports)
+  show the R-multiple distributions as histograms with percentile stat cards,
+  and the autotune loop now emits **stop/target-efficiency advisories** (stops
+  too tight, winners reversing into stops, targets too conservative) both in the
+  panel and the engine log.
 - **Tax / realized-gains reporting** (`analytics/tax.py`, `/api/tax/*`): FIFO
   cost-basis, short-term vs long-term split, and wash-sale flagging from the
   trade journal.
@@ -46,6 +55,19 @@ Production-readiness audit remediation (P1–P3 items).
   files that were never built, added the dashboard/analytics/alerts subsystems,
   and corrected the AI model (OpenRouter, not Claude Sonnet) and API-key name
   (`OPENROUTER_API_KEY`, not `ANTHROPIC_API_KEY`).
+
+### Fixed
+
+- **ETF earnings no longer logged as ERROR**: earnings lookups
+  (`data/earnings.py`, `data/earnings_calendar.py`) short-circuit known ETFs
+  (SOXL, SPY, sector funds) — which carry no single-company earnings date —
+  before touching yfinance, and a logging filter (`logging_config.py`) relabels
+  yfinance's routine "no earnings/price/fundamentals data" ERRORs (ETFs, delisted
+  tickers) down to WARNING so the ops ERROR stream stays meaningful.
+- **WebSocket P&L push handles client disconnects cleanly** (`dashboard/ws_pnl.py`):
+  the `/ws/pnl` loop now watches for disconnects in parallel and exits the moment
+  the client leaves, instead of writing to a dead transport every interval and
+  spamming asyncio's "socket.send() raised exception." warning.
 
 ### Frontend
 

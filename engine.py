@@ -1569,6 +1569,9 @@ class TradingEngine:
         try:
             from automation.autotune import tune_from_journal
 
+            prev_advisories = {
+                a.get("id") for a in getattr(self._autotune, "advisories", [])
+            }
             self._autotune = tune_from_journal(self.settings)
             if self._autotune.applied:
                 log.info(
@@ -1577,6 +1580,19 @@ class TradingEngine:
                     delta=self._autotune.delta,
                     thresholds=self._autotune.thresholds,
                 )
+            # Surface MAE/MFE efficiency advisories (stops too tight / targets too
+            # conservative) when a new one appears, so the operator sees it once
+            # rather than every cycle.
+            for advisory in self._autotune.advisories:
+                if advisory.get("id") not in prev_advisories:
+                    log.warning(
+                        "engine.excursion_advisory",
+                        advisory=advisory.get("id"),
+                        title=advisory.get("title"),
+                        detail=advisory.get("message"),
+                        metric=advisory.get("metric"),
+                        sample=advisory.get("sample"),
+                    )
         except Exception:  # noqa: BLE001
             pass
 

@@ -1830,6 +1830,47 @@ def _build_section_guides() -> List[Dict[str, Any]]:
             ],
         },
         {
+            "key": "excursion",
+            "title": "MAE / MFE Excursion",
+            "summary": "How much heat each trade took (MAE) and how far it ran (MFE), in R-multiples — with stop/target advisories.",
+            "quickstart": "Read the two histograms: the MAE chart shows how deep trades dipped against you "
+                          "before closing; the MFE chart shows how far they ran in your favour. The advisories "
+                          "up top translate those distributions into stop/target actions.",
+            "what": "Maximum Adverse Excursion (MAE) is the worst a trade ever looked; Maximum Favourable "
+                    "Excursion (MFE) is the best it ever looked — both measured from entry and expressed in "
+                    "R-multiples of the trade's initial risk so a $2 stock and a $200 stock compare directly. "
+                    "Together they reveal whether your stops and targets are well-placed: tight stops that eject "
+                    "eventual winners, or conservative targets that cap runners, both show up here before they "
+                    "show up in the P&L.",
+            "how": [
+                "The stat cards summarise the distributions: median and 90th-percentile MAE, median MFE, and "
+                "the winners' median MAE (how much heat your winners typically take).",
+                "The MAE histogram buckets trades by how far they fell against entry. A stop at 1.0R sits at "
+                "the right edge — a big cluster there means stops are frequently threatened.",
+                "The MFE histogram buckets trades by peak unrealised profit. A long right tail past your "
+                "target R means trades routinely run well beyond where you exit.",
+                "The advisory banner flags 'stops too tight', 'winners reversing into stops', or 'targets too "
+                "conservative' once there are enough closed trades to be meaningful.",
+            ],
+            "examples": [
+                "To decide whether to widen stops: check the winners' median MAE — if your winners routinely "
+                "dip to 0.8-0.9R before working, a stop at 1.0R is barely holding them.",
+                "To decide whether to extend targets: compare the MFE histogram's tail against your target R "
+                "— a fat tail well beyond it means you're leaving money on the table.",
+            ],
+            "mistakes": [
+                "Acting on a handful of trades — the advisories stay silent until there's a real sample, and "
+                "you should too.",
+                "Widening stops without checking risk — a wider stop means smaller size for the same dollar "
+                "risk, or more risk for the same size.",
+            ],
+            "tips": [
+                "MAE/MFE are captured intraday for every open position, so they reflect true peaks, not just "
+                "end-of-day marks.",
+                "The autotune loop reads the same signals — these advisories also surface in the engine log.",
+            ],
+        },
+        {
             "key": "statements",
             "title": "Statements",
             "summary": "Generate and download monthly or quarterly performance statements.",

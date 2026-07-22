@@ -867,6 +867,15 @@ class RiskManager:
         if removed is None:
             self._log.warning("position.remove_not_found", symbol=symbol)
 
+        # Snapshot the trade's MAE/MFE excursion (from the extremes tracked on
+        # the position) so the closed-trade record carries how much heat it took
+        # and how much profit peaked — used by the excursion analytics.
+        excursion: Dict[str, Any] = {}
+        if removed is not None:
+            from analytics.excursion import position_excursion
+
+            excursion = position_excursion(removed)
+
         # Record exit for cooldown tracking
         self._exit_history.append(
             {
@@ -877,6 +886,10 @@ class RiskManager:
                 ).isoformat(),
                 "exit_price": exit_event.exit_price,
                 "pnl_gross": exit_event.pnl_gross,
+                "mae_pct": excursion.get("mae_pct"),
+                "mfe_pct": excursion.get("mfe_pct"),
+                "mae_r": excursion.get("mae_r"),
+                "mfe_r": excursion.get("mfe_r"),
             }
         )
         self._save_exit_history()
@@ -887,6 +900,36 @@ class RiskManager:
             exit_reason=exit_event.exit_reason.value,
             pnl_gross=round(exit_event.pnl_gross, 2),
         )
+
+    def record_excursions(
+        self, bars: Dict[str, Tuple[Optional[float], Optional[float]]]
+    ) -> int:
+        """Ratchet MAE/MFE extremes for open positions from intraday bars.
+
+        *bars* maps ``symbol -> (high, low)`` for the current session.  Each
+        matching open position's ``mae_price`` / ``mfe_price`` is widened (never
+        shrunk) via :func:`analytics.excursion.update_excursion`.  A single
+        ``open_positions.json`` write covers the whole sweep, so this is cheap to
+        call once per cycle.  Symbols with no open position are ignored.
+
+        Returns:
+            The number of positions whose extremes actually moved this sweep.
+        """
+        from analytics.excursion import update_excursion
+
+        changed = 0
+        for symbol, hilo in bars.items():
+            pos = self._positions.get(symbol)
+            if pos is None:
+                continue
+            high, low = hilo
+            before = (pos.get("mae_price"), pos.get("mfe_price"))
+            update_excursion(pos, high=high, low=low)
+            if (pos.get("mae_price"), pos.get("mfe_price")) != before:
+                changed += 1
+        if changed:
+            self._save_positions()
+        return changed
 
     def update_stop(self, symbol: str, new_stop: float) -> bool:
         """Update the stored stop for an open position (trailing stops).

@@ -56,6 +56,28 @@ async def autotune(_user: str = Depends(require_auth)):
     return result.to_dict()
 
 
+@router.get("/excursion")
+async def excursion(_user: str = Depends(require_auth)):
+    """MAE/MFE excursion distributions + stop/target-efficiency advisories.
+
+    Reads the closed-trade journal (``trades.csv``), so it reflects every trade
+    that carries excursion data; older pre-excursion trades are excluded from the
+    distributions automatically.
+    """
+    from pathlib import Path
+
+    from analytics.excursion import excursion_report, records_from_dataframe
+    from analytics.performance import load_completed_trades
+
+    settings = get_settings()
+
+    def _build() -> dict:
+        df = load_completed_trades(Path(settings.DATA_DIR) / "trades.csv")
+        return excursion_report(records_from_dataframe(df))
+
+    return await run_in_threadpool(_build)
+
+
 @router.get("/earnings")
 async def earnings(_user: str = Depends(require_auth)):
     """Upcoming earnings for every watchlist symbol (feature 5)."""

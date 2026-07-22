@@ -46,6 +46,16 @@ import yfinance as yf
 logger = structlog.get_logger(__name__)
 
 
+def _is_etf(symbol: str) -> bool:
+    """Whether *symbol* is a known ETF (fail-open: ``False`` on any error)."""
+    try:
+        from config.etf_universe import is_etf
+
+        return is_etf(symbol)
+    except Exception:  # noqa: BLE001 — never block earnings on a lookup hiccup
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Data types
 # ---------------------------------------------------------------------------
@@ -288,6 +298,13 @@ def get_earnings_date(symbol: str) -> Optional[datetime]:
         ``None`` if the information is unavailable.
     """
     log = logger.bind(symbol=symbol)
+
+    # ETFs hold no single company, so they have no earnings date. Short-circuit
+    # before touching yfinance — this both saves a lookup and avoids yfinance
+    # logging a spurious ERROR ("No earnings dates found") for every ETF.
+    if _is_etf(symbol):
+        log.debug("get_earnings_date.etf_skipped")
+        return None
 
     try:
         ticker = yf.Ticker(symbol)

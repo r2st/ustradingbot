@@ -20,7 +20,7 @@ to the live journal.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict
+from typing import Any, Dict, List
 
 import pandas as pd
 
@@ -45,6 +45,8 @@ class TuneResult:
     delta: float
     thresholds: Dict[str, float] = field(default_factory=dict)
     reason: str = ""
+    #: Stop/target-efficiency advisories from the MAE/MFE analysis (may be empty).
+    advisories: List[Dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, object]:
         return {
@@ -55,6 +57,7 @@ class TuneResult:
             "delta": round(self.delta, 4),
             "thresholds": {k: round(v, 4) for k, v in self.thresholds.items()},
             "reason": self.reason,
+            "advisories": self.advisories,
         }
 
 
@@ -96,17 +99,47 @@ def _apply_delta(thresholds: Dict[str, float], delta: float) -> Dict[str, float]
     }
 
 
+def _excursion_advisories(trades: pd.DataFrame) -> List[Dict[str, Any]]:
+    """Derive stop/target-efficiency advisories from a trades frame.
+
+    Best-effort — a malformed frame or a missing excursion column yields an empty
+    list rather than raising into the tune pass.  Only the *actionable*
+    advisories (severity ``warn``) are surfaced; the "not enough data" info
+    entries are dropped so the autotune payload stays quiet until there's signal.
+    """
+    try:
+        from analytics.excursion import (
+            analyze_stop_target_efficiency,
+            records_from_dataframe,
+        )
+
+        records = records_from_dataframe(trades)
+        if not records:
+            return []
+        result = analyze_stop_target_efficiency(records)
+        return [
+            a for a in result.get("advisories", [])
+            if a.get("severity") == "warn"
+        ]
+    except Exception as exc:  # noqa: BLE001 — advisories never break tuning
+        log.warning("autotune.excursion_failed", error=str(exc))
+        return []
+
+
 def tune(trades: pd.DataFrame, settings) -> TuneResult:
     """Compute tuned thresholds from a completed-trades DataFrame.  Pure."""
     current = _current_thresholds(settings)
+    advisories = _excursion_advisories(trades) if trades is not None else []
     if not getattr(settings, "AUTOTUNE_ENABLED", False):
-        return TuneResult(False, False, 0, 0.0, 0.0, current, "disabled")
+        return TuneResult(False, False, 0, 0.0, 0.0, current, "disabled",
+                          advisories=advisories)
 
     min_trades = int(getattr(settings, "AUTOTUNE_MIN_TRADES", 15))
     lookback = int(getattr(settings, "AUTOTUNE_LOOKBACK_TRADES", 30))
 
     if trades is None or trades.empty or "pnl_net" not in trades.columns:
-        return TuneResult(True, False, 0, 0.0, 0.0, current, "no completed trades")
+        return TuneResult(True, False, 0, 0.0, 0.0, current, "no completed trades",
+                          advisories=advisories)
 
     df = trades
     if "exit_time" in df.columns:
@@ -116,6 +149,7 @@ def tune(trades: pd.DataFrame, settings) -> TuneResult:
         return TuneResult(
             True, False, int(len(pnl)), 0.0, 0.0, current,
             f"insufficient trades ({len(pnl)} < {min_trades})",
+            advisories=advisories,
         )
 
     window = pnl.tail(lookback)
@@ -129,7 +163,8 @@ def tune(trades: pd.DataFrame, settings) -> TuneResult:
         reason = f"cold streak (win rate {win_rate:.2f}) — raising thresholds by {delta:+.3f}"
     else:
         reason = f"hot streak (win rate {win_rate:.2f}) — relaxing thresholds by {delta:+.3f}"
-    return TuneResult(True, applied, int(len(window)), win_rate, delta, new_thresholds, reason)
+    return TuneResult(True, applied, int(len(window)), win_rate, delta,
+                      new_thresholds, reason, advisories=advisories)
 
 
 def tune_from_journal(settings) -> TuneResult:

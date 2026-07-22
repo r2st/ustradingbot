@@ -46,6 +46,10 @@ _NUMERIC_COLUMNS = [
     "hold_duration_hours",
     "capture_ratio",
     "signal_strength",
+    "mae_pct",
+    "mfe_pct",
+    "mae_r",
+    "mfe_r",
 ]
 
 
