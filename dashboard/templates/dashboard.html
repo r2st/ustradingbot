@@ -22,6 +22,12 @@
       }
       if (t === "light") document.documentElement.setAttribute("data-theme", "light");
     } catch (e) {}
+    // Mark the document as "router booting" before first paint so only the
+    // Overview renders initially — without this the browser paints all 32
+    // sections for a frame before the router pages them away.  Removed by the
+    // router once it has assigned every section to a view (and never added at
+    // all when JS is off, which keeps the no-JS single-scroll fallback).
+    document.documentElement.classList.add("router-booting");
   })();
 </script>
 <style>
@@ -638,6 +644,29 @@
     border: 1px solid var(--accent-dim); margin-bottom: 6px;
   }
   .nav-feature:hover { background: var(--accent-dim); color: #fff; }
+  /* Overview / home entry — sits above the category groups. */
+  .nav-home {
+    display: flex; align-items: center; gap: 10px;
+    color: var(--text); font-weight: 600; text-decoration: none;
+    font-size: 14px; padding: 9px 12px; border-radius: 8px;
+    border: 1px solid var(--border); margin-bottom: 6px;
+  }
+  .nav-home::before {
+    content: attr(data-icon); width: 18px; text-align: center;
+    color: var(--text-muted); font-size: 15px;
+  }
+  .nav-home:hover { background: var(--surface-2); border-color: var(--accent); }
+  .nav-home.active {
+    background: var(--accent-dim); border-color: var(--accent); color: #fff;
+  }
+  .nav-home.active::before { color: #fff; }
+  /* The category whose view is currently open gets a rail + brighter heading,
+     so the sidebar always shows which "page" you are on. */
+  .nav-cat.in-view > .nav-cat-toggle { color: var(--text); }
+  .nav-cat.in-view > .nav-cat-items {
+    border-left: 2px solid var(--accent);
+    margin-left: 4px; padding-left: 6px;
+  }
   .nav-cat-toggle {
     width: 100%; display: flex; align-items: center; justify-content: space-between;
     background: none; border: none; cursor: pointer; color: var(--text-muted);
@@ -1631,6 +1660,123 @@
   .stat-card.is-stale { opacity: .55; }
   /* Lazy sections show a soft placeholder height before their first paint */
   .lazy-pending { min-height: 120px; }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     VIEW ROUTER (v3)
+     The dashboard used to render all 32 sections as one ~40,000px scroll,
+     in DOM order that bore no relation to the sidebar's grouping (the page
+     even opened on the Data-Provider API-key form).  Sections are now paged
+     by the sidebar category they already belong to, one view at a time, with
+     a dedicated "Overview" home.  Hiding is display:none so hidden sections
+     also drop out of the tab order and the scroll-spy.
+     ══════════════════════════════════════════════════════════════════════ */
+  .section[data-view].view-off { display: none; }
+  /* Until the router boots, only the Overview is shown — this prevents a flash
+     of all-32-sections on first paint.  It cannot key off [data-view] (that
+     attribute is assigned by the router itself, so nothing would match yet),
+     so it targets the container's section children directly. */
+  .router-booting .container > .section:not(#nav-overview) { display: none; }
+
+  /* ── Overview home ─────────────────────────────────────────────────── */
+  .ov-hero {
+    display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 28px;
+    padding: 22px 24px;
+    background: linear-gradient(135deg, var(--surface) 0%, var(--bg) 100%);
+    border-bottom: 1px solid var(--border);
+  }
+  .ov-hero-main { display: flex; flex-direction: column; gap: 2px; }
+  .ov-hero-label {
+    font-size: 11px; letter-spacing: .8px; text-transform: uppercase;
+    color: var(--text-muted); font-weight: 600;
+  }
+  .ov-hero-value {
+    font-size: 40px; font-weight: 700; line-height: 1.1; letter-spacing: -1px;
+    font-variant-numeric: tabular-nums;
+  }
+  .ov-hero-delta {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 12px; border-radius: 999px; font-size: 14px; font-weight: 600;
+    font-variant-numeric: tabular-nums; border: 1px solid transparent;
+  }
+  .ov-hero-delta.up { color: var(--green); background: color-mix(in srgb, var(--green) 14%, transparent); border-color: color-mix(in srgb, var(--green) 34%, transparent); }
+  .ov-hero-delta.down { color: var(--red); background: color-mix(in srgb, var(--red) 14%, transparent); border-color: color-mix(in srgb, var(--red) 34%, transparent); }
+  .ov-hero-delta.flat { color: var(--text-muted); background: var(--surface-2); border-color: var(--border); }
+  .ov-hero-meta { margin-left: auto; text-align: right; font-size: 12px; color: var(--text-muted); }
+
+  /* Metric tiles */
+  .ov-metrics {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+    gap: 12px; padding: 18px 24px;
+  }
+  .ov-metric {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px; display: flex; flex-direction: column; gap: 4px;
+    transition: border-color .18s ease, transform .18s ease;
+  }
+  .ov-metric:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .ov-metric .m-label {
+    font-size: 11px; letter-spacing: .5px; text-transform: uppercase;
+    color: var(--text-muted); font-weight: 600;
+  }
+  .ov-metric .m-value {
+    font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+  }
+  .ov-metric .m-value.pnl-pos { color: var(--green); }
+  .ov-metric .m-value.pnl-neg { color: var(--red); }
+
+  /* Quick actions */
+  .ov-actions {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 12px; padding: 0 24px 20px;
+  }
+  .ov-action {
+    display: flex; align-items: center; gap: 12px; text-decoration: none;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px; color: var(--text);
+    transition: border-color .18s ease, background .18s ease, transform .18s ease;
+  }
+  .ov-action:hover { border-color: var(--accent); background: var(--surface-2); transform: translateY(-1px); }
+  .ov-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .ov-action .oa-icon {
+    flex: 0 0 auto; width: 34px; height: 34px; border-radius: 8px;
+    display: grid; place-items: center; font-size: 16px;
+    background: var(--surface-2); border: 1px solid var(--border);
+  }
+  .ov-action .oa-title { font-size: 14px; font-weight: 600; }
+  .ov-action .oa-sub { font-size: 11.5px; color: var(--text-muted); }
+
+  /* System health strip */
+  .ov-health {
+    display: flex; flex-wrap: wrap; gap: 8px 10px;
+    padding: 0 24px 20px;
+  }
+  .ov-chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 6px 12px; border-radius: 999px; font-size: 12px; font-weight: 500;
+    background: var(--bg); border: 1px solid var(--border); color: var(--text-muted);
+  }
+  .ov-chip .oc-dot {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted);
+  }
+  .ov-chip.ok .oc-dot { background: var(--green); }
+  .ov-chip.warn .oc-dot { background: var(--orange); }
+  .ov-chip.bad .oc-dot { background: var(--red); }
+  .ov-chip strong { color: var(--text); font-weight: 600; }
+
+  @media (max-width: 600px) {
+    .ov-hero { padding: 18px 16px; }
+    .ov-hero-value { font-size: 32px; }
+    .ov-hero-meta { margin-left: 0; text-align: left; width: 100%; }
+    .ov-metrics, .ov-actions, .ov-health { padding-left: 16px; padding-right: 16px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ov-metric, .ov-action { transition: none; }
+    .ov-metric:hover, .ov-action:hover { transform: none; }
+  }
+  /* Progressive enhancement: both .view-off and .router-booting are applied by
+     script, so with JS disabled every section stays visible and the page
+     degrades to its previous single-scroll behaviour. */
 </style>
 </head>
 <body>
@@ -1745,6 +1891,7 @@
       <span class="ns-label">Jump to…</span>
       <kbd aria-hidden="true">⌘K</kbd>
     </button>
+    <a class="nav-home" href="#nav-overview" data-icon="⌂" onclick="closeNav()">Overview</a>
     <a class="nav-feature" href="/ai-dashboard">✦ Analyst</a>
 
     <div class="nav-cat" data-cat="trading">
@@ -1905,6 +2052,82 @@
 {% endif %}
 
 <div class="container" id="mainContent" role="main" tabindex="-1">
+
+<!-- ═══════════════════ OVERVIEW (home) ═══════════════════
+     The at-a-glance landing view.  Every number here mirrors the canonical
+     element in its own section (see syncOverview() in the router script) so
+     there is exactly one fetch/update path per metric — this panel never
+     talks to the API itself. -->
+<div class="section" id="nav-overview">
+  <div class="ov-hero">
+    <div class="ov-hero-main">
+      <span class="ov-hero-label">Account Equity</span>
+      <span class="ov-hero-value" id="ovEquity">${{ "{:,.2f}".format(paper.account_equity) }}</span>
+    </div>
+    <span class="ov-hero-delta flat" id="ovDelta" title="Today's total P&amp;L (open + closed)">
+      <span id="ovDeltaVal">—</span>
+    </span>
+    <div class="ov-hero-meta">
+      <div>{{ paper.mode|capitalize }} account{% if paper.is_live %} · {{ paper.broker }}{% else %} · simulated broker{% endif %}</div>
+      <div id="ovStamp">as of {{ status.timestamp }}</div>
+    </div>
+  </div>
+
+  <div class="ov-metrics">
+    <div class="ov-metric">
+      <span class="m-label">Today's P&amp;L</span>
+      <span class="m-value" id="ovToday">—</span>
+    </div>
+    <div class="ov-metric">
+      <span class="m-label">Unrealized</span>
+      <span class="m-value" id="ovUnrealized">—</span>
+    </div>
+    <div class="ov-metric">
+      <span class="m-label">Realized</span>
+      <span class="m-value" id="ovRealized">—</span>
+    </div>
+    <div class="ov-metric">
+      <span class="m-label">Open Positions</span>
+      <span class="m-value" id="ovOpen">—</span>
+    </div>
+    <div class="ov-metric">
+      <span class="m-label">Win Rate</span>
+      <span class="m-value" id="ovWinRate">—</span>
+    </div>
+    <div class="ov-metric">
+      <span class="m-label">Profit Factor</span>
+      <span class="m-value" id="ovProfitFactor">—</span>
+    </div>
+  </div>
+
+  <div class="ov-health" id="ovHealth">
+    <span class="ov-chip {{ 'warn' if paper.is_live else 'ok' }}">
+      <span class="oc-dot"></span>Mode <strong>{{ status.mode }}</strong>
+    </span>
+    <span class="ov-chip" id="ovChipMarket"><span class="oc-dot"></span>Market <strong id="ovMarketState">—</strong></span>
+    <span class="ov-chip" id="ovChipEngine"><span class="oc-dot"></span>Engine <strong id="ovEngineState">—</strong></span>
+    <span class="ov-chip"><span class="oc-dot"></span>Data <strong>{{ providers.active_label }}</strong></span>
+  </div>
+
+  <div class="ov-actions">
+    <a class="ov-action" href="#nav-account">
+      <span class="oa-icon" aria-hidden="true">💰</span>
+      <span><span class="oa-title">Positions &amp; P&amp;L</span><br><span class="oa-sub">Open trades and live P&amp;L</span></span>
+    </a>
+    <a class="ov-action" href="#nav-trade">
+      <span class="oa-icon" aria-hidden="true">⇄</span>
+      <span><span class="oa-title">Manual Trade</span><br><span class="oa-sub">Place a discretionary order</span></span>
+    </a>
+    <a class="ov-action" href="#nav-risk">
+      <span class="oa-icon" aria-hidden="true">🛡</span>
+      <span><span class="oa-title">Risk</span><br><span class="oa-sub">Exposure, VaR and limits</span></span>
+    </a>
+    <a class="ov-action" href="#nav-charts">
+      <span class="oa-icon" aria-hidden="true">📈</span>
+      <span><span class="oa-title">P&amp;L Charts</span><br><span class="oa-sub">Equity curve and drawdown</span></span>
+    </a>
+  </div>
+</div>
 
 <!-- ═══════════════════ MARKET DATA PROVIDER ═══════════════════ -->
 <div class="section" id="nav-provider">
@@ -3603,7 +3826,7 @@
 </div>
 
 <!-- ═══════════════════ STRATEGIES ═══════════════════ -->
-<div class="section">
+<div class="section" data-view="analytics">
   <div class="section-header">
     <div class="section-icon icon-strategy">T</div>
     <h2>Trading Strategies</h2>
@@ -3636,7 +3859,7 @@
 </div>
 
 <!-- ═══════════════════ DEMO SCORING ═══════════════════ -->
-<div class="section">
+<div class="section" data-view="analytics">
   <div class="section-header">
     <div class="section-icon icon-scoring">Q</div>
     <h2>Demo Signal Scoring</h2>
@@ -3686,7 +3909,7 @@
 </div>
 
 <!-- ═══════════════════ RISK MANAGEMENT ═══════════════════ -->
-<div class="section">
+<div class="section" data-view="analytics">
   <div class="section-header">
     <div class="section-icon icon-risk">R</div>
     <h2>Risk Management Rules</h2>
@@ -9457,6 +9680,298 @@
         aria-label="Back to top" onclick="scrollToTop()">↑</button>
 
 <script>
+/* ═══════════════ View router (v3) ═══════════════
+   Pages the 32 sections by the sidebar category they already belong to, so
+   only one category is in the DOM flow at a time instead of a single ~40,000px
+   scroll whose order matched nothing.
+
+   Design notes:
+   * The section→category map is *derived from the sidebar markup*, exactly like
+     the v2 scroll-spy does, so adding a nav entry needs no change here.
+   * Hiding uses display:none, which also removes hidden sections from the tab
+     order, from find-in-page and from the v2 scroll-spy's geometry.
+   * Deep links keep working: "#nav-tax" selects the Reports view and scrolls to
+     the Tax section, so existing bookmarks and the ⌘K palette are unaffected.
+   * Lazy sections keep working: their IntersectionObserver re-evaluates when a
+     view is shown, so their loaders fire on first reveal rather than at boot.
+   Exposes window.showView(view, opts) and window.gotoSection(id). */
+(function () {
+  "use strict";
+
+  var container = document.getElementById("mainContent");
+  var overview = document.getElementById("nav-overview");
+  if (!container) return;
+
+  var OVERVIEW = "overview";
+  // Every section child is paged, not just the ones with a nav entry: three
+  // legacy reference blocks (Trading Strategies, Demo Signal Scoring, Risk
+  // Management Rules) have no id and no sidebar link, and would otherwise stay
+  // visible on top of every view.  They declare data-view in the markup.
+  var sections = Array.prototype.slice.call(
+    container.querySelectorAll(':scope > .section'));
+
+  // ── Derive id → category from the sidebar, mirroring the v2 spy. ────────
+  var catOf = {};        // section id  → view key (lowercase category slug)
+  var catLabel = {};     // view key    → display label ("Trading")
+  Array.prototype.forEach.call(
+    document.querySelectorAll('.section-nav .nav-cat a[href^="#nav-"]'),
+    function (a) {
+      var id = a.getAttribute("href").slice(1);
+      var catEl = a.closest(".nav-cat");
+      if (!catEl) return;
+      var key = (catEl.getAttribute("data-cat") || "").toLowerCase();
+      var span = catEl.querySelector(".nav-cat-toggle span");
+      catOf[id] = key;
+      catLabel[key] = (span && span.textContent || key).trim();
+    });
+  catLabel[OVERVIEW] = "Overview";
+
+  // Tag every section with its view. Anything the sidebar does not mention
+  // (defensive — should be none) is parked on the Overview so it stays
+  // reachable rather than becoming permanently invisible.
+  sections.forEach(function (s) {
+    if (s.getAttribute("data-view")) return;   // pinned in the markup
+    s.setAttribute("data-view", s.id === "nav-overview" ? OVERVIEW : (catOf[s.id] || OVERVIEW));
+  });
+
+  var current = null;
+
+  function viewOf(id) {
+    return id === "nav-overview" ? OVERVIEW : (catOf[id] || OVERVIEW);
+  }
+
+  /* Show one view. opts.scrollTo = section id to scroll to; opts.push =
+     whether to write history (default true); opts.focus = move focus for
+     keyboard users. */
+  window.showView = function (view, opts) {
+    opts = opts || {};
+    if (!catLabel[view]) view = OVERVIEW;
+    current = view;
+
+    sections.forEach(function (s) {
+      s.classList.toggle("view-off", s.getAttribute("data-view") !== view);
+    });
+
+    // Sidebar highlight: the home entry and the category groups.
+    var home = document.querySelector(".nav-home");
+    if (home) home.classList.toggle("active", view === OVERVIEW);
+    Array.prototype.forEach.call(document.querySelectorAll(".nav-cat"), function (c) {
+      c.classList.toggle("in-view", (c.getAttribute("data-cat") || "").toLowerCase() === view);
+    });
+
+    // Breadcrumb — the v2 spy keeps the section half in sync while scrolling,
+    // but it only fires on scroll, so seed it here or a view switch would leave
+    // the previous view's section name showing.
+    var crumbCat = document.getElementById("crumbCat");
+    var crumbSection = document.getElementById("crumbSection");
+    if (crumbCat) crumbCat.textContent = catLabel[view] || "Overview";
+    if (crumbSection) {
+      if (view === OVERVIEW) {
+        crumbSection.textContent = "Home";
+      } else {
+        var seedId = opts.scrollTo;
+        if (!seedId) {
+          var first = sections.filter(function (s) {
+            return s.getAttribute("data-view") === view && s.id;
+          })[0];
+          seedId = first && first.id;
+        }
+        var link = seedId && document.querySelector(
+          '.section-nav .nav-cat a[href="#' + seedId + '"]');
+        crumbSection.textContent = link
+          ? (link.textContent || "").replace(/ /g, " ").trim()
+          : (catLabel[view] || "");
+      }
+    }
+
+    // The v2 spy caches section geometry implicitly via getBoundingClientRect
+    // on scroll, but a view swap changes layout without a scroll event, so
+    // nudge anything listening (spy, sticky tables, Chart.js responsive).
+    window.dispatchEvent(new Event("resize"));
+
+    if (opts.scrollTo) {
+      var el = document.getElementById(opts.scrollTo);
+      if (el) {
+        var reduce = window.matchMedia &&
+          window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        el.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+      }
+    } else {
+      window.scrollTo({ top: 0, behavior: "auto" });
+    }
+    if (opts.focus && overview) {
+      var target = opts.scrollTo ? document.getElementById(opts.scrollTo) : overview;
+      if (target) { target.setAttribute("tabindex", "-1"); target.focus({ preventScroll: true }); }
+    }
+    // Sections revealed by a display change do not reliably fire their
+    // IntersectionObserver, so kick any lazy loaders now on screen.
+    if (window.flushLazyVisible) {
+      window.flushLazyVisible();
+      // …and again after the smooth scroll settles, for whatever it lands on.
+      setTimeout(function () { window.flushLazyVisible(); }, 450);
+    }
+    return view;
+  };
+
+  /* Navigate to a section by id, switching view first when needed. */
+  window.gotoSection = function (id, opts) {
+    opts = opts || {};
+    var view = viewOf(id);
+    var sameView = view === current;
+    window.showView(view, {
+      scrollTo: id === "nav-overview" ? null : id,
+      focus: opts.focus
+    });
+    if (sameView && id !== "nav-overview") {
+      var el = document.getElementById(id);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    if (opts.push !== false && location.hash !== "#" + id) {
+      history.pushState(null, "", "#" + id);
+    }
+  };
+
+  // ── Intercept in-page section links (sidebar, overview cards, help). ────
+  document.addEventListener("click", function (ev) {
+    var a = ev.target.closest && ev.target.closest('a[href^="#nav-"]');
+    if (!a) return;
+    var id = a.getAttribute("href").slice(1);
+    if (!document.getElementById(id)) return;
+    ev.preventDefault();
+    window.gotoSection(id);
+  });
+
+  // Back/forward and externally-set hashes.
+  window.addEventListener("hashchange", function () {
+    var id = location.hash.slice(1);
+    if (id && document.getElementById(id)) window.gotoSection(id, { push: false });
+  });
+
+  // ── Boot: honour a deep link, else land on the Overview. ───────────────
+  var initial = location.hash.slice(1);
+  if (initial && document.getElementById(initial) && initial.indexOf("nav-") === 0) {
+    window.showView(viewOf(initial), { scrollTo: initial === "nav-overview" ? null : initial });
+  } else {
+    window.showView(OVERVIEW);
+  }
+  document.documentElement.classList.remove("router-booting");
+
+  // The lazy helper and the per-section registrations both land on DOM-ready,
+  // i.e. after this boot, so the initial view's loaders need one flush then.
+  function bootFlush() {
+    if (window.flushLazyVisible) window.flushLazyVisible();
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", function () { setTimeout(bootFlush, 0); });
+  } else { setTimeout(bootFlush, 0); }
+})();
+</script>
+
+<script>
+/* ═══════════════ Overview metric mirroring ═══════════════
+   The Overview panel deliberately owns no data-fetching of its own: every tile
+   mirrors the canonical element that its section already keeps up to date (the
+   live-P&L websocket, the engine poller, …). A MutationObserver copies values
+   across, so there is still exactly one update path per metric and the two
+   views can never disagree. */
+(function () {
+  "use strict";
+
+  // overview element id → canonical source element id
+  var MAP = {
+    ovEquity: "paperEquity",
+    ovToday: "paperToday",
+    ovUnrealized: "paperUnrealized",
+    ovRealized: "paperRealized",
+    ovOpen: "paperOpenCount",
+    ovWinRate: "paperWinRate",
+    ovProfitFactor: "paperProfitFactor",
+    ovDeltaVal: "paperTodayTotal"
+  };
+
+  function isNeg(text) { return /^\s*-/.test(text) || /^\s*-?\$?-/.test(text); }
+
+  function copy(destId, srcId) {
+    var dest = document.getElementById(destId);
+    var src = document.getElementById(srcId);
+    if (!dest || !src) return;
+    var text = (src.textContent || "").trim();
+    if (!text) return;
+    dest.textContent = text;
+    // Mirror the source's P&L colour classes where the source sets them, and
+    // otherwise derive from the sign so the tiles stay colour-coded.
+    if (destId !== "ovEquity" && destId !== "ovOpen" &&
+        destId !== "ovWinRate" && destId !== "ovProfitFactor") {
+      var neg = src.classList.contains("pnl-neg") || isNeg(text);
+      var zero = /^[+-]?\$?0(\.00)?$/.test(text.replace(/[, ]/g, ""));
+      dest.classList.toggle("pnl-neg", !zero && neg);
+      dest.classList.toggle("pnl-pos", !zero && !neg);
+    }
+  }
+
+  function syncOverview() {
+    Object.keys(MAP).forEach(function (k) { copy(k, MAP[k]); });
+    // Hero delta pill takes its tone from today's total.
+    var pill = document.getElementById("ovDelta");
+    var val = document.getElementById("ovDeltaVal");
+    if (pill && val) {
+      var t = (val.textContent || "").trim();
+      var zero = /^[+-]?\$?0(\.00)?$/.test(t.replace(/[, ]/g, ""));
+      pill.classList.remove("up", "down", "flat");
+      pill.classList.add(t === "—" || zero ? "flat" : (isNeg(t) ? "down" : "up"));
+    }
+    // System-health chips read the same live indicators the header uses.
+    var mkt = document.getElementById("liveIndicatorText");
+    var mktOut = document.getElementById("ovMarketState");
+    var mktChip = document.getElementById("ovChipMarket");
+    if (mkt && mktOut) {
+      var m = (mkt.textContent || "").trim();
+      mktOut.textContent = m || "—";
+      if (mktChip) {
+        mktChip.classList.remove("ok", "warn", "bad");
+        mktChip.classList.add(/OPEN/i.test(m) ? "ok" : "warn");
+      }
+    }
+    var eng = document.getElementById("engineStateText");
+    var engOut = document.getElementById("ovEngineState");
+    var engChip = document.getElementById("ovChipEngine");
+    if (eng && engOut) {
+      var e = (eng.textContent || "").trim();
+      engOut.textContent = e || "—";
+      if (engChip) {
+        engChip.classList.remove("ok", "warn", "bad");
+        engChip.classList.add(/running|active/i.test(e) ? "ok"
+                              : /stop|halt|error|fail/i.test(e) ? "bad" : "warn");
+      }
+    }
+    var stamp = document.getElementById("pnlUpdatedStamp");
+    var ovStamp = document.getElementById("ovStamp");
+    if (stamp && ovStamp && (stamp.textContent || "").trim()) {
+      ovStamp.textContent = stamp.textContent.trim();
+    }
+  }
+
+  window.syncOverview = syncOverview;
+
+  function boot() {
+    syncOverview();
+    if (!window.MutationObserver) return;
+    var obs = new MutationObserver(syncOverview);
+    var watched = Object.keys(MAP).map(function (k) { return MAP[k]; })
+      .concat(["liveIndicatorText", "engineStateText", "pnlUpdatedStamp"]);
+    watched.forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) obs.observe(el, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ["class"] });
+    });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", boot);
+  } else { boot(); }
+})();
+</script>
+
+<script>
 /* ═══════════════ Navigation UX v2 ═══════════════
    Scroll-spy active highlighting, live breadcrumb, back-to-top button and
    collapsible section cards. Self-contained; reads the section→category map
@@ -9473,8 +9988,12 @@
 
   var sections = Array.prototype.slice.call(
     document.querySelectorAll('.section[id^="nav-"]'));
+  // Only category links take part in the spy: the standalone "Overview" home
+  // link has no .nav-cat parent, and including it made the breadcrumb fall back
+  // to the literal "Section" for its category.  The v3 router owns the crumb
+  // while the Overview is open.
   var navLinks = Array.prototype.slice.call(
-    document.querySelectorAll('.section-nav a[href^="#nav-"]'));
+    document.querySelectorAll('.section-nav .nav-cat a[href^="#nav-"]'));
 
   // Build id → { link, cat, label } from the sidebar so the breadcrumb and
   // active-link logic stay in sync with whatever categories the nav declares.
@@ -9518,10 +10037,15 @@
   function updateSpy() {
     ticking = false;
     var probe = HEADER_OFFSET + 1;
-    var activeId = sections.length ? sections[0].id : null;
-    for (var i = 0; i < sections.length; i++) {
-      if (sections[i].getBoundingClientRect().top <= probe) {
-        activeId = sections[i].id;
+    // Only sections in the active view take part: the v3 router hides the rest
+    // with display:none, and a hidden element reports an all-zero rect whose
+    // top (0) always clears the probe — which made the spy latch onto the last
+    // hidden section in the document instead of what is actually on screen.
+    var live = sections.filter(function (s) { return s.offsetParent !== null; });
+    var activeId = live.length ? live[0].id : null;
+    for (var i = 0; i < live.length; i++) {
+      if (live[i].getBoundingClientRect().top <= probe) {
+        activeId = live[i].id;
       } else {
         break;
       }
@@ -9529,8 +10053,8 @@
     // Near the very bottom, force the last section active (short sections may
     // never reach the probe line).
     if (window.innerHeight + window.scrollY >=
-        document.body.scrollHeight - 4 && sections.length) {
-      activeId = sections[sections.length - 1].id;
+        document.body.scrollHeight - 4 && live.length) {
+      activeId = live[live.length - 1].id;
     }
     if (activeId && activeId !== currentId) {
       currentId = activeId;
@@ -9779,6 +10303,36 @@
   // ── Lazy-load: run a loader once, when its section nears the viewport ────
   // Falls back to an immediate run where IntersectionObserver is unavailable.
   var _lazyDone = {};
+  var _lazyPending = {};   // id → { el, loader, io } awaiting first reveal
+
+  function _runLazy(id) {
+    var entry = _lazyPending[id];
+    if (!entry || _lazyDone[id]) return;
+    _lazyDone[id] = true;
+    delete _lazyPending[id];
+    if (entry.io) entry.io.disconnect();
+    entry.el.classList.remove("lazy-pending");
+    try { entry.loader(); } catch (e) {}
+  }
+
+  /* Run the loaders of any still-pending section that is now on screen.
+     The v3 view router pages sections with display:none, and an element that is
+     revealed by a display change does not reliably produce an
+     IntersectionObserver callback, so the router calls this after each view
+     switch instead of relying on the observer alone.  Only sections actually
+     near the viewport are run — a view can still be tens of thousands of pixels
+     tall, and the observer takes over for the rest once they are displayed. */
+  var LAZY_MARGIN = 400;
+  window.flushLazyVisible = function () {
+    var h = window.innerHeight || 800;
+    Object.keys(_lazyPending).forEach(function (id) {
+      var el = _lazyPending[id].el;
+      if (!el || el.offsetParent === null) return;
+      var r = el.getBoundingClientRect();
+      if (r.top < h + LAZY_MARGIN && r.bottom > -LAZY_MARGIN) _runLazy(id);
+    });
+  };
+
   window.lazySection = function (id, loader, opts) {
     if (_lazyDone[id]) return;
     var el = document.getElementById(id);
@@ -9787,15 +10341,10 @@
     }
     var io = new IntersectionObserver(function (entries) {
       for (var i = 0; i < entries.length; i++) {
-        if (entries[i].isIntersecting) {
-          _lazyDone[id] = true;
-          io.disconnect();
-          el.classList.remove("lazy-pending");
-          try { loader(); } catch (e) {}
-          return;
-        }
+        if (entries[i].isIntersecting) { _runLazy(id); return; }
       }
     }, { rootMargin: (opts && opts.rootMargin) || "300px 0px" });
+    _lazyPending[id] = { el: el, loader: loader, io: io };
     io.observe(el);
   };
 
@@ -10181,6 +10730,14 @@
   function scrollToSection(sel) {
     var el = typeof sel === "string" ? document.querySelector(sel) : sel;
     if (!el) return false;
+    // The v3 view router pages sections by category, so a target may be in a
+    // view that is currently display:none — its rect would be all zeros and the
+    // scroll would land at the top. Switch to its view first. Doing it here
+    // covers every caller (⌘K palette, bottom nav, help links) at once.
+    var view = el.getAttribute && el.getAttribute("data-view");
+    if (view && window.showView && el.classList.contains("view-off")) {
+      window.showView(view);
+    }
     el.classList.remove("collapsed");
     var header = document.querySelector(".header");
     var offset = (header ? header.offsetHeight : 120) + 12;
