@@ -152,8 +152,9 @@ _212 variables across 50 groups._
 | `RATE_LIMIT_ENABLED` | `True` | No | In-process protection for money-moving / control endpoints and the login (HTTP Basic) path. Disabled automatically unde… |
 | `RATE_LIMIT_TRADE_PER_MIN` | `20` | No | Max requests per client IP per minute for the money path (manual trades, position stops) — kept deliberately low; a hum… |
 | `RATE_LIMIT_CONTROL_PER_MIN` | `30` | No | Max requests per client IP per minute for control endpoints (engine start/stop, mode switch, provider switch, backtest … |
-| `RATE_LIMIT_LOGIN_MAX_FAILURES` | `5` | No | Failed-login attempts (per client IP) allowed before a temporary lockout. |
-| `RATE_LIMIT_LOGIN_LOCKOUT_MINUTES` | `15` | No | How long (minutes) a client IP is locked out after exhausting the failed login budget above. |
+| `RATE_LIMIT_LOGIN_MAX_FAILURES` | `5` | No | Failed-login attempts (per client IP) allowed before a temporary lockout. Only *presented and wrong* credentials count — an anonymous request (e.g. the polls a page fires after its session expires) is answered with the sign-in page and never spends budget. |
+| `RATE_LIMIT_LOGIN_LOCKOUT_SECONDS` | `60` | No | Length of the **first** lockout once the budget is spent. Consecutive lockouts double it (60s → 2m → 4m → 8m) up to the ceiling below; retrying during a lockout does not extend it. |
+| `RATE_LIMIT_LOGIN_LOCKOUT_MINUTES` | `15` | No | Ceiling (minutes) for the escalating lockout above. A client that stays quiet for one window decays back to the short first lockout. |
 
 ## Broker selection
 

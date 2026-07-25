@@ -37,10 +37,14 @@ uvicorn process behind a proxy).
   money path (`/api/manual-trade`, `/api/positions/stop`) and control endpoints
   (`/api/engine/control`, `/api/mode/switch`, `/api/providers/*`,
   `/api/backtest/run`, `/api/trade-selection`). Over-limit → `429` + `Retry-After`.
-- **Login lockout**: failed HTTP Basic auth attempts are counted per IP in
-  `require_auth`; after `RATE_LIMIT_LOGIN_MAX_FAILURES` (default 5) the IP is
-  locked for `RATE_LIMIT_LOGIN_LOCKOUT_MINUTES` (default 15). A success clears
-  the counter.
+- **Login lockout**: *wrong* credentials are counted per IP in `require_auth`
+  and on `POST /login`; after `RATE_LIMIT_LOGIN_MAX_FAILURES` (default 5) the IP
+  is locked for `RATE_LIMIT_LOGIN_LOCKOUT_SECONDS` (default 60), doubling per
+  consecutive lockout up to `RATE_LIMIT_LOGIN_LOCKOUT_MINUTES` (default 15). A
+  success clears the counter. Two rules keep the guard off the legitimate
+  operator's back: a request carrying *no* credentials never spends budget (a
+  stale page's anonymous polls used to burn it in one page load), and an attempt
+  during an active lockout is refused without restarting the clock.
 - Tunable via settings; disabled under the test-suite via `RATE_LIMIT_ENABLED`.
 - Tests: `tests/test_rate_limit.py`.
 

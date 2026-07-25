@@ -164,7 +164,7 @@ journalctl -u ustradingbot-engine -n 100 --no-pager | grep -iE 'broker|reconnect
 | `500` with `{"error_code":"internal_error"}` | Unhandled exception | Grab the `request_id` from the body/`X-Request-ID` header; `grep` the journal for it to get the real traceback |
 | `413` `payload_too_large` | Request body over 1 MiB | Legitimate guard — shrink the payload |
 | `422` `validation_error` | Malformed JSON or bad field | Fix the request body; the `errors` array names the offending field |
-| `429` | Rate-limited (login lockout or trade/control cap) | Back off; login lockout clears after `RATE_LIMIT_LOGIN_LOCKOUT_MINUTES`. See [env-vars.md](env-vars.md) `RATE_LIMIT_*` |
+| `429` | Rate-limited (login lockout or trade/control cap) | Back off for the advertised `Retry-After` (first login lockout is 60s, escalating to `RATE_LIMIT_LOGIN_LOCKOUT_MINUTES`); retrying early no longer extends it. To clear a lockout immediately, restart the dashboard — the state is in-process unless `RATE_LIMIT_REDIS_URL` is set, in which case `redis-cli del rll:<ip> rlf:<ip> rlr:<ip>`. See [env-vars.md](env-vars.md) `RATE_LIMIT_*` |
 
 **Repeated `auth.failure` WARN logs** (`grep auth.failure`) show the source IP
 and reason (`missing_credentials` / `invalid_credentials`) — a burst from one IP

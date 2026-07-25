@@ -58,6 +58,15 @@ Production-readiness audit remediation (P1–P3 items).
 
 ### Fixed
 
+- **Expired sessions no longer lock you out of your own dashboard**: the login
+  guard counted a request carrying *no* credentials as a failed attempt, so the
+  burst of anonymous polls a stale page fires spent the whole 5-attempt budget
+  in a single page load — and because every further attempt re-armed a full
+  15-minute lockout, the advertised countdown never actually ran down. Only
+  presented-and-wrong credentials now count, an attempt during an active lockout
+  no longer extends it (in-process *and* Redis backends), and the first lockout
+  is 60s (`RATE_LIMIT_LOGIN_LOCKOUT_SECONDS`), doubling per consecutive offence
+  up to the existing 15-minute ceiling.
 - **ETF earnings no longer logged as ERROR**: earnings lookups
   (`data/earnings.py`, `data/earnings_calendar.py`) short-circuit known ETFs
   (SOXL, SPY, sector funds) — which carry no single-company earnings date —
