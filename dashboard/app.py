@@ -26,7 +26,12 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+)
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from starlette.concurrency import run_in_threadpool
 
@@ -1934,6 +1939,9 @@ async def dashboard(request: Request, _user: str = Depends(require_auth)):
             "strategy_comparison": _build_strategy_comparison(),
             "scores": _build_sample_scores(),
             "risk": _build_risk_rules(),
+            # Drives the header's sign-out control — pointless (and confusing)
+            # to offer when the dashboard is running without auth.
+            "auth_enabled": bool(get_settings().DASHBOARD_AUTH_ENABLED),
             "watchlist_us": US_WATCHLIST,
             "watchlist_ca": CA_WATCHLIST,
             "watchlist_etf": ALL_ETFS,
@@ -1965,6 +1973,144 @@ def _build_backtest_options() -> Dict[str, Any]:
     from dashboard.backtest_control import options
 
     return options()
+
+
+# ---------------------------------------------------------------------------
+# Branded sign-in (replaces the browser's native Basic-auth dialog)
+# ---------------------------------------------------------------------------
+# HTTP Basic still works everywhere — API clients, curl and the existing tests
+# are unaffected.  These routes add a session-cookie path so a browser gets a
+# real login screen instead of the OS credential prompt, which was the first
+# thing a new user ever saw.  See dashboard/session.py for the token format.
+
+
+def _login_page(request: Request, *, error: str = "", username: str = "", status_code: int = 200):
+    """Render the branded sign-in page."""
+    return templates.TemplateResponse(
+        request,
+        "login.html",
+        context={"error": error, "username": username},
+        status_code=status_code,
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/login", response_class=HTMLResponse, tags=["System"], include_in_schema=False)
+async def login_page(request: Request):
+    """Public sign-in page.  Already-valid sessions are sent straight to the app."""
+    from dashboard.session import COOKIE_NAME, verify_token
+
+    settings = get_settings()
+    if not settings.DASHBOARD_AUTH_ENABLED:
+        return RedirectResponse("/", status_code=status.HTTP_303_SEE_OTHER)
+    token = request.cookies.get(COOKIE_NAME, "")
+    if token and verify_token(token, settings.DASHBOARD_PASSWORD):
+        return RedirectResponse("/", status_code=status.HTTP_303_SEE_OTHER)
+    return _login_page(request)
+
+
+@app.post("/login", tags=["System"], include_in_schema=False)
+async def login_submit(request: Request):
+    """Validate credentials and issue a session cookie.
+
+    Accepts a form post (the login page) or a JSON body (programmatic clients).
+    Credentials are checked exactly as :func:`dashboard.auth.require_auth` checks
+    them — same constant-time comparison, same brute-force lockout — so this
+    route cannot become a weaker way in.  Missing or invalid credentials answer
+    ``401`` rather than a validation error, which keeps the "every mutating
+    endpoint rejects anonymous callers" guarantee intact.
+    """
+    from dashboard.rate_limit import LoginGuard, client_key
+    from dashboard.session import COOKIE_NAME, DEFAULT_TTL_SECONDS, issue_token
+
+    settings = get_settings()
+    wants_html = "text/html" in (request.headers.get("accept") or "")
+
+    if not settings.DASHBOARD_AUTH_ENABLED:
+        return RedirectResponse("/", status_code=status.HTTP_303_SEE_OTHER)
+
+    ckey = client_key(request)
+    LoginGuard.check_locked(ckey)
+
+    # Body may be form-encoded (the login page) or JSON (a script).  The
+    # urlencoded case is parsed directly rather than via request.form(), which
+    # needs the optional python-multipart package — not worth a new production
+    # dependency for a two-field sign-in form.  A malformed or absent body
+    # simply leaves the credentials empty, which is handled as a failed login.
+    username = password = ""
+    content_type = (request.headers.get("content-type") or "").split(";")[0].strip()
+    raw = await request.body()
+    if content_type == "application/x-www-form-urlencoded":
+        from urllib.parse import parse_qs
+
+        try:
+            fields = parse_qs(raw.decode("utf-8"), keep_blank_values=True)
+            username = (fields.get("username") or [""])[0]
+            password = (fields.get("password") or [""])[0]
+        except (UnicodeDecodeError, ValueError):
+            pass
+    elif content_type == "application/json":
+        try:
+            body = json.loads(raw or b"{}")
+            if isinstance(body, dict):
+                username = str(body.get("username", "") or "")
+                password = str(body.get("password", "") or "")
+        except (ValueError, UnicodeDecodeError):
+            pass
+
+    expected_user = settings.DASHBOARD_USERNAME
+    expected_pass = settings.DASHBOARD_PASSWORD
+    if not expected_pass:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Dashboard auth is enabled but DASHBOARD_PASSWORD is not set.",
+        )
+
+    ok = bool(username) and bool(password) and (
+        secrets.compare_digest(username.encode("utf-8"), expected_user.encode("utf-8"))
+        and secrets.compare_digest(password.encode("utf-8"), expected_pass.encode("utf-8"))
+    )
+    if not ok:
+        LoginGuard.record_failure(ckey)
+        log.warning("auth.login_failed", username=username or None,
+                    ip=request.headers.get("x-forwarded-for", "") or
+                       (request.client.host if request.client else "unknown"))
+        if wants_html:
+            return _login_page(
+                request,
+                error="Incorrect username or password.",
+                username=username,
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
+        )
+
+    LoginGuard.record_success(ckey)
+    token = issue_token(expected_user, expected_pass)
+    response = RedirectResponse("/", status_code=status.HTTP_303_SEE_OTHER)
+    response.set_cookie(
+        COOKIE_NAME,
+        token,
+        max_age=DEFAULT_TTL_SECONDS,
+        httponly=True,
+        samesite="strict",
+        # Only mark Secure when the request actually arrived over TLS, so the
+        # cookie still works for a plain-HTTP LAN/dev deployment.
+        secure=request.url.scheme == "https",
+        path="/",
+    )
+    return response
+
+
+@app.post("/logout", tags=["System"], include_in_schema=False)
+async def logout(request: Request, _user: str = Depends(require_auth)):
+    """Clear the session cookie.  Auth-guarded so the anonymous sweep sees 401."""
+    from dashboard.session import COOKIE_NAME
+
+    response = RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    response.delete_cookie(COOKIE_NAME, path="/")
+    return response
 
 
 @app.get("/health", tags=["System"])

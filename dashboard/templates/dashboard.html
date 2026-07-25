@@ -660,6 +660,7 @@
     background: var(--accent-dim); border-color: var(--accent); color: #fff;
   }
   .nav-home.active::before { color: #fff; }
+  .logout-form { display: inline-flex; margin: 0; }
   /* The category whose view is currently open gets a rail + brighter heading,
      so the sidebar always shows which "page" you are on. */
   .nav-cat.in-view > .nav-cat-toggle { color: var(--text); }
@@ -1858,6 +1859,14 @@
               onclick="openKillSwitch()">■ HALT</button>
       <button type="button" class="icon-btn" id="themeToggle" title="Toggle light / dark"
               aria-label="Toggle light or dark theme" onclick="toggleTheme()">🌙</button>
+      <!-- Sign out — POSTs so it is CSRF-guarded like every other mutation.
+           Only meaningful when auth is on; hidden entirely when it is off. -->
+      {% if auth_enabled %}
+      <form method="post" action="/logout" class="logout-form">
+        <button type="submit" class="icon-btn" id="logoutBtn"
+                title="Sign out" aria-label="Sign out">⏻</button>
+      </form>
+      {% endif %}
       <button type="button" class="nav-toggle" id="navToggle" aria-label="Toggle menu"
               aria-expanded="false" aria-controls="sectionNav" onclick="toggleNav()">☰</button>
     </div>

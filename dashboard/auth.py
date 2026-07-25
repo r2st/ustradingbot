@@ -109,6 +109,22 @@ def require_auth(
     expected_user = settings.DASHBOARD_USERNAME
     expected_pass = settings.DASHBOARD_PASSWORD
 
+    # A valid session cookie from the branded login page is accepted in place of
+    # a Basic header.  Checked before the credential comparison so a logged-in
+    # browser never triggers the native credential dialog, and before the
+    # missing-credentials branch so it does not burn brute-force budget.  The
+    # cookie is signed with a key derived from the password below, so it cannot
+    # outlive a password rotation.
+    if expected_pass:
+        from dashboard.session import COOKIE_NAME, verify_token
+
+        cookie_user = verify_token(request.cookies.get(COOKIE_NAME, ""), expected_pass)
+        if cookie_user is not None and secrets.compare_digest(
+            cookie_user.encode("utf-8"), expected_user.encode("utf-8")
+        ):
+            LoginGuard.record_success(ckey)
+            return cookie_user
+
     if not expected_pass:
         # Fail closed: never serve protected content without a real password.
         # A misconfiguration, not a brute-force attempt — don't count it.

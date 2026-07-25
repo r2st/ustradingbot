@@ -24,10 +24,10 @@ import time
 import uuid
 
 import structlog
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, status
 from fastapi.exceptions import HTTPException as FastAPIHTTPException
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from dashboard.http_util import (
@@ -296,6 +296,18 @@ def install_exception_handlers(app: FastAPI, *, debug: bool = False) -> None:
 
     @app.exception_handler(StarletteHTTPException)
     async def _http_exc(_request: Request, exc: StarletteHTTPException):
+        # A 401 on a *browser navigation* is answered with the branded sign-in
+        # page rather than a JSON envelope carrying `WWW-Authenticate: Basic`,
+        # which is what makes the browser pop its native credential dialog.
+        # Gated on the request actually asking for HTML, so API clients, curl
+        # and the test-suite still get the standard Basic challenge.
+        if exc.status_code == 401 and "text/html" in (
+            _request.headers.get("accept") or ""
+        ):
+            return RedirectResponse(
+                "/login", status_code=status.HTTP_303_SEE_OTHER
+            )
+
         # Deliberate, already-shaped responses (401/403/404/413/422/…).  Reshape
         # them into the shared envelope while preserving their status + detail.
         detail = exc.detail
