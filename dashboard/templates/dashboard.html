@@ -1770,6 +1770,12 @@
     .ov-hero-value { font-size: 32px; }
     .ov-hero-meta { margin-left: 0; text-align: left; width: 100%; }
     .ov-metrics, .ov-actions, .ov-health { padding-left: 16px; padding-right: 16px; }
+    /* Two tiles per row keeps the "at a glance" panel glanceable instead of a
+       tall single column of six full-width cards. */
+    .ov-metrics { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .ov-metric { padding: 12px 13px; }
+    .ov-metric .m-value { font-size: 19px; }
+    .ov-actions { grid-template-columns: 1fr; }
   }
   @media (prefers-reduced-motion: reduce) {
     .ov-metric, .ov-action { transition: none; }
