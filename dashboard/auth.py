@@ -134,8 +134,13 @@ def require_auth(
         )
 
     if credentials is None:
+        # Not a brute-force attempt — nothing was guessed.  A browser whose
+        # session cookie expired sends a burst of anonymous polls (quotes,
+        # commentary, positions…), and counting those against the failure
+        # budget locked legitimate operators out of their own dashboard within
+        # a single page load.  Log it, answer 401 (the middleware turns a
+        # navigation into the sign-in page), but never spend budget.
         _log_auth_failure(request, "missing_credentials")
-        LoginGuard.record_failure(ckey)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",

@@ -114,6 +114,28 @@ def test_lockout_uses_shared_store(fake_redis, monkeypatch):
     rate_limit.LoginGuard.check_locked(key)  # no longer raises
 
 
+def test_shared_lockout_is_not_extended_by_further_attempts(fake_redis, monkeypatch):
+    """Parity with the in-process guard: a locked client can't push its own
+    unlock time out by continuing to hammer the login."""
+    monkeypatch.setenv("RATE_LIMIT_LOGIN_MAX_FAILURES", "2")
+    monkeypatch.setenv("RATE_LIMIT_LOGIN_LOCKOUT_SECONDS", "60")
+    monkeypatch.setenv("RATE_LIMIT_LOGIN_LOCKOUT_MINUTES", "15")
+    from config.settings import get_settings
+
+    get_settings.cache_clear()
+
+    key = "8.8.8.8"
+    for _ in range(2):
+        rate_limit.LoginGuard.record_failure(key)
+    ttl_first = fake_redis.ttl(f"rll:{key}")
+    assert ttl_first <= 61  # short first lockout, not the 15-minute ceiling
+    for _ in range(5):
+        rate_limit.LoginGuard.record_failure(key)
+    assert fake_redis.ttl(f"rll:{key}") <= ttl_first
+    # The escalation ladder advanced exactly once (one lockout, not six).
+    assert fake_redis.store[f"rlr:{key}"] == "1"
+
+
 def test_reset_clears_shared_keys(fake_redis):
     rate_limit._check_bucket("b", "1.1.1.1", 5, 60.0)
     assert fake_redis.store

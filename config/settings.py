@@ -344,10 +344,21 @@ class Settings(BaseSettings):
     # gunicorn workers (audit B-4).  Empty → in-process (single-worker) mode.
     RATE_LIMIT_REDIS_URL: str = ""
     # Failed-login attempts (per client IP) allowed before a temporary lockout.
+    # Only *presented and wrong* credentials count.  A request that carries no
+    # credentials at all is answered with the sign-in page and never spends
+    # budget, so an expired session (whose background polls all arrive
+    # anonymous) can never lock a legitimate user out of their own dashboard.
     RATE_LIMIT_LOGIN_MAX_FAILURES: int = 5
-    # How long (minutes) a client IP is locked out after exhausting the failed
-    # login budget above.
-    RATE_LIMIT_LOGIN_LOCKOUT_MINUTES: int = 15
+    # Length (seconds) of the *first* lockout once the budget above is spent.
+    # Deliberately short: a mistyped password should cost a human a minute, not
+    # a coffee break.  Consecutive lockouts escalate — 60s → 2m → 4m → 8m —
+    # capped at RATE_LIMIT_LOGIN_LOCKOUT_MINUTES, so a persistent guesser is
+    # back under the old ceiling within four rounds while a fat-fingered
+    # operator is let back in almost immediately.
+    RATE_LIMIT_LOGIN_LOCKOUT_SECONDS: int = 60
+    # Ceiling (minutes) for the escalating lockout above.  A client that stays
+    # quiet for one full window decays back to the short first-lockout length.
+    RATE_LIMIT_LOGIN_LOCKOUT_MINUTES: float = 15
 
     @property
     def admin_password(self) -> str:

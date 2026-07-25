@@ -2071,7 +2071,11 @@ async def login_submit(request: Request):
         and secrets.compare_digest(password.encode("utf-8"), expected_pass.encode("utf-8"))
     )
     if not ok:
-        LoginGuard.record_failure(ckey)
+        # Only a real guess spends brute-force budget: an empty submit (or a
+        # body that never parsed) presented no credentials at all, so it is
+        # answered like any other failure but never counts toward a lockout.
+        if username or password:
+            LoginGuard.record_failure(ckey)
         log.warning("auth.login_failed", username=username or None,
                     ip=request.headers.get("x-forwarded-for", "") or
                        (request.client.host if request.client else "unknown"))

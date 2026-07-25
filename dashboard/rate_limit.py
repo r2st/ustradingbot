@@ -45,8 +45,10 @@ log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 _lock = threading.Lock()
 # bucket name -> {client_key -> deque[timestamps]}
 _hits: Dict[str, Dict[str, Deque[float]]] = defaultdict(lambda: defaultdict(deque))
-# client_key -> (failure_count, first_failure_ts, locked_until_ts)
-_failures: Dict[str, Tuple[int, float, float]] = {}
+# client_key -> (failure_count, first_failure_ts, locked_until_ts, lockout_rounds)
+# ``lockout_rounds`` counts consecutive lockouts and drives the escalating
+# lockout length (see :func:`_lockout_seconds`).
+_failures: Dict[str, Tuple[int, float, float, int]] = {}
 
 # ---------------------------------------------------------------------------
 # Optional shared (Redis) backend — keeps caps correct across workers (B-4)
@@ -138,7 +140,7 @@ def reset() -> None:
         _failures.clear()
     if _redis is not None:
         try:
-            for pattern in ("rl:*", "rlf:*", "rll:*"):
+            for pattern in ("rl:*", "rlf:*", "rll:*", "rlr:*"):
                 keys = list(_redis.scan_iter(match=pattern))
                 if keys:
                     _redis.delete(*keys)
@@ -267,12 +269,46 @@ def rate_limit(
 # ---------------------------------------------------------------------------
 
 
+def _lockout_policy(settings: Any) -> Tuple[int, float, float]:
+    """Return ``(max_failures, base_lockout_s, cap_lockout_s)`` from settings."""
+    max_failures = int(settings.RATE_LIMIT_LOGIN_MAX_FAILURES)
+    cap = float(settings.RATE_LIMIT_LOGIN_LOCKOUT_MINUTES) * 60.0
+    base = float(getattr(settings, "RATE_LIMIT_LOGIN_LOCKOUT_SECONDS", 60) or 60)
+    return max_failures, min(base, cap) if cap > 0 else base, cap
+
+
+def _decay_window(cap: float) -> float:
+    """How long a client must stay quiet before its failure history is forgotten."""
+    return max(cap, 300.0) * 2.0
+
+
+def _lockout_seconds(rounds: int, base: float, cap: float) -> float:
+    """Escalating lockout length: *base*, 2×, 4×… capped at *cap*.
+
+    ``rounds`` is the number of consecutive lockouts this client has earned, so
+    the first offence costs ``base`` (a minute) and a client that keeps guessing
+    reaches the ceiling within a few rounds.
+    """
+    span = base * (2 ** max(0, rounds - 1))
+    return min(span, cap) if cap > 0 else span
+
+
 class LoginGuard:
     """Track failed auth attempts per client IP and enforce a timed lockout.
 
-    The failure budget and lockout duration come from settings
-    (``RATE_LIMIT_LOGIN_MAX_FAILURES`` / ``RATE_LIMIT_LOGIN_LOCKOUT_MINUTES``).
-    A successful auth clears the client's failure record.
+    The failure budget and lockout length come from settings
+    (``RATE_LIMIT_LOGIN_MAX_FAILURES`` / ``RATE_LIMIT_LOGIN_LOCKOUT_SECONDS`` /
+    ``RATE_LIMIT_LOGIN_LOCKOUT_MINUTES`` as the escalation ceiling).  A
+    successful auth clears the client's failure record.
+
+    Two properties keep the guard from trapping the legitimate operator:
+
+    * only *presented and wrong* credentials are recorded — the caller must not
+      report an anonymous request as a failure (see :func:`dashboard.auth.
+      require_auth`);
+    * attempts made *during* an active lockout are refused without extending it,
+      so a browser that keeps polling (or a user who keeps hitting refresh)
+      cannot push their own unlock time perpetually into the future.
     """
 
     @staticmethod
@@ -307,32 +343,45 @@ class LoginGuard:
 
     @classmethod
     def record_failure(cls, key: str) -> None:
-        """Record one failed auth for *key*, arming a lockout past the budget."""
+        """Record one *wrong-credential* auth for *key*, locking past the budget.
+
+        Callers must only reach here when credentials were actually presented
+        and rejected; an anonymous request is not a guess and must not spend
+        budget.  An attempt made while the client is already locked out is
+        ignored rather than restarting the clock.
+        """
         if not cls._enabled():
             return
-        settings = get_settings()
-        max_failures = int(settings.RATE_LIMIT_LOGIN_MAX_FAILURES)
-        lockout = float(settings.RATE_LIMIT_LOGIN_LOCKOUT_MINUTES) * 60.0
+        max_failures, base, cap = _lockout_policy(get_settings())
         if _redis is not None:
-            cls._redis_record_failure(key, max_failures, lockout)
+            cls._redis_record_failure(key, max_failures, base, cap)
             return
         now = time.monotonic()
         with _lock:
-            count, first, locked_until = _failures.get(key, (0, now, 0.0))
-            # A fresh window starts once a prior lockout has fully elapsed.
-            if locked_until and now >= locked_until:
-                count, first, locked_until = 0, now, 0.0
+            count, last, locked_until, rounds = _failures.get(key, (0, now, 0.0, 0))
+            if locked_until and now < locked_until:
+                return  # already locked — never extend an active lockout
+            if (now - last) > _decay_window(cap):
+                # Quiet for a full decay window: forget the count *and* the
+                # escalation ladder, so today's typo costs the short lockout
+                # rather than inheriting last month's.
+                count, rounds = 0, 0
+            elif locked_until:
+                # A prior lockout was served: fresh budget, ladder retained.
+                count = 0
             count += 1
+            locked_until = 0.0
             if count >= max_failures:
-                locked_until = now + lockout
-            _failures[key] = (count, first, locked_until)
+                rounds += 1
+                locked_until = now + _lockout_seconds(rounds, base, cap)
+            _failures[key] = (count, now, locked_until, rounds)
 
     @classmethod
     def record_success(cls, key: str) -> None:
         """Clear the failure record for *key* after a successful auth."""
         if _redis is not None:
             try:
-                _redis.delete(f"rlf:{key}", f"rll:{key}")
+                _redis.delete(f"rlf:{key}", f"rll:{key}", f"rlr:{key}")
             except Exception:  # noqa: BLE001 — fail open
                 log.warning("rate_limit.redis_success_failed", exc_info=True)
             return
@@ -353,17 +402,32 @@ class LoginGuard:
             return 0
 
     @staticmethod
-    def _redis_record_failure(key: str, max_failures: int, lockout: float) -> None:
-        """Increment the shared failure counter and arm a lockout past budget."""
+    def _redis_record_failure(
+        key: str, max_failures: int, base: float, cap: float
+    ) -> None:
+        """Increment the shared failure counter and arm a lockout past budget.
+
+        Mirrors the in-process policy: an attempt during an active lockout is
+        ignored (never extends it), and consecutive lockouts escalate via the
+        ``rlr:`` round counter, which expires on its own so a quiet client
+        decays back to the short first lockout.
+        """
         try:
+            if _redis.exists(f"rll:{key}"):
+                return  # already locked — never extend an active lockout
             cnt_key = f"rlf:{key}"
             count = int(_redis.incr(cnt_key))
             if count == 1:
                 # Track failures over a rolling window at least as long as the
                 # lockout so a slow trickle still accumulates toward the budget.
-                _redis.expire(cnt_key, int(lockout) + 60)
+                _redis.expire(cnt_key, int(_decay_window(cap)))
             if count >= max_failures:
+                rounds = int(_redis.incr(f"rlr:{key}"))
+                _redis.expire(f"rlr:{key}", int(cap + _decay_window(cap)))
+                lockout = _lockout_seconds(rounds, base, cap)
                 _redis.set(f"rll:{key}", "1", ex=int(lockout) + 1)
+                # Start the next budget clean once the lockout expires.
+                _redis.delete(cnt_key)
         except Exception:  # noqa: BLE001 — fail open
             log.warning("rate_limit.redis_record_failure_failed", exc_info=True)
 
