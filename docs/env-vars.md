@@ -2,7 +2,7 @@
 
 > Every configuration value read by the bot, grouped as in `config/settings.py`. All are optional unless noted — pydantic supplies the default shown. Set them in `.env` (project root) or as real environment variables (env vars win). See `.env.example` for a template.
 
-**Loading order:** environment variable → `.env` → loose `keys/` file (for `POLYGON_API_KEY`, `OPENROUTER_API_KEY`) → default. Unfilled `.env.example` placeholders (e.g. `your_key_here`) are treated as unset.
+**Loading order:** environment variable → `.env` → loose `keys/` file (for `POLYGON_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`) → default. Unfilled `.env.example` placeholders (e.g. `your_key_here`) are treated as unset.
 
 _212 variables across 50 groups._
 
@@ -90,6 +90,32 @@ _212 variables across 50 groups._
 | `AI_VETO_ENABLED` | `True` | No | Enable/disable the paid Tier-2 LLM call. When False, only the free Tier-1 earnings filter runs and everything else is a… |
 | `AI_CACHE_TTL_HOURS` | `4.0` | No | How long (hours) an AI verdict is cached per symbol+strategy. |
 | `AI_EARNINGS_BLACKOUT_DAYS` | `14` | No | Reject signals whose earnings fall within this many days (Tier-1 filter). |
+| `AI_FAIL_OPEN_ON_PROVIDER_ERROR` | `True` | No | When every provider is unavailable (all rate-limited / 5xx / timed out), skip the veto instead of rejecting. A 429 is n… |
+
+## LLM fallback providers (ai.llm_router)
+
+Every LLM consumer — the AI veto, trade reflection, and the dashboard's live
+commentary — goes through `ai/llm_router.py`, which tries **OpenRouter →
+Gemini → Groq** and stops at the first provider that answers. All three speak
+the OpenAI `/chat/completions` dialect, so they differ only in base URL, key
+and model name; a provider with no key is skipped rather than tried and failed.
+
+Keys load in the usual order (env → `.env` → loose `keys/gemini_api_key` /
+`keys/groq_api_key` file → default).
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `GEMINI_API_KEY` | `""` | No | Google AI Studio key for the first fallback. Empty = provider skipped. |
+| `GEMINI_BASE_URL` | `"https://generativelanguage.googleapis.com/v1beta/openai"` | No | Gemini's OpenAI-compatibility endpoint. |
+| `GEMINI_MODEL` | `"gemini-flash-latest"` | No | Use the `-latest` alias: `gemini-2.0-flash` has zero free-tier quota and 429s on the first call. |
+| `GROQ_API_KEY` | `""` | No | Groq key for the second fallback. Empty = provider skipped. |
+| `GROQ_BASE_URL` | `"https://api.groq.com/openai/v1"` | No | Groq base url |
+| `GROQ_MODEL` | `"llama-3.3-70b-versatile"` | No | Groq model |
+| `LLM_FALLBACK_ENABLED` | `True` | No | When False only OpenRouter is tried — the quickest way to isolate a misbehaving fallback. |
+| `LLM_BREAKER_THRESHOLD` | `3` | No | Consecutive failures before a provider is taken out of rotation. |
+| `LLM_BREAKER_COOLDOWN_SECONDS` | `300.0` | No | How long a tripped provider stays skipped. |
+| `LLM_DEFAULT_RETRY_AFTER_SECONDS` | `60.0` | No | Backoff used when a 429 carries no `Retry-After` header. |
+| `LLM_MAX_RETRY_AFTER_SECONDS` | `3600.0` | No | Upper clamp on a provider-supplied `Retry-After`, so nothing can park a feature indefinitely. |
 
 ## Memory & learning layer (F1 + F2)
 

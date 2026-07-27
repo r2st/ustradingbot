@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 
 import dashboard.app as dash
 from config.settings import Settings
+from ai import llm_router
 from dashboard import ai_commentary as ac
 from dashboard.ai_commentary import (
     CommentaryEngine,
@@ -362,7 +363,7 @@ def test_refresh_uses_llm_prose_when_available(settings: Settings,
         return responses["positions"] if "open position" in prompt \
             else responses["summary"]
 
-    monkeypatch.setattr(engine, "_call_openrouter", fake_call)
+    monkeypatch.setattr(engine, "_call_llm", fake_call)
     payload = asyncio.run(engine.refresh(force=True))
 
     assert payload["positions"][0]["source"] == "llm"
@@ -390,7 +391,7 @@ def test_refresh_budget_exhausted_skips_llm(settings: Settings,
         called.append(prompt)
         return '{"summary": "x"}'
 
-    monkeypatch.setattr(engine, "_call_openrouter", fake_call)
+    monkeypatch.setattr(engine, "_call_llm", fake_call)
     payload = asyncio.run(engine.refresh(force=True))
     assert called == []
     assert payload["market"]["source"] == "template"
@@ -416,7 +417,7 @@ def test_malformed_llm_response_falls_back(settings: Settings,
     async def bad_call(prompt: str):
         return "I am not JSON at all"
 
-    monkeypatch.setattr(engine, "_call_openrouter", bad_call)
+    monkeypatch.setattr(engine, "_call_llm", bad_call)
     payload = asyncio.run(engine.refresh(force=True))
     assert payload["positions"][0]["source"] == "template"
     assert payload["market"]["source"] == "template"
@@ -517,7 +518,7 @@ def test_401_sets_auth_failed_and_skips_further_calls(settings: Settings,
                         OPENROUTER_API_KEY="bad-key")
     engine = _engine(settings)
     _Fake401Client.calls = 0
-    monkeypatch.setattr(ac.httpx, "AsyncClient", _Fake401Client)
+    monkeypatch.setattr(llm_router.httpx, "AsyncClient", _Fake401Client)
 
     positions = [{"symbol": "NVDA", "strategy": "momentum",
                   "entry_price": 100.0, "stop_price": 95.0,
@@ -554,7 +555,7 @@ def test_401_degraded_state_is_plain_language(settings: Settings,
     settings = Settings(DATA_DIR=settings.DATA_DIR,
                         OPENROUTER_API_KEY="bad-key")
     engine = _engine(settings)
-    monkeypatch.setattr(ac.httpx, "AsyncClient", _Fake401Client)
+    monkeypatch.setattr(llm_router.httpx, "AsyncClient", _Fake401Client)
     monkeypatch.setattr(ac, "build_position_facts", lambda s: [])
     monkeypatch.setattr(ac, "build_watchlist_facts", lambda s: [])
     monkeypatch.setattr(

@@ -10,6 +10,25 @@ Production-readiness audit remediation (P1–P3 items).
 
 ### Added
 
+- **LLM provider fallback chain** (`ai/llm_router.py`): every LLM consumer —
+  the AI veto, trade reflection, and the dashboard's live commentary — now goes
+  through one chain that tries **OpenRouter → Gemini → Groq** and stops at the
+  first provider that answers. All three speak the OpenAI `/chat/completions`
+  dialect, so they differ only in base URL, key and model; a provider with no
+  key is skipped rather than tried and failed. Failures are classified as
+  *transient* (429 / 5xx / timeout / connection error) or *permanent* (401/403,
+  400/404, empty or unparseable output) — the distinction the veto keys its
+  fail-open/fail-closed decision off. A per-provider circuit breaker
+  (`LLM_BREAKER_THRESHOLD` consecutive failures → skipped for
+  `LLM_BREAKER_COOLDOWN_SECONDS`) keeps a dead upstream from costing a full
+  timeout on every call, and a tripped breaker preserves the classification
+  that opened it, so a persistently rejected key can never start looking like a
+  rate limit. New settings: `GEMINI_API_KEY` / `GEMINI_BASE_URL` /
+  `GEMINI_MODEL` (default `gemini-flash-latest` — `gemini-2.0-flash` has zero
+  free-tier quota), `GROQ_API_KEY` / `GROQ_BASE_URL` / `GROQ_MODEL`,
+  `LLM_FALLBACK_ENABLED`, and the breaker / `Retry-After` knobs. The fallback
+  keys load from loose `keys/gemini_api_key` and `keys/groq_api_key` files on
+  the same terms as the OpenRouter key.
 - **MAE / MFE excursion analytics** (`analytics/excursion.py`): per-trade
   Maximum Adverse / Favourable Excursion is captured intraday for every open
   position (longs, shorts, and manual), persisted on the position and journaled
@@ -58,6 +77,28 @@ Production-readiness audit remediation (P1–P3 items).
 
 ### Fixed
 
+- **A rate limit no longer vetoes every trade**: the AI veto treated *any*
+  Tier-2 exception as grounds to fail closed, so one 429 from OpenRouter's free
+  tier rejected every candidate for the rest of the scan — the bot stopped
+  trading because a rate limiter said "later", not because anything was wrong
+  with the trades. The veto now distinguishes provider trouble from a verdict:
+  when every provider is merely unavailable (all rate-limited, 5xx, or timed
+  out) it *skips itself* (`tier="skipped"`, logged as a warning) and lets the
+  technical and risk gates that already cleared the signal stand. The skip is
+  never cached, so the next scan re-asks. Everything else — a rejected key, a
+  bad request, empty or unparseable output, no provider configured — still
+  fails closed, and a real `REJECT` from the model is honoured exactly as
+  before. `AI_FAIL_OPEN_ON_PROVIDER_ERROR=False` restores the old behaviour.
+- **429 backoff on the commentary path**: the Analyst page issues up to three
+  LLM calls per refresh, and with no backoff a throttled provider was asked the
+  same doomed question three times per refresh and again every interval,
+  spending the daily call budget on requests that could only 429. It now parses
+  the `Retry-After` header (both the seconds and HTTP-date forms, clamped to
+  `LLM_MAX_RETRY_AFTER_SECONDS`), arms a backoff for that long, and skips the
+  remaining panels without spending budget. The page renders template prose
+  throughout and shows a plain-language "paused, resumes in ~Ns" state; a
+  successful call clears the backoff. Rate limits and skipped calls are counted
+  separately in `ustb_ai_llm_calls_total`.
 - **Expired sessions no longer lock you out of your own dashboard**: the login
   guard counted a request carrying *no* credentials as a failed attempt, so the
   burst of anonymous polls a stale page fires spent the whole 5-attempt budget

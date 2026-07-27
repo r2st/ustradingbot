@@ -86,6 +86,22 @@ def _reset_rate_limits() -> None:
         pass
 
 
+@pytest.fixture(autouse=True)
+def _reset_llm_breaker() -> None:
+    """Clear the LLM router's circuit-breaker state before every test.
+
+    The breaker is a process-wide singleton, so three failing provider calls in
+    one test would otherwise open the circuit for the next one and silently
+    turn its LLM call into a "skipped, circuit open" result.
+    """
+    try:
+        from ai.llm_router import breaker
+
+        breaker.reset()
+    except Exception:  # pragma: no cover - ai package optional in some suites
+        pass
+
+
 # ---------------------------------------------------------------------------
 # Temporary data directory
 # ---------------------------------------------------------------------------

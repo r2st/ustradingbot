@@ -1,20 +1,25 @@
 """
-Shared OpenRouter chat helper.
+Shared chat helper (routed through the multi-provider LLM chain).
 
-A thin async wrapper around the OpenRouter chat-completions endpoint used by
-the memory layer (F1 reflection).  The AI veto layer (:mod:`ai.analyst`) keeps
-its own bespoke call for backward compatibility; this helper exists so new
-callers don't duplicate the httpx/headers/usage boilerplate.
+A thin async wrapper used by the memory layer (F1 reflection).  It keeps its
+original ``(content, usage)`` signature so existing callers are untouched, but
+the request itself now goes through :mod:`ai.llm_router`, which tries
+OpenRouter first and falls back to Gemini and then Groq when a provider is
+rate-limited, erroring, or timing out.
 
-The OpenRouter API key is read from ``settings.OPENROUTER_API_KEY`` (sourced
-from the ``OPENROUTER_API_KEY`` environment variable); it is never hard-coded.
+The name is historical: this module predates the fallback chain.  Callers that
+need to know *which* provider answered (or need the transient/auth
+classification on failure) should use :func:`ai.llm_router.complete` directly.
+
+API keys are read from settings (``OPENROUTER_API_KEY``, ``GEMINI_API_KEY``,
+``GROQ_API_KEY``); they are never hard-coded.
 """
 
 from __future__ import annotations
 
 from typing import Any, Dict, Optional, Tuple
 
-import httpx
+from ai.llm_router import complete
 
 
 async def chat(
@@ -27,16 +32,17 @@ async def chat(
     max_tokens: int = 400,
     timeout: Optional[float] = None,
 ) -> Tuple[str, Dict[str, Any]]:
-    """Call OpenRouter chat-completions and return ``(content, usage)``.
+    """Run a chat completion through the provider chain; return ``(content, usage)``.
 
     Args:
-        settings: Application settings (API key, base URL, timeout).
-        model: OpenRouter model id (e.g. ``"openai/gpt-oss-20b:free"``).
+        settings: Application settings (API keys, base URLs, models, timeout).
+        model: Preferred OpenRouter model id (e.g. ``"openai/gpt-oss-20b:free"``).
+            Fallback providers use their own configured model.
         system: System prompt.
         user: User prompt.
         temperature: Sampling temperature (default deterministic 0.0).
         max_tokens: Completion token cap.
-        timeout: Per-call timeout in seconds; defaults to
+        timeout: Per-provider timeout in seconds; defaults to
             ``settings.OPENROUTER_TIMEOUT_SECONDS``.
 
     Returns:
@@ -44,41 +50,18 @@ async def chat(
         (empty dict when the provider omits usage).
 
     Raises:
-        RuntimeError: If ``OPENROUTER_API_KEY`` is not configured.
-        httpx.HTTPError: On network/HTTP failure (callers fail-open).
+        ai.llm_router.AllProvidersFailed: When no provider is configured or
+            every provider failed (callers fail open).
     """
-    if not settings.OPENROUTER_API_KEY:
-        raise RuntimeError("OPENROUTER_API_KEY not configured")
-
-    payload: Dict[str, Any] = {
-        "model": model,
-        "messages": [
+    completion = await complete(
+        settings,
+        [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
-        "temperature": temperature,
-        "max_tokens": max_tokens,
-    }
-    headers = {
-        "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://github.com/r2st/USTradingBot",
-        "X-Title": "USTradingBot",
-    }
-
-    async with httpx.AsyncClient(
-        timeout=timeout or settings.OPENROUTER_TIMEOUT_SECONDS
-    ) as client:
-        resp = await client.post(
-            f"{settings.OPENROUTER_BASE_URL}/chat/completions",
-            json=payload,
-            headers=headers,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-
-    content = (
-        data.get("choices", [{}])[0].get("message", {}).get("content", "")
-    ) or ""
-    usage = data.get("usage", {}) or {}
-    return content, usage
+        model=model,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        timeout=timeout,
+    )
+    return completion.text, completion.usage

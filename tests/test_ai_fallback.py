@@ -51,7 +51,7 @@ async def test_network_error_fails_closed(monkeypatch):
     async def boom(_signal):
         raise httpx.ConnectError("connection refused")
 
-    monkeypatch.setattr(analyst, "_call_openrouter", boom)
+    monkeypatch.setattr(analyst, "_call_llm", boom)
     decision = await analyst.evaluate(_signal())
     assert decision.decision == REJECT
     assert decision.tier == "error"
@@ -65,7 +65,7 @@ async def test_timeout_fails_closed(monkeypatch):
     async def slow(_signal):
         raise httpx.ReadTimeout("timed out")
 
-    monkeypatch.setattr(analyst, "_call_openrouter", slow)
+    monkeypatch.setattr(analyst, "_call_llm", slow)
     decision = await analyst.evaluate(_signal())
     assert decision.decision == REJECT
     assert "fail" in decision.reasoning.lower()
@@ -84,7 +84,7 @@ async def test_veto_disabled_approves_without_calling_llm(monkeypatch):
     async def must_not_call(_signal):
         raise AssertionError("LLM must not be called when veto is disabled")
 
-    monkeypatch.setattr(analyst, "_call_openrouter", must_not_call)
+    monkeypatch.setattr(analyst, "_call_llm", must_not_call)
     decision = await analyst.evaluate(_signal())
     assert decision.decision == APPROVE
 

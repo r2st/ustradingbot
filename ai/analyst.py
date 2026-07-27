@@ -15,20 +15,33 @@ within ``AI_EARNINGS_BLACKOUT_DAYS`` (default 14) the signal is rejected
 immediately -- no tokens spent.  PEAD signals skip this filter (they are, by
 definition, post-earnings plays).
 
-**Tier 2 -- LLM news veto (OpenRouter).**  The analyst sends a strategy-aware
-prompt to an OpenRouter chat model (default ``openai/gpt-oss-20b:free``) and
-parses a strict JSON verdict.  Results are cached per ``symbol+strategy`` for
+**Tier 2 -- LLM news veto.**  The analyst sends a strategy-aware prompt through
+:mod:`ai.llm_router` (OpenRouter, falling back to Gemini then Groq) and parses
+a strict JSON verdict.  Results are cached per ``symbol+strategy`` for
 ``AI_CACHE_TTL_HOURS`` so repeat scans of the same stock are free.
 
-Fail-closed
------------
-Per the system invariants, the AI layer **defaults to REJECT** on any error
-(missing key, timeout, empty response, invalid JSON).  It never defaults to
-APPROVE.  The one exception is when ``AI_VETO_ENABLED`` is ``False``: the
-Tier-2 call is skipped entirely and signals that clear Tier 1 are approved.
+Fail-closed, with one carve-out for provider trouble
+----------------------------------------------------
+Per the system invariants, the AI layer **defaults to REJECT** on any error it
+can attribute to the *answer*: a missing key, an empty response, invalid JSON,
+a 400/404, or a model that simply won't produce a verdict.  It never defaults
+to APPROVE on those.
 
-The OpenRouter API key is read from the ``OPENROUTER_API_KEY`` environment
-variable via :class:`config.settings.Settings`; it is never hard-coded.
+It does **not** fail closed when every provider is merely unavailable -- all of
+them rate-limited (429), 5xx, or timed out.  A rate limit is not a risk
+verdict, and treating it as one silently halted trading for the rest of a scan
+whenever OpenRouter's free tier throttled us.  In that case the veto *skips
+itself* (``tier="skipped"``), logs a warning, and lets the signal through on
+the strength of the technical scoring and risk checks that already cleared it.
+The skip is never cached, so the next scan re-asks.  Set
+``AI_FAIL_OPEN_ON_PROVIDER_ERROR=False`` to restore the old fail-closed-on-
+everything behaviour.
+
+The two other exits: when ``AI_VETO_ENABLED`` is ``False`` the Tier-2 call is
+skipped entirely and signals that clear Tier 1 are approved.
+
+Provider API keys are read from the environment / ``keys/`` files via
+:class:`config.settings.Settings`; they are never hard-coded.
 """
 
 from __future__ import annotations
@@ -37,9 +50,9 @@ import json
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
-import httpx
 import structlog
 
+from ai.llm_router import AllProvidersFailed, complete, configured_providers
 from config.settings import Settings
 from data.earnings import is_earnings_within_days
 from signals.signal_types import Signal
@@ -51,6 +64,11 @@ from ai.cache import AICache
 APPROVE = "APPROVE"
 REJECT = "REJECT"
 
+# Tier label for "the providers were all unavailable, so no veto was applied".
+# Distinct from ``"disabled"`` (operator turned the veto off) and ``"error"``
+# (the veto ran and failed closed) so the journal can tell them apart.
+TIER_SKIPPED = "skipped"
+
 
 @dataclass
 class AIDecision:
@@ -61,13 +79,15 @@ class AIDecision:
         reasoning: Human-readable justification.
         cost_usd: Estimated API cost in USD (0.0 for free models / cache hits).
         tier: Which tier produced the verdict (``"tier1"``, ``"tier2"``,
-            ``"cache"``, ``"disabled"``, or ``"error"``).
+            ``"cache"``, ``"disabled"``, ``"skipped"``, or ``"error"``).
+        provider: Which LLM provider served the verdict, when one did.
     """
 
     decision: str
     reasoning: str
     cost_usd: float = 0.0
     tier: str = "tier2"
+    provider: str = ""
 
     @property
     def approved(self) -> bool:
@@ -208,6 +228,13 @@ class AIAnalyst:
         """Cumulative AI spend this process (excludes cache hits)."""
         return round(self._total_cost_usd, 6)
 
+    @property
+    def _fail_open_enabled(self) -> bool:
+        """Whether an all-providers-unavailable chain skips the veto."""
+        return bool(
+            getattr(self._settings, "AI_FAIL_OPEN_ON_PROVIDER_ERROR", True)
+        )
+
     # ------------------------------------------------------------- evaluate
 
     async def evaluate(self, signal: Signal) -> AIDecision:
@@ -256,19 +283,46 @@ class AIAnalyst:
                 APPROVE, "AI veto disabled -- auto-approved.", 0.0, tier="disabled"
             )
 
-        # ── Tier 2: OpenRouter LLM call ───────────────────────────────────
-        if not self._settings.OPENROUTER_API_KEY:
+        # ── Tier 2: LLM call via the provider chain ───────────────────────
+        providers = configured_providers(self._settings)
+        if not providers:
             bound.error("ai.no_api_key")
             return AIDecision(
                 REJECT,
-                "OPENROUTER_API_KEY not configured -- failing closed.",
+                "No LLM provider configured (OPENROUTER_API_KEY / "
+                "GEMINI_API_KEY / GROQ_API_KEY) -- failing closed.",
                 0.0,
                 tier="error",
             )
 
         try:
-            decision = await self._call_openrouter(signal)
-        except Exception as exc:  # noqa: BLE001 -- fail closed on anything
+            decision = await self._call_llm(signal)
+        except AllProvidersFailed as exc:
+            # Provider trouble is not a risk verdict.  When *every* provider
+            # was merely unavailable (429 / 5xx / timeout), skip the veto and
+            # let the technical + risk gates stand; anything else (rejected
+            # key, bad request, unusable output) still fails closed.
+            if exc.transient and self._fail_open_enabled:
+                bound.warning(
+                    "ai.veto_skipped_provider_unavailable",
+                    error=str(exc),
+                    retry_after=exc.retry_after,
+                    providers=providers,
+                )
+                return AIDecision(
+                    APPROVE,
+                    "AI providers temporarily unavailable (rate limit / "
+                    "timeout) -- veto skipped, technical and risk gates "
+                    "still applied.",
+                    0.0,
+                    tier=TIER_SKIPPED,
+                )
+            bound.warning("ai.tier2_error", error=str(exc), auth=exc.auth_failed)
+            return AIDecision(
+                REJECT, f"AI call failed ({exc}) -- failing closed.", 0.0,
+                tier="error",
+            )
+        except Exception as exc:  # noqa: BLE001 -- fail closed on anything else
             bound.warning("ai.tier2_error", error=str(exc))
             return AIDecision(
                 REJECT, f"AI call failed ({exc}) -- failing closed.", 0.0,
@@ -282,54 +336,52 @@ class AIAnalyst:
             "ai.tier2_decision",
             decision=decision.decision,
             cost_usd=decision.cost_usd,
+            provider=decision.provider,
         )
         return decision
 
-    # ------------------------------------------------------- openrouter call
+    # ------------------------------------------------------------- LLM call
 
-    async def _call_openrouter(self, signal: Signal) -> AIDecision:
-        """Make the OpenRouter chat-completions call and parse the verdict."""
-        payload: Dict[str, Any] = {
-            "model": self._settings.OPENROUTER_MODEL,
-            "messages": [
+    async def _call_llm(self, signal: Signal) -> AIDecision:
+        """Run the veto prompt through the provider chain and parse the verdict.
+
+        Raises:
+            AllProvidersFailed: When no provider produced usable output; the
+                caller decides whether that fails open or closed.
+        """
+        completion = await complete(
+            self._settings,
+            [
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user", "content": _build_user_prompt(signal)},
             ],
-            "temperature": 0.0,
-            "max_tokens": 300,
-        }
-        headers = {
-            "Authorization": f"Bearer {self._settings.OPENROUTER_API_KEY}",
-            "Content-Type": "application/json",
-            # Optional attribution headers recommended by OpenRouter.
-            "HTTP-Referer": "https://github.com/r2st/USTradingBot",
-            "X-Title": "USTradingBot",
-        }
-
-        async with httpx.AsyncClient(
-            timeout=self._settings.OPENROUTER_TIMEOUT_SECONDS
-        ) as client:
-            resp = await client.post(
-                f"{self._settings.OPENROUTER_BASE_URL}/chat/completions",
-                json=payload,
-                headers=headers,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-
-        content = (
-            data.get("choices", [{}])[0].get("message", {}).get("content", "")
-        ) or ""
-        usage = data.get("usage", {}) or {}
+            model=self._settings.OPENROUTER_MODEL,
+            temperature=0.0,
+            max_tokens=300,
+        )
+        usage = completion.usage or {}
         cost = self._estimate_cost(
-            usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0)
+            usage.get("prompt_tokens", 0),
+            usage.get("completion_tokens", 0),
+            provider=completion.provider,
         )
 
-        decision, reasoning = _parse_verdict(content)
-        return AIDecision(decision, reasoning, cost, tier="tier2")
+        decision, reasoning = _parse_verdict(completion.text)
+        return AIDecision(
+            decision, reasoning, cost, tier="tier2", provider=completion.provider
+        )
 
-    def _estimate_cost(self, prompt_tokens: int, completion_tokens: int) -> float:
-        """Estimate USD cost from token usage (0.0 for free models)."""
+    def _estimate_cost(
+        self, prompt_tokens: int, completion_tokens: int, *, provider: str = "openrouter"
+    ) -> float:
+        """Estimate USD cost from token usage (0.0 for free models).
+
+        Only OpenRouter has configured per-token pricing; the Gemini and Groq
+        fallbacks are used on their free tiers, so a completion they served
+        costs nothing to report.
+        """
+        if provider != "openrouter":
+            return 0.0
         return round(
             prompt_tokens / 1_000_000 * self._settings.OPENROUTER_INPUT_COST_PER_1M
             + completion_tokens

@@ -769,6 +769,8 @@ WantedBy=multi-user.target
 |--------|---------|--------|
 | IBKR account credentials | TWS/Gateway login (not in code) | Manual login or IB Gateway auto-login |
 | OpenRouter API key | `.env` or `keys/` file (never committed) | `OPENROUTER_API_KEY` env var |
+| Gemini API key (LLM fallback) | `.env` or `keys/gemini_api_key` (never committed) | `GEMINI_API_KEY` env var |
+| Groq API key (LLM fallback) | `.env` or `keys/groq_api_key` (never committed) | `GROQ_API_KEY` env var |
 | Telegram bot token | `.env` file (never committed) | `TELEGRAM_BOT_TOKEN` env var |
 | Telegram chat ID | `.env` file | `TELEGRAM_CHAT_ID` env var |
 | IBKR account ID | `config/settings.py` | Explicit in code (non-secret, needed for Error 435 prevention) |
@@ -860,6 +862,7 @@ us_trading_bot/
 │       #     signal ranking is inline in engine.py (no separate comparator).
 │
 ├── ai/
+│   ├── llm_router.py           # Provider chain: OpenRouter → Gemini → Groq
 │   ├── analyst.py              # AI news veto — fail-closed (strategy-aware)
 │   ├── cache.py                # TTL cache per symbol+strategy
 │   ├── openrouter.py           # Thin OpenRouter chat client

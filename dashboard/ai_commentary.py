@@ -3,9 +3,9 @@ AI commentary engine for the Analyst dashboard (feature TA2).
 
 Generates a "live analyst" payload covering three panels — open positions,
 watchlist setups, and market overview — refreshed every few minutes during
-market hours.  Deliberately parallel to :mod:`ai.analyst` (same OpenRouter
-call shape, tolerant JSON parsing) but a separate module: the veto path must
-stay untouched.
+market hours.  Deliberately parallel to :mod:`ai.analyst` (same provider chain
+via :mod:`ai.llm_router`, tolerant JSON parsing) but a separate module: the
+veto path must stay untouched.
 
 Design principle — **the numbers never come from the model.**  Every fact
 (prices, indicator readings, distances, R-multiples, gate results, scores) is
@@ -19,6 +19,10 @@ layer influences no order):
 
 * missing key / HTTP error / timeout / parse failure / budget exhaustion
   -> template commentary from the same facts, ``source: "template"``.
+
+When *every* provider in the chain is rate-limited or down, the engine arms a
+``Retry-After``-derived backoff instead of re-issuing the same doomed request
+once per panel per refresh: the daily budget is for calls that can succeed.
 
 Refresh model: request-driven.  ``get_payload()`` serves the cached payload
 (``DATA_DIR/ai_commentary.json``) immediately and, when it is older than
@@ -41,20 +45,24 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
-import httpx
 import structlog
+
+from ai.llm_router import AllProvidersFailed, complete, configured_providers
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 
 def _count_llm_call(result: str) -> None:
-    """Record one OpenRouter call outcome into the metrics registry (B-3)."""
+    """Record one LLM call outcome into the metrics registry (B-3)."""
     try:
         from dashboard import metrics
 
         metrics.inc(
             "ustb_ai_llm_calls_total", labels={"result": result},
-            help_text="OpenRouter LLM calls by outcome (ok/http_error/error).",
+            help_text=(
+                "LLM calls by outcome "
+                "(ok/http_error/rate_limited/rate_limited_skip/error)."
+            ),
         )
     except Exception:  # noqa: BLE001 — telemetry must never break commentary
         pass
@@ -763,6 +771,10 @@ class CommentaryEngine:
         # one succeeds) would fail identically — skip them instead of burning
         # the daily budget.
         self._auth_failed: bool = False
+        # Rate-limit backoff: when every provider is throttled or down, honour
+        # the Retry-After they sent (or a default) instead of hammering them
+        # once per panel per refresh.  Monotonic deadline; 0.0 == not backed off.
+        self._llm_backoff_until: float = 0.0
         self._last_run_at: Optional[str] = None
         self._payload: Optional[Dict[str, Any]] = self._load()
         # Input-hash short-circuit state: {section: (facts_hash, prose)}
@@ -815,6 +827,31 @@ class CommentaryEngine:
         b = self._budget()
         return b["used"] >= b["max"]
 
+    # ------------------------------------------------------- rate-limit state
+
+    def backoff_remaining(self) -> float:
+        """Seconds left on the provider rate-limit backoff (0.0 when clear)."""
+        return max(0.0, self._llm_backoff_until - time.monotonic())
+
+    def rate_limited(self) -> bool:
+        """Whether every provider is currently in rate-limit backoff."""
+        return self.backoff_remaining() > 0.0
+
+    def _start_backoff(self, retry_after: Optional[float]) -> float:
+        """Begin (or extend) the provider backoff; return the delay applied."""
+        default = float(
+            getattr(self._settings, "LLM_DEFAULT_RETRY_AFTER_SECONDS", 60.0)
+        )
+        cap = float(getattr(self._settings, "LLM_MAX_RETRY_AFTER_SECONDS", 3600.0))
+        delay = default if retry_after is None else float(retry_after)
+        # A provider that answers "retry in 0s" is still throttling us; hold the
+        # default rather than spinning.
+        delay = min(max(delay, 1.0), cap)
+        self._llm_backoff_until = max(
+            self._llm_backoff_until, time.monotonic() + delay
+        )
+        return delay
+
     # ---------------------------------------------------------------- status
 
     def status(self) -> Dict[str, Any]:
@@ -828,6 +865,8 @@ class CommentaryEngine:
             or (self._payload or {}).get("generated_at"),
             "last_error": self._last_error,
             "auth_failed": self._auth_failed,
+            "rate_limited": self.rate_limited(),
+            "retry_after_seconds": self.backoff_remaining(),
             "ai_state": self.ai_state(),
             "budget": self._budget(),
             "has_payload": self._payload is not None,
@@ -887,13 +926,23 @@ class CommentaryEngine:
                 "message": "AI narration is turned off — showing the "
                            "bot's rule-based analysis.",
             }
-        if not settings.OPENROUTER_API_KEY:
+        if not configured_providers(settings):
             return {
                 "state": "degraded",
                 "message": "AI narration is not set up (no API key "
                            "configured) — showing the bot's rule-based "
                            "analysis. All numbers are computed locally and "
                            "remain accurate.",
+            }
+        if self.rate_limited():
+            return {
+                "state": "degraded",
+                "message": "AI narration is paused — every AI provider is "
+                           "rate-limited right now. Showing the bot's "
+                           "rule-based analysis; narration resumes "
+                           f"automatically in about {int(self.backoff_remaining())}s. "
+                           "All numbers are computed locally and remain "
+                           "accurate.",
             }
         if self._auth_failed:
             return {
@@ -991,7 +1040,7 @@ class CommentaryEngine:
         budget = self._budget()
         llm_ok = (
             bool(settings.AI_COMMENTARY_ENABLED)
-            and bool(settings.OPENROUTER_API_KEY)
+            and bool(configured_providers(settings))
             and budget["used"] < budget["max"]
         )
 
@@ -1048,7 +1097,7 @@ class CommentaryEngine:
         )
 
         ai_expected = bool(settings.AI_COMMENTARY_ENABLED) and bool(
-            settings.OPENROUTER_API_KEY
+            configured_providers(settings)
         )
         for row in positions:
             degraded = ai_expected and row.get("source") != "llm"
@@ -1104,7 +1153,7 @@ class CommentaryEngine:
                 return reused
         if not llm_ok or self.budget_exhausted() or self._auth_failed:
             return {}
-        content = await self._call_openrouter(prompt)
+        content = await self._call_llm(prompt)
         if content is None:
             return {}
         obj = parse_llm_json(content)
@@ -1139,7 +1188,7 @@ class CommentaryEngine:
             log.info("commentary.hash_skip", section="market")
             return prev_market["summary"], "llm"
         if llm_ok and not self.budget_exhausted() and not self._auth_failed:
-            content = await self._call_openrouter(prompt)
+            content = await self._call_llm(prompt)
             obj = parse_llm_json(content) if content else None
             summary = str((obj or {}).get("summary", "")).strip()
             if summary:
@@ -1147,59 +1196,85 @@ class CommentaryEngine:
                 return summary, "llm"
         return template_market_summary(market), "template"
 
-    async def _call_openrouter(self, user_prompt: str) -> Optional[str]:
-        """Single OpenRouter chat call; counts against the daily budget even
-        on failure (a failed request still hit the free-tier cap)."""
+    async def _call_llm(self, user_prompt: str) -> Optional[str]:
+        """Single chat call through the provider chain (OpenRouter → Gemini →
+        Groq); counts against the daily budget even on failure (a failed
+        request still hit the free-tier cap).
+
+        Returns ``None`` on any failure — the caller renders template prose.
+        When every provider is rate-limited or down, a backoff is armed so the
+        remaining panels this refresh (and subsequent refreshes until the
+        deadline) skip the call entirely instead of re-spending the budget on
+        requests that are already known to 429.
+        """
+        if self.rate_limited():
+            # Already throttled: no request, no budget spend.
+            log.info(
+                "commentary.llm_backoff_skip",
+                seconds_remaining=round(self.backoff_remaining(), 1),
+            )
+            _count_llm_call("rate_limited_skip")
+            return None
+
         settings = self._settings
         self._bump_budget()
-        payload = {
-            "model": settings.AI_COMMENTARY_MODEL,
-            "messages": [
-                {"role": "system", "content": _COMMENTATOR_SYSTEM},
-                {"role": "user", "content": user_prompt},
-            ],
-            "temperature": 0.3,
-            "max_tokens": 1200,
-        }
-        headers = {
-            "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/r2st/USTradingBot",
-            "X-Title": "USTradingBot",
-        }
         try:
-            async with httpx.AsyncClient(
-                timeout=settings.OPENROUTER_TIMEOUT_SECONDS
-            ) as client:
-                resp = await client.post(
-                    f"{settings.OPENROUTER_BASE_URL}/chat/completions",
-                    json=payload,
-                    headers=headers,
-                )
-                resp.raise_for_status()
-                data = resp.json()
-            self._auth_failed = False
-            _count_llm_call("ok")
-            return (
-                data.get("choices", [{}])[0].get("message", {}).get("content", "")
-            ) or None
-        except httpx.HTTPStatusError as exc:  # noqa: PERF203 -- fail-open
-            status = exc.response.status_code
-            _count_llm_call("http_error")
-            if status in (401, 403):
-                # A rejected key fails every call identically — flag it so
-                # the rest of this refresh skips the LLM instead of burning
-                # the daily budget, and the UI can show a plain-language
-                # degraded state (never the raw provider error).
+            completion = await complete(
+                settings,
+                [
+                    {"role": "system", "content": _COMMENTATOR_SYSTEM},
+                    {"role": "user", "content": user_prompt},
+                ],
+                model=settings.AI_COMMENTARY_MODEL,
+                temperature=0.3,
+                max_tokens=1200,
+            )
+        except AllProvidersFailed as exc:
+            if exc.auth_failed:
+                # A rejected key fails every call identically — flag it so the
+                # rest of this refresh skips the LLM instead of burning the
+                # daily budget, and the UI can show a plain-language degraded
+                # state (never the raw provider error).
                 self._auth_failed = True
-            self._last_error = f"OpenRouter call failed: HTTP {status}"
-            log.warning("commentary.llm_failed", status=status, error=str(exc))
+                _count_llm_call("http_error")
+                # Keep the status code out of the UI copy but inside
+                # ``last_error``, which is the operator/debug surface.
+                codes = sorted({e.status for e in exc.errors if e.auth and e.status})
+                detail = f" (HTTP {', '.join(str(c) for c in codes)})" if codes else ""
+                self._last_error = (
+                    f"AI call failed: the provider rejected the API key{detail}"
+                )
+            elif exc.transient:
+                delay = self._start_backoff(exc.retry_after)
+                _count_llm_call("rate_limited")
+                self._last_error = (
+                    "AI call failed: every provider is rate-limited or "
+                    f"unavailable; retrying in {int(delay)}s"
+                )
+                log.warning(
+                    "commentary.llm_rate_limited",
+                    retry_after=exc.retry_after,
+                    backoff_seconds=round(delay, 1),
+                    error=str(exc),
+                )
+                return None
+            else:
+                _count_llm_call("error")
+                self._last_error = f"AI call failed: {exc}"
+            log.warning("commentary.llm_failed", error=str(exc))
             return None
         except Exception as exc:  # noqa: BLE001 -- fail-open
             _count_llm_call("error")
-            self._last_error = f"OpenRouter call failed: {exc}"
+            self._last_error = f"AI call failed: {exc}"
             log.warning("commentary.llm_failed", error=str(exc))
             return None
+
+        self._auth_failed = False
+        self._llm_backoff_until = 0.0
+        _count_llm_call("ok")
+        if completion.provider != "openrouter":
+            log.info("commentary.llm_fallback_used", provider=completion.provider)
+        return completion.text or None
 
     def _bump_budget(self) -> None:
         """Increment the persisted daily call counter (rolls over at ET

@@ -147,6 +147,56 @@ def test_placeholder_file_ignored(monkeypatch, tmp_path) -> None:
     assert s.OPENROUTER_API_KEY == ""
 
 
+# --------------------------------------------------------------------------- #
+# Fallback-provider keys: same loose-file treatment as the OpenRouter key, so a
+# stale .env cannot shadow a working Gemini/Groq credential.
+# --------------------------------------------------------------------------- #
+
+
+def _with_files(monkeypatch, tmp_path: Path, **files: str) -> Path:
+    keys = tmp_path / "keys"
+    keys.mkdir(exist_ok=True)
+    for name, value in files.items():
+        (keys / name).write_text(value)
+    monkeypatch.setattr("config.settings._KEYS_DIR", keys)
+    monkeypatch.delenv("USTB_SKIP_KEY_FILES", raising=False)
+    for env in ("GEMINI_API_KEY", "GROQ_API_KEY"):
+        monkeypatch.delenv(env, raising=False)
+    return keys
+
+
+def test_gemini_and_groq_keys_loaded_from_files(monkeypatch, tmp_path) -> None:
+    _with_files(
+        monkeypatch,
+        tmp_path,
+        gemini_api_key="AQ.Ab8RN6-FROM-FILE\n",
+        groq_api_key="gsk_FROM_FILE\n",
+    )
+    s = Settings(DATA_DIR=tmp_path)
+    assert s.GEMINI_API_KEY == "AQ.Ab8RN6-FROM-FILE"
+    assert s.GROQ_API_KEY == "gsk_FROM_FILE"
+
+
+def test_fallback_key_env_beats_file(monkeypatch, tmp_path) -> None:
+    _with_files(monkeypatch, tmp_path, groq_api_key="gsk_FILE")
+    monkeypatch.setenv("GROQ_API_KEY", "gsk_ENV")
+    s = Settings(DATA_DIR=tmp_path)
+    assert s.GROQ_API_KEY == "gsk_ENV"
+
+
+def test_fallback_key_placeholder_is_scrubbed(monkeypatch, tmp_path) -> None:
+    _with_files(monkeypatch, tmp_path, gemini_api_key="your_gemini_key_here")
+    s = Settings(DATA_DIR=tmp_path)
+    assert s.GEMINI_API_KEY == ""
+
+
+def test_missing_fallback_key_files_leave_keys_empty(monkeypatch, tmp_path) -> None:
+    _with_files(monkeypatch, tmp_path)  # keys/ exists but is empty
+    s = Settings(DATA_DIR=tmp_path)
+    assert s.GEMINI_API_KEY == ""
+    assert s.GROQ_API_KEY == ""
+
+
 @pytest.mark.parametrize(
     "value,expected",
     [

@@ -37,6 +37,11 @@ _KEY_FILES: Dict[str, str] = {
     # ``.env`` that still carries the ``.env.example`` placeholder cannot send a
     # bogus key and 401 the Analyst page.
     "OPENROUTER_API_KEY": "openrouter-key",
+    # Fallback LLM providers for the router (:mod:`ai.llm_router`).  Same
+    # rationale as the OpenRouter key: loose files keep a stale ``.env`` from
+    # shadowing a working credential.
+    "GEMINI_API_KEY": "gemini_api_key",
+    "GROQ_API_KEY": "groq_api_key",
 }
 
 
@@ -197,6 +202,41 @@ class Settings(BaseSettings):
     AI_CACHE_TTL_HOURS: float = 4.0
     # Reject signals whose earnings fall within this many days (Tier-1 filter).
     AI_EARNINGS_BLACKOUT_DAYS: int = 14
+    # The AI veto fails CLOSED on anything that looks like an answer it can't
+    # trust (rejected key, bad request, empty/unparseable output).  It does not
+    # fail closed when every provider was merely unavailable -- all rate-limited
+    # (429), 5xx, or timed out -- because a rate limit is not a risk verdict and
+    # treating it as one halted trading for the rest of the scan.  Set this to
+    # False to restore fail-closed-on-everything.
+    AI_FAIL_OPEN_ON_PROVIDER_ERROR: bool = True
+
+    # ── LLM fallback providers (ai.llm_router) ──────────────────────────────
+    # Every LLM consumer (AI veto, trade reflection, dashboard commentary) goes
+    # through :mod:`ai.llm_router`, which tries OpenRouter first and then falls
+    # back to Gemini and Groq when a provider is rate-limited, erroring, or
+    # timing out.  All three speak the OpenAI ``/chat/completions`` dialect, so
+    # they differ only in base URL, key and model name.  A provider without a
+    # key is skipped rather than attempted-and-failed.
+    #
+    # Gemini's OpenAI-compatibility layer.  Use ``gemini-flash-latest``: the
+    # pinned ``gemini-2.0-flash`` id has zero free-tier quota and 429s on the
+    # first call.
+    GEMINI_API_KEY: str = ""
+    GEMINI_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta/openai"
+    GEMINI_MODEL: str = "gemini-flash-latest"
+    GROQ_API_KEY: str = ""
+    GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    # Master switch: when False only OpenRouter is tried (the pre-router
+    # behaviour), which is the quickest way to isolate a fallback misbehaving.
+    LLM_FALLBACK_ENABLED: bool = True
+    # Circuit breaker: after this many consecutive failures a provider is
+    # skipped for the cooldown rather than costing a full timeout per call.
+    LLM_BREAKER_THRESHOLD: int = 3
+    LLM_BREAKER_COOLDOWN_SECONDS: float = 300.0
+    # Fallback cap when a 429 carries no (or an implausible) Retry-After.
+    LLM_DEFAULT_RETRY_AFTER_SECONDS: float = 60.0
+    LLM_MAX_RETRY_AFTER_SECONDS: float = 3600.0
 
     # ── Memory & learning layer (F1 + F2) ───────────────────────────────────
     # The bot keeps a rich trade ledger (``trades.csv``).  These two features

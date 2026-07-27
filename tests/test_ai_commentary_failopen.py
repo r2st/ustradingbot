@@ -14,6 +14,7 @@ import asyncio
 import httpx
 import pytest
 
+from ai import llm_router
 from config.settings import Settings
 from dashboard import ai_commentary as ac
 from dashboard.ai_commentary import CommentaryEngine
@@ -39,21 +40,8 @@ def engine(settings: Settings, monkeypatch):
     return eng
 
 
-def _mock_openrouter_status(monkeypatch, status_code: int):
-    """Patch httpx.AsyncClient.post to raise an HTTPStatusError with *status*."""
-    class _Resp:
-        status_code = None
-
-        def __init__(self, code):
-            self.status_code = code
-            self.request = httpx.Request("POST", "https://openrouter.ai")
-
-        def raise_for_status(self):
-            raise httpx.HTTPStatusError(
-                f"HTTP {self.status_code}", request=self.request,
-                response=httpx.Response(self.status_code, request=self.request),
-            )
-
+def _mock_provider_status(monkeypatch, status_code: int, headers=None):
+    """Patch the router's httpx.AsyncClient to answer *status_code*."""
     class _Client:
         def __init__(self, *a, **k):
             pass
@@ -64,10 +52,15 @@ def _mock_openrouter_status(monkeypatch, status_code: int):
         async def __aexit__(self, *a):
             return False
 
-        async def post(self, *a, **k):
-            return _Resp(status_code)
+        async def post(self, url="https://openrouter.ai", *a, **k):
+            return httpx.Response(
+                status_code,
+                request=httpx.Request("POST", url),
+                headers=headers or {},
+                json={"error": {"message": "nope", "code": status_code}},
+            )
 
-    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+    monkeypatch.setattr(llm_router.httpx, "AsyncClient", _Client)
 
 
 @pytest.mark.parametrize("code", [401, 403])
@@ -75,7 +68,7 @@ def test_auth_error_degrades_to_template(engine, monkeypatch, code):
     from dashboard import metrics
 
     metrics.reset()
-    _mock_openrouter_status(monkeypatch, code)
+    _mock_provider_status(monkeypatch, code)
 
     payload = asyncio.run(engine.refresh(force=True))
 
@@ -106,7 +99,7 @@ def test_network_error_degrades_to_template(engine, monkeypatch):
         async def post(self, *a, **k):
             raise httpx.ConnectError("connection refused")
 
-    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+    monkeypatch.setattr(llm_router.httpx, "AsyncClient", _Client)
 
     payload = asyncio.run(engine.refresh(force=True))
     assert payload["positions"][0]["source"] == "template"
