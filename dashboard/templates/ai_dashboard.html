@@ -3,8 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#0f1117">
-<title>Analyst — US Trading Bot</title>
+<meta name="theme-color" content="#0A0A0B">
+<title>Analyst — DoAide Trade</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Schibsted+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <!-- Apply the saved theme before first paint (shared with the main page). -->
 <script>
   (function () {
@@ -16,41 +19,40 @@
 </script>
 <style>
   :root {
-    --bg: #0f1117;
-    --surface: #1a1d27;
-    --surface-2: #242836;
-    --border: #2e3344;
-    --text: #e4e6f0;
-    --text-muted: #8b8fa3;
-    --accent: #4f8ff7;
-    --accent-dim: #2d5aa0;
-    --green: #2ecc71;
-    --green-dim: #1a7a42;
-    --red: #e74c3c;
-    --orange: #f39c12;
-    --purple: #9b59b6;
-    --cyan: #00bcd4;
+    --bg: #0A0A0B;
+    --surface: #101012;
+    --surface-2: #1A1A1D;
+    --border: rgba(255, 255, 255, 0.07);
+    --text: #FFFFFF;
+    --text-muted: rgba(255, 255, 255, 0.45);
+    --accent: #F0B429;
+    --accent-dim: #D9A326;
+    --green: #22C55E;
+    --green-dim: #15803D;
+    --red: #EF4444;
+    --orange: #F0B429;
+    --purple: #A855F7;
+    --cyan: #06B6D4;
   }
   :root[data-theme="light"] {
-    --bg: #f4f6fb;
-    --surface: #ffffff;
-    --surface-2: #eef1f8;
-    --border: #d3d9e6;
-    --text: #1a1d27;
-    --text-muted: #5c6270;
-    --accent: #2d6cdf;
-    --accent-dim: #7ba7ec;
-    --green: #1a9e54;
-    --green-dim: #7fce9f;
-    --red: #d63b2a;
-    --orange: #d9840a;
-    --purple: #8845a6;
-    --cyan: #0093a8;
+    --bg: #FAFAF9;
+    --surface: #FFFFFF;
+    --surface-2: #F5F3EE;
+    --border: #E5E2DB;
+    --text: #0A0A0B;
+    --text-muted: #6B6860;
+    --accent: #C8930D;
+    --accent-dim: #E5AC1A;
+    --green: #1A9E54;
+    --green-dim: #7FCE9F;
+    --red: #D63B2A;
+    --orange: #C8930D;
+    --purple: #8845A6;
+    --cyan: #0093A8;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-                 "Helvetica Neue", Arial, sans-serif;
+    font-family: "Schibsted Grotesk", ui-sans-serif, system-ui, sans-serif;
     background: var(--bg);
     color: var(--text);
     line-height: 1.55;

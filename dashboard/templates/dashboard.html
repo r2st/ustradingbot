@@ -3,11 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#0F172A">
+<meta name="theme-color" content="#0A0A0B">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/pwa/icon.svg">
-<title>US Trading Bot Dashboard</title>
+<title>DoAide Trade Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Schibsted+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <!-- Apply the saved theme before first paint to avoid a flash of the wrong theme.
      With no stored preference, honour the OS `prefers-color-scheme` (F-5) so a
      light-mode user doesn't get a dark flash-and-stay on first visit. -->
@@ -31,47 +34,46 @@
   })();
 </script>
 <style>
-  /* ── Dark theme (default) — "Slate Navy" palette ──────────────────────
-     Background 0F172A→1E293B, cards 1E293B, text F8FAFC / 94A3B8,
-     vivid green/red for P&L. */
+  /* ── Dark theme (default) — "DoAide" palette ──────────────────────
+     Background 0A0A0B, cards 101012, amber/gold accent, P&L green/red. */
   :root {
-    --bg: #0F172A;
-    --bg-grad: linear-gradient(160deg, #0F172A 0%, #1E293B 100%);
-    --surface: #1E293B;
-    --surface-2: #334155;
-    --border: #334155;
-    --text: #F8FAFC;
-    --text-muted: #94A3B8;
-    --accent: #3B82F6;
-    --accent-dim: #1E40AF;
+    --bg: #0A0A0B;
+    --bg-grad: linear-gradient(160deg, #0A0A0B 0%, #111113 100%);
+    --surface: #101012;
+    --surface-2: #1A1A1D;
+    --border: rgba(255, 255, 255, 0.07);
+    --text: #FFFFFF;
+    --text-muted: rgba(255, 255, 255, 0.45);
+    --accent: #F0B429;
+    --accent-dim: #D9A326;
     --green: #22C55E;
     --green-dim: #15803D;
     --red: #EF4444;
-    --orange: #F59E0B;
+    --orange: #F0B429;
     --purple: #A855F7;
     --cyan: #06B6D4;
   }
   /* ── Light theme (feature 15) — toggled via data-theme="light" ── */
   :root[data-theme="light"] {
-    --bg: #f4f6fb;
-    --bg-grad: linear-gradient(160deg, #f4f6fb 0%, #e8edf7 100%);
-    --surface: #ffffff;
-    --surface-2: #eef1f8;
-    --border: #d3d9e6;
-    --text: #1a1d27;
-    --text-muted: #5c6270;
-    --accent: #2d6cdf;
-    --accent-dim: #7ba7ec;
-    --green: #1a9e54;
-    --green-dim: #7fce9f;
-    --red: #d63b2a;
-    --orange: #d9840a;
-    --purple: #8845a6;
-    --cyan: #0093a8;
+    --bg: #FAFAF9;
+    --bg-grad: linear-gradient(160deg, #FAFAF9 0%, #F0EDE8 100%);
+    --surface: #FFFFFF;
+    --surface-2: #F5F3EE;
+    --border: #E5E2DB;
+    --text: #0A0A0B;
+    --text-muted: #6B6860;
+    --accent: #C8930D;
+    --accent-dim: #E5AC1A;
+    --green: #1A9E54;
+    --green-dim: #7FCE9F;
+    --red: #D63B2A;
+    --orange: #C8930D;
+    --purple: #8845A6;
+    --cyan: #0093A8;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-family: "Schibsted Grotesk", ui-sans-serif, system-ui, sans-serif;
     background: var(--bg-grad, var(--bg));
     background-attachment: fixed;
     color: var(--text);
@@ -89,9 +91,9 @@
   .header h1 { font-size: 22px; font-weight: 600; }
   .brand-title { display: flex; align-items: center; gap: 10px; }
   .brand-logo { flex: 0 0 auto; }
-  .wordmark { font-weight: 700; letter-spacing: -0.2px; }
-  .wordmark .wm-us { color: var(--accent); }        /* "US" blue */
-  .wordmark .wm-bot { color: var(--text); }          /* "TradingBot" navy/light per theme */
+  .wordmark { font-family: "Instrument Serif", Georgia, serif; font-weight: 400; letter-spacing: -0.5px; }
+  .wordmark .wm-name { color: var(--text); }
+  .wordmark .wm-accent { color: var(--accent); }
   .brand-sub { color: var(--text-muted); font-weight: 500; }
   .header .meta { color: var(--text-muted); font-size: 13px; }
   .mode-badge {
@@ -1050,7 +1052,7 @@
   /* Skip-to-content link: off-screen until keyboard-focused (a11y F-2). */
   .skip-link {
     position: absolute; left: 8px; top: -48px; z-index: 2000;
-    background: var(--accent, #3B82F6); color: #fff;
+    background: var(--accent, #F0B429); color: #fff;
     padding: 10px 16px; border-radius: 8px; font-weight: 600;
     text-decoration: none; transition: top 0.15s ease;
   }
@@ -1089,7 +1091,7 @@
   .kill-switch:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
   /* Keyboard focus ring for click-handling elements promoted to buttons (F-5). */
   [data-clickable][tabindex]:focus-visible {
-    outline: 2px solid var(--accent, #3B82F6); outline-offset: 2px;
+    outline: 2px solid var(--accent, #F0B429); outline-offset: 2px;
   }
   .callout {
     background: var(--surface, rgba(127,127,127,0.08));
@@ -1395,8 +1397,8 @@
       border-bottom: 1px solid var(--border);
       position: sticky; top: 0; background: var(--surface); z-index: 1;
     }
-    .nav-brand .nb-word { font-weight: 700; letter-spacing: -0.2px; font-size: 15px; }
-    .nav-brand .nb-word .nb-us { color: var(--accent); }
+    .nav-brand .nb-word { font-family: "Instrument Serif", Georgia, serif; font-weight: 400; letter-spacing: -0.3px; font-size: 15px; }
+    .nav-brand .nb-word .nb-accent { color: var(--accent); }
     .nav-brand .nb-sub {
       margin-left: auto; font-size: 10px; text-transform: uppercase;
       letter-spacing: 0.6px; color: var(--text-muted); font-weight: 600;
@@ -1797,23 +1799,24 @@
   <div class="header-row">
     <div class="brand">
       <h1 class="brand-title">
-        <!-- Bull Circuit logo: a minimalist bull head drawn from circuit / chart traces. -->
-        <svg class="brand-logo" viewBox="0 0 32 32" width="34" height="34" role="img" aria-label="US Trading Bot logo">
-          <title>Bull Circuit</title>
-          <path d="M7 13 C4 9 5 5.5 9 7" fill="none" stroke="#3B82F6" stroke-width="2" stroke-linecap="round"/>
-          <path d="M25 13 C28 9 27 5.5 23 7" fill="none" stroke="#3B82F6" stroke-width="2" stroke-linecap="round"/>
-          <path d="M9 7 C9 11 8.5 13 10 15.5 C11.6 18.2 14 20 16 20 C18 20 20.4 18.2 22 15.5 C23.5 13 23 11 23 7"
-                fill="none" stroke="#3B82F6" stroke-width="2" stroke-linejoin="round"/>
-          <polyline points="10.5 15 13.5 12.4 16.5 14 21 9" fill="none" stroke="#22C55E"
-                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          <circle cx="9" cy="7" r="1.7" fill="#22C55E"/>
-          <circle cx="23" cy="7" r="1.7" fill="#22C55E"/>
-          <circle cx="21" cy="9" r="1.6" fill="#22C55E"/>
-          <circle cx="10.5" cy="15" r="1.5" fill="#EF4444"/>
-          <circle cx="13" cy="13" r="1" fill="#3B82F6"/>
-          <circle cx="19" cy="13" r="1" fill="#3B82F6"/>
+        <svg class="brand-logo" viewBox="0 0 48 48" width="34" height="34" role="img" aria-label="DoAide Trade logo">
+          <title>DoAide Trade</title>
+          <g fill="none">
+            <line x1="24" y1="8" x2="24" y2="3" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round"/>
+            <circle cx="24" cy="2" r="1.8" fill="var(--accent)" opacity="0.9"/>
+            <circle cx="24" cy="2" r="2.8" fill="var(--accent)" opacity="0.25"/>
+            <rect x="14" y="8" width="20" height="14" rx="4" fill="var(--accent)"/>
+            <circle cx="19.5" cy="14" r="2.2" fill="var(--bg)"/>
+            <circle cx="28.5" cy="14" r="2.2" fill="var(--bg)"/>
+            <path d="M20 18.5 Q24 21.5 28 18.5" stroke="var(--bg)" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+            <rect x="16" y="23" width="16" height="12" rx="3" fill="var(--accent)"/>
+            <rect x="8" y="24" width="7" height="3.5" rx="1.8" fill="var(--accent)"/>
+            <rect x="33" y="24" width="7" height="3.5" rx="1.8" fill="var(--accent)"/>
+            <rect x="19" y="36" width="3.5" height="5" rx="1.5" fill="var(--accent)"/>
+            <rect x="25.5" y="36" width="3.5" height="5" rx="1.5" fill="var(--accent)"/>
+          </g>
         </svg>
-        <span class="wordmark"><span class="wm-us">US</span><span class="wm-bot">TradingBot</span></span>
+        <span class="wordmark"><span class="wm-name">DoAide </span><span class="wm-accent">Trade</span></span>
         <span class="brand-sub">Dashboard</span>
       </h1>
       <div class="meta">{{ status.timestamp }}</div>
@@ -1892,13 +1895,18 @@
       <button type="button" class="nav-close" aria-label="Close menu" onclick="closeNav()">&times;</button>
     </div>
     <div class="nav-brand" aria-hidden="true">
-      <svg viewBox="0 0 32 32" width="24" height="24" role="img" aria-label="US Trading Bot">
-        <path d="M9 7 C9 11 8.5 13 10 15.5 C11.6 18.2 14 20 16 20 C18 20 20.4 18.2 22 15.5 C23.5 13 23 11 23 7"
-              fill="none" stroke="#3B82F6" stroke-width="2" stroke-linejoin="round"/>
-        <polyline points="10.5 15 13.5 12.4 16.5 14 21 9" fill="none" stroke="#22C55E"
-                  stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <svg viewBox="0 0 48 48" width="24" height="24" role="img" aria-label="DoAide Trade">
+        <g fill="none">
+          <line x1="24" y1="8" x2="24" y2="3" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round"/>
+          <circle cx="24" cy="2" r="1.8" fill="var(--accent)" opacity="0.9"/>
+          <rect x="14" y="8" width="20" height="14" rx="4" fill="var(--accent)"/>
+          <circle cx="19.5" cy="14" r="2.2" fill="var(--bg)"/>
+          <circle cx="28.5" cy="14" r="2.2" fill="var(--bg)"/>
+          <path d="M20 18.5 Q24 21.5 28 18.5" stroke="var(--bg)" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+          <rect x="16" y="23" width="16" height="12" rx="3" fill="var(--accent)"/>
+        </g>
       </svg>
-      <span class="nb-word"><span class="nb-us">US</span>TradingBot</span>
+      <span class="nb-word"><span class="nb-name">DoAide </span><span class="nb-accent">Trade</span></span>
       <span class="nb-sub">Dash</span>
     </div>
     <button type="button" class="nav-search" onclick="openCmdK()" aria-label="Search sections (Command K)">
@@ -3603,7 +3611,7 @@
 
   // Sector treemap (P1-12): flex tiles with area proportional to each sector's
   // share — a lightweight alternative view of the same concentration data.
-  var PALETTE_TM = ["#3B82F6", "#22C55E", "#A855F7", "#F59E0B", "#06B6D4", "#EF4444", "#8B5CF6", "#14B8A6", "#EC4899", "#84CC16"];
+  var PALETTE_TM = ["#F0B429", "#22C55E", "#A855F7", "#06B6D4", "#EC4899", "#EF4444", "#8B5CF6", "#14B8A6", "#3B82F6", "#84CC16"];
   function renderTreemap(sectors) {
     var el = document.getElementById("riskTreemap");
     if (!el) return;
@@ -4889,10 +4897,10 @@
 (function () {
   "use strict";
   function ready(fn) { if (document.readyState !== "loading") fn(); else document.addEventListener("DOMContentLoaded", fn); }
-  var PALETTE = ["#3B82F6", "#22C55E", "#A855F7", "#F59E0B", "#06B6D4", "#EF4444", "#8B5CF6", "#14B8A6", "#EC4899", "#84CC16"];
+  var PALETTE = ["#F0B429", "#22C55E", "#A855F7", "#06B6D4", "#EC4899", "#EF4444", "#8B5CF6", "#14B8A6", "#3B82F6", "#84CC16"];
   var _reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   function money(v) { var n = Number(v || 0); return (n < 0 ? "-$" : "$") + Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 0 }); }
-  function surface() { return getComputedStyle(document.documentElement).getPropertyValue("--surface").trim() || "#1E293B"; }
+  function surface() { return getComputedStyle(document.documentElement).getPropertyValue("--surface").trim() || "#101012"; }
   var _charts = {};
   var _lastReport = null;
 
@@ -10302,8 +10310,8 @@
   function themeColor(v) {
     return getComputedStyle(document.documentElement).getPropertyValue(v).trim() || "#888";
   }
-  var PALETTE = ["#3B82F6", "#22C55E", "#A855F7", "#F59E0B", "#06B6D4",
-                 "#EF4444", "#8B5CF6", "#14B8A6", "#EC4899", "#84CC16"];
+  var PALETTE = ["#F0B429", "#22C55E", "#A855F7", "#06B6D4", "#EC4899",
+                 "#EF4444", "#8B5CF6", "#14B8A6", "#3B82F6", "#84CC16"];
 
   // ── debounce (shared) ───────────────────────────────────────────────────
   window.debounce = function (fn, ms) {

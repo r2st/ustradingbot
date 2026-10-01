@@ -59,7 +59,7 @@ from dashboard.middleware import OPENAPI_TAGS  # noqa: E402
 from dashboard.middleware import install as _install_middleware  # noqa: E402
 
 app = FastAPI(
-    title="US Trading Bot Dashboard",
+    title="DoAide Trade Dashboard",
     version="0.1.0",
     description=(
         "Control panel and JSON API for the US/CA equity trading bot: paper/live "

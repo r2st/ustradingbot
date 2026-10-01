@@ -221,3 +221,32 @@ def test_login_page_redirects_when_already_signed_in(client, auth_env):
     resp = client.get("/login", cookies={COOKIE_NAME: token})
     assert resp.status_code == 303
     assert resp.headers["location"] == "/"
+
+
+# --------------------------------------------------------------------------- #
+# branding
+# --------------------------------------------------------------------------- #
+
+def test_login_page_has_doaide_branding(client, auth_env):
+    """The login page shows the DoAide Trade brand, not the old USTradingBot one."""
+    resp = client.get("/login")
+    assert resp.status_code == 200
+    assert "DoAide" in resp.text
+    assert "Trade" in resp.text
+    assert "USTradingBot" not in resp.text
+    assert "Bull Circuit" not in resp.text
+
+
+def test_login_page_uses_doaide_theme_colors(client, auth_env):
+    """Core DoAide palette tokens are present in the login page CSS."""
+    resp = client.get("/login")
+    assert "#0A0A0B" in resp.text
+    assert "#F0B429" in resp.text
+
+
+def test_login_page_loads_doaide_fonts(client, auth_env):
+    """The three DoAide typefaces are loaded from Google Fonts."""
+    resp = client.get("/login")
+    assert "Instrument+Serif" in resp.text or "Instrument Serif" in resp.text
+    assert "Schibsted+Grotesk" in resp.text or "Schibsted Grotesk" in resp.text
+    assert "IBM+Plex+Mono" in resp.text or "IBM Plex Mono" in resp.text
