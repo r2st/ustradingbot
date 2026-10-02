@@ -450,7 +450,7 @@ input:focus {
   50% { stroke: rgba(240, 180, 41, 0.2); }
 }
 
-/* ── Responsive ── */
+/* ── Responsive: tablet ── */
 @media (max-width: 900px) {
   .main-container {
     flex-direction: column;
@@ -484,9 +484,54 @@ input:focus {
   .footer { padding: 24px 16px 16px; }
 }
 
-@media (max-width: 480px) {
-  .headline { font-size: 32px; }
-  .login-card { padding: 24px 20px; border-radius: 20px; }
+/* ── Responsive: mobile ── */
+@media (max-width: 768px) {
+  .main-container {
+    flex-direction: column;
+    gap: 16px;
+    padding: 12px 16px 16px;
+    min-height: auto;
+    align-items: stretch;
+  }
+  .left-panel {
+    text-align: center;
+    max-width: 100%;
+  }
+  .robot-wrap { display: none; }
+  .pipeline { display: none; }
+  .typewriter-line { display: none; }
+  .subtitle { display: none; }
+  .headline {
+    font-size: 1.5rem;
+    margin-bottom: 0;
+  }
+  .right-panel {
+    flex: none;
+    width: 100%;
+    max-width: 100%;
+  }
+  .login-card {
+    padding: 24px 16px;
+    border-radius: 16px;
+  }
+  .header {
+    padding: 12px 16px;
+  }
+  .header .brand svg { width: 24px; height: 24px; }
+  .header .brand-text { font-size: 16px; }
+  .footer {
+    padding: 16px 16px 12px;
+  }
+  .footer-products {
+    gap: 12px;
+  }
+  .footer-link {
+    font-size: 11px;
+  }
+  .footer-bottom {
+    font-size: 11px;
+  }
+  .particles { display: none; }
 }
 
 /* ── Reduced Motion ── */
