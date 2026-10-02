@@ -361,6 +361,95 @@ input:focus {
   font-size: 12px;
 }
 
+/* ── Pipeline Visualization ── */
+.pipeline {
+  margin: 28px 0 24px;
+  overflow: visible;
+}
+
+.pipeline svg {
+  display: block;
+  width: 100%;
+  max-width: 480px;
+  height: auto;
+}
+
+.pipeline-node-bg {
+  fill: rgba(16, 16, 18, 0.8);
+  stroke: rgba(255, 255, 255, 0.07);
+  stroke-width: 1;
+}
+
+.pipeline-icon {
+  fill: none;
+  stroke: #F0B429;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.pipeline-icon-fill { fill: #F0B429; }
+
+.pipeline-label {
+  fill: rgba(255, 255, 255, 0.6);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.8px;
+  text-anchor: middle;
+}
+
+.pipeline-connector {
+  stroke: rgba(240, 180, 41, 0.15);
+  stroke-width: 1.5;
+  fill: none;
+}
+
+.pipeline-dot {
+  fill: #F0B429;
+  filter: url(#pipeline-glow);
+}
+
+.pipeline-dot-1 { animation: pipe-flow-1 3s ease-in-out infinite; }
+.pipeline-dot-2 { animation: pipe-flow-2 3s ease-in-out 1s infinite; }
+.pipeline-dot-3 { animation: pipe-flow-3 3s ease-in-out 2s infinite; }
+
+@keyframes pipe-flow-1 {
+  0%   { opacity: 0; offset-distance: 0%; }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { opacity: 0; offset-distance: 100%; }
+}
+
+@keyframes pipe-flow-2 {
+  0%   { opacity: 0; offset-distance: 0%; }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { opacity: 0; offset-distance: 100%; }
+}
+
+@keyframes pipe-flow-3 {
+  0%   { opacity: 0; offset-distance: 0%; }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { opacity: 0; offset-distance: 100%; }
+}
+
+.pipeline-node-glow {
+  fill: none;
+  stroke: rgba(240, 180, 41, 0.08);
+  stroke-width: 1;
+  animation: node-glow-pulse 4s ease-in-out infinite;
+}
+
+.pipeline-node-glow:nth-child(2) { animation-delay: 1s; }
+.pipeline-node-glow:nth-child(3) { animation-delay: 2s; }
+.pipeline-node-glow:nth-child(4) { animation-delay: 3s; }
+
+@keyframes node-glow-pulse {
+  0%, 100% { stroke: rgba(240, 180, 41, 0.06); }
+  50% { stroke: rgba(240, 180, 41, 0.2); }
+}
+
 /* ── Responsive ── */
 @media (max-width: 900px) {
   .main-container {
@@ -383,6 +472,9 @@ input:focus {
   .headline {
     font-size: 40px;
   }
+  .pipeline svg {
+    margin: 0 auto;
+  }
   .right-panel {
     flex: none;
     width: 100%;
@@ -399,10 +491,14 @@ input:focus {
 
 /* ── Reduced Motion ── */
 @media (prefers-reduced-motion: reduce) {
-  .particle, .robot-wrap, .antenna-glow, .typewriter-cursor {
+  .particle, .robot-wrap, .antenna-glow, .typewriter-cursor,
+  .pipeline-dot, .pipeline-dot-1, .pipeline-dot-2, .pipeline-dot-3,
+  .pipeline-node-glow {
     animation: none !important;
   }
   .particle { display: none; }
+  .pipeline-dot { opacity: 0.6; }
+  .pipeline-node-glow { stroke: rgba(240, 180, 41, 0.12); }
 }
 </style>
 </head>
@@ -466,6 +562,84 @@ input:focus {
 
     <h1 class="headline">US stock trading, simplified.</h1>
     <p class="subtitle">AI-powered market analysis and trading signals for US equities.</p>
+
+    <!-- Pipeline visualization -->
+    <div class="pipeline" aria-hidden="true">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 72">
+        <defs>
+          <filter id="pipeline-glow">
+            <feGaussianBlur stdDeviation="2" result="blur"/>
+            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+          <!-- Connector paths for dot motion -->
+          <path id="conn-1" d="M100,36 L140,36"/>
+          <path id="conn-2" d="M220,36 L260,36"/>
+          <path id="conn-3" d="M340,36 L380,36"/>
+        </defs>
+
+        <!-- Connector lines -->
+        <line x1="100" y1="36" x2="140" y2="36" class="pipeline-connector"/>
+        <line x1="220" y1="36" x2="260" y2="36" class="pipeline-connector"/>
+        <line x1="340" y1="36" x2="380" y2="36" class="pipeline-connector"/>
+
+        <!-- Node 1: Scan -->
+        <rect class="pipeline-node-glow" x="18" y="10" width="82" height="52" rx="12"/>
+        <rect class="pipeline-node-bg" x="20" y="12" width="78" height="48" rx="11"/>
+        <g transform="translate(46, 24)">
+          <!-- Radar icon -->
+          <circle cx="13" cy="10" r="9" class="pipeline-icon" stroke-width="1.2"/>
+          <path d="M13 10 L13 1" class="pipeline-icon" stroke-width="1.3"/>
+          <path d="M13 10 L20 5" class="pipeline-icon" stroke-width="1.3"/>
+          <circle cx="13" cy="10" r="2" class="pipeline-icon-fill"/>
+          <path d="M18 3 A9 9 0 0 1 22 10" class="pipeline-icon" stroke-width="1" opacity="0.5"/>
+        </g>
+        <text class="pipeline-label" x="59" y="62">SCAN</text>
+
+        <!-- Node 2: Analyze -->
+        <rect class="pipeline-node-glow" x="138" y="10" width="82" height="52" rx="12"/>
+        <rect class="pipeline-node-bg" x="140" y="12" width="78" height="48" rx="11"/>
+        <g transform="translate(166, 24)">
+          <!-- Brain/AI icon -->
+          <path d="M6 14 C6 6, 13 2, 13 8 C13 2, 20 6, 20 14" class="pipeline-icon" stroke-width="1.3"/>
+          <path d="M9 8 Q13 12 17 8" class="pipeline-icon" stroke-width="1" opacity="0.6"/>
+          <path d="M8 11 L10 11" class="pipeline-icon" stroke-width="1.2"/>
+          <path d="M16 11 L18 11" class="pipeline-icon" stroke-width="1.2"/>
+          <circle cx="13" cy="14" r="1.5" class="pipeline-icon-fill" opacity="0.7"/>
+          <path d="M10 16 L16 16" class="pipeline-icon" stroke-width="1"/>
+        </g>
+        <text class="pipeline-label" x="179" y="62">ANALYZE</text>
+
+        <!-- Node 3: Signal -->
+        <rect class="pipeline-node-glow" x="258" y="10" width="82" height="52" rx="12"/>
+        <rect class="pipeline-node-bg" x="260" y="12" width="78" height="48" rx="11"/>
+        <g transform="translate(284, 23)">
+          <!-- Lightning bolt icon -->
+          <polygon points="14,1 7,11 12,11 9,20 18,9 13,9" class="pipeline-icon-fill" opacity="0.9"/>
+          <polygon points="14,1 7,11 12,11 9,20 18,9 13,9" class="pipeline-icon" stroke-width="0.8"/>
+        </g>
+        <text class="pipeline-label" x="299" y="62">SIGNAL</text>
+
+        <!-- Node 4: Execute -->
+        <rect class="pipeline-node-glow" x="378" y="10" width="82" height="52" rx="12"/>
+        <rect class="pipeline-node-bg" x="380" y="12" width="78" height="48" rx="11"/>
+        <g transform="translate(406, 24)">
+          <!-- Target/crosshair icon -->
+          <circle cx="13" cy="10" r="8" class="pipeline-icon" stroke-width="1.2"/>
+          <circle cx="13" cy="10" r="4" class="pipeline-icon" stroke-width="1"/>
+          <circle cx="13" cy="10" r="1.5" class="pipeline-icon-fill"/>
+          <line x1="13" y1="1" x2="13" y2="5" class="pipeline-icon" stroke-width="1"/>
+          <line x1="13" y1="15" x2="13" y2="19" class="pipeline-icon" stroke-width="1"/>
+          <line x1="4" y1="10" x2="8" y2="10" class="pipeline-icon" stroke-width="1"/>
+          <line x1="18" y1="10" x2="22" y2="10" class="pipeline-icon" stroke-width="1"/>
+        </g>
+        <text class="pipeline-label" x="419" y="62">EXECUTE</text>
+
+        <!-- Flowing dots along connectors -->
+        <circle r="2.5" class="pipeline-dot pipeline-dot-1" style="offset-path:path('M100,36 L140,36')"/>
+        <circle r="2.5" class="pipeline-dot pipeline-dot-2" style="offset-path:path('M220,36 L260,36')"/>
+        <circle r="2.5" class="pipeline-dot pipeline-dot-3" style="offset-path:path('M340,36 L380,36')"/>
+      </svg>
+    </div>
 
     <div class="typewriter-line">
       <span class="typewriter-prefix">&gt;</span>
