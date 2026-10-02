@@ -107,17 +107,23 @@ def test_no_password_means_no_sessions():
 # login page + form
 # --------------------------------------------------------------------------- #
 
-def test_login_page_is_public(client, auth_env):
+def test_login_page_redirects_to_landing(client, auth_env):
     resp = client.get("/login")
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/"
+
+
+def test_landing_page_is_public(client, auth_env):
+    resp = client.get("/")
     assert resp.status_code == 200
     assert "Sign in" in resp.text
 
 
-def test_browser_navigation_is_sent_to_login(client, auth_env):
-    """An unauthenticated *browser* request bounces to the branded page…"""
+def test_browser_navigation_is_sent_to_landing(client, auth_env):
+    """An unauthenticated *browser* request bounces to the landing page…"""
     resp = client.get("/dashboard", headers={"Accept": "text/html"})
     assert resp.status_code == 303
-    assert resp.headers["location"] == "/login"
+    assert resp.headers["location"] == "/"
 
 
 def test_api_client_still_gets_basic_challenge(client, auth_env):
@@ -161,7 +167,7 @@ def test_forged_cookie_does_not_grant_access(client, auth_env):
         cookies={COOKIE_NAME: "YWRtaW58OTk5OTk5OTk5OQ.notarealsignature"},
     )
     assert resp.status_code == 303
-    assert resp.headers["location"] == "/login"
+    assert resp.headers["location"] == "/"
 
 
 def test_expired_cookie_does_not_grant_access(client, auth_env):
@@ -176,9 +182,9 @@ def test_wrong_password_rejected_without_cookie(client, auth_env):
         data={"username": USERNAME, "password": "WRONG"},
         headers={"Accept": "text/html"},
     )
-    assert resp.status_code == 401
+    assert resp.status_code == 303
     assert COOKIE_NAME not in resp.cookies
-    assert "Incorrect username or password" in resp.text
+    assert "error=Incorrect" in resp.headers["location"]
 
 
 def test_wrong_username_rejected(client, auth_env):
@@ -187,7 +193,7 @@ def test_wrong_username_rejected(client, auth_env):
         data={"username": "root", "password": PASSWORD},
         headers={"Accept": "text/html"},
     )
-    assert resp.status_code == 401
+    assert resp.status_code == 303
     assert COOKIE_NAME not in resp.cookies
 
 
@@ -220,16 +226,16 @@ def test_login_page_redirects_when_already_signed_in(client, auth_env):
     token = issue_token(USERNAME, PASSWORD)
     resp = client.get("/login", cookies={COOKIE_NAME: token})
     assert resp.status_code == 303
-    assert resp.headers["location"] == "/dashboard"
+    assert resp.headers["location"] == "/"
 
 
 # --------------------------------------------------------------------------- #
 # branding
 # --------------------------------------------------------------------------- #
 
-def test_login_page_has_doaide_branding(client, auth_env):
-    """The login page shows the DoAide Trade brand, not the old USTradingBot one."""
-    resp = client.get("/login")
+def test_landing_page_has_doaide_branding(client, auth_env):
+    """The landing page shows the DoAide Trade brand, not the old USTradingBot one."""
+    resp = client.get("/")
     assert resp.status_code == 200
     assert "DoAide" in resp.text
     assert "Trade" in resp.text
@@ -237,16 +243,16 @@ def test_login_page_has_doaide_branding(client, auth_env):
     assert "Bull Circuit" not in resp.text
 
 
-def test_login_page_uses_doaide_theme_colors(client, auth_env):
-    """Core DoAide palette tokens are present in the login page CSS."""
-    resp = client.get("/login")
+def test_landing_page_uses_doaide_theme_colors(client, auth_env):
+    """Core DoAide palette tokens are present in the landing page CSS."""
+    resp = client.get("/")
     assert "#0A0A0B" in resp.text
     assert "#F0B429" in resp.text
 
 
-def test_login_page_loads_doaide_fonts(client, auth_env):
+def test_landing_page_loads_doaide_fonts(client, auth_env):
     """The three DoAide typefaces are loaded from Google Fonts."""
-    resp = client.get("/login")
+    resp = client.get("/")
     assert "Instrument+Serif" in resp.text or "Instrument Serif" in resp.text
     assert "Schibsted+Grotesk" in resp.text or "Schibsted Grotesk" in resp.text
     assert "IBM+Plex+Mono" in resp.text or "IBM Plex Mono" in resp.text

@@ -1913,7 +1913,7 @@ def _build_section_guides() -> List[Dict[str, Any]]:
 
 @app.get("/", response_class=HTMLResponse, tags=["System"], include_in_schema=False)
 async def landing(request: Request):
-    """Public landing page with branding and sign-in / get-started links."""
+    """Public landing page with embedded sign-in form (409A split layout)."""
     from dashboard.session import COOKIE_NAME, verify_token
 
     settings = get_settings()
@@ -1924,9 +1924,12 @@ async def landing(request: Request):
     else:
         return RedirectResponse("/dashboard", status_code=status.HTTP_303_SEE_OTHER)
 
+    error = request.query_params.get("error", "")
+    username = request.query_params.get("u", "")
     return templates.TemplateResponse(
         request,
         "landing.html",
+        context={"error": error, "username": username},
         headers={"Cache-Control": "no-store"},
     )
 
@@ -1997,29 +2000,10 @@ def _build_backtest_options() -> Dict[str, Any]:
 # thing a new user ever saw.  See dashboard/session.py for the token format.
 
 
-def _login_page(request: Request, *, error: str = "", username: str = "", status_code: int = 200):
-    """Render the branded sign-in page."""
-    return templates.TemplateResponse(
-        request,
-        "login.html",
-        context={"error": error, "username": username},
-        status_code=status_code,
-        headers={"Cache-Control": "no-store"},
-    )
-
-
 @app.get("/login", response_class=HTMLResponse, tags=["System"], include_in_schema=False)
 async def login_page(request: Request):
-    """Public sign-in page.  Already-valid sessions are sent straight to the app."""
-    from dashboard.session import COOKIE_NAME, verify_token
-
-    settings = get_settings()
-    if not settings.DASHBOARD_AUTH_ENABLED:
-        return RedirectResponse("/dashboard", status_code=status.HTTP_303_SEE_OTHER)
-    token = request.cookies.get(COOKIE_NAME, "")
-    if token and verify_token(token, settings.DASHBOARD_PASSWORD):
-        return RedirectResponse("/dashboard", status_code=status.HTTP_303_SEE_OTHER)
-    return _login_page(request)
+    """Redirect to landing page which has the embedded sign-in form."""
+    return RedirectResponse("/", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.post("/login", tags=["System"], include_in_schema=False)
@@ -2093,12 +2077,9 @@ async def login_submit(request: Request):
                     ip=request.headers.get("x-forwarded-for", "") or
                        (request.client.host if request.client else "unknown"))
         if wants_html:
-            return _login_page(
-                request,
-                error="Incorrect username or password.",
-                username=username,
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            )
+            from urllib.parse import urlencode
+            qs = urlencode({"error": "Incorrect username or password.", "u": username})
+            return RedirectResponse(f"/?{qs}", status_code=status.HTTP_303_SEE_OTHER)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
         )

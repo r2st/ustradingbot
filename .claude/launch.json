@@ -9,6 +9,15 @@
         "DASHBOARD_AUTH_ENABLED=false exec .venv/bin/uvicorn dashboard.app:app --host 127.0.0.1 --port 8766"
       ],
       "port": 8766
+    },
+    {
+      "name": "landing-preview",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "DASHBOARD_AUTH_ENABLED=true DASHBOARD_USERNAME=admin DASHBOARD_PASSWORD=preview exec .venv/bin/uvicorn dashboard.app:app --host 127.0.0.1 --port 8767"
+      ],
+      "port": 8767
     }
   ]
 }

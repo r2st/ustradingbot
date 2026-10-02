@@ -161,9 +161,9 @@ def install_request_logging(app: FastAPI) -> None:
 _CSP = (
     "default-src 'self'; "
     "script-src 'self' 'unsafe-inline'; "
-    "style-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
     "img-src 'self' data:; "
-    "font-src 'self' data:; "
+    "font-src 'self' data: https://fonts.gstatic.com; "
     "connect-src 'self' ws: wss:; "
     "frame-ancestors 'none'; "
     "base-uri 'self'; "
@@ -305,7 +305,7 @@ def install_exception_handlers(app: FastAPI, *, debug: bool = False) -> None:
             _request.headers.get("accept") or ""
         ):
             return RedirectResponse(
-                "/login", status_code=status.HTTP_303_SEE_OTHER
+                "/", status_code=status.HTTP_303_SEE_OTHER
             )
 
         # Deliberate, already-shaped responses (401/403/404/413/422/…).  Reshape
