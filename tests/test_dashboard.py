@@ -51,7 +51,7 @@ def test_health_is_public(client: TestClient, monkeypatch) -> None:
 
 def test_dashboard_requires_credentials(client: TestClient, monkeypatch) -> None:
     _use_settings(monkeypatch, DASHBOARD_AUTH_ENABLED=True, DASHBOARD_PASSWORD="secret")
-    resp = client.get("/")
+    resp = client.get("/dashboard")
     assert resp.status_code == 401
     assert resp.headers.get("WWW-Authenticate") == "Basic"
 
@@ -63,7 +63,7 @@ def test_dashboard_rejects_wrong_password(client: TestClient, monkeypatch) -> No
         DASHBOARD_USERNAME="admin",
         DASHBOARD_PASSWORD="secret",
     )
-    resp = client.get("/", headers=_basic_header("admin", "wrong"))
+    resp = client.get("/dashboard", headers=_basic_header("admin", "wrong"))
     assert resp.status_code == 401
 
 
@@ -74,7 +74,7 @@ def test_dashboard_rejects_wrong_username(client: TestClient, monkeypatch) -> No
         DASHBOARD_USERNAME="admin",
         DASHBOARD_PASSWORD="secret",
     )
-    resp = client.get("/", headers=_basic_header("intruder", "secret"))
+    resp = client.get("/dashboard", headers=_basic_header("intruder", "secret"))
     assert resp.status_code == 401
 
 
@@ -85,19 +85,19 @@ def test_dashboard_accepts_valid_credentials(client: TestClient, monkeypatch) ->
         DASHBOARD_USERNAME="admin",
         DASHBOARD_PASSWORD="secret",
     )
-    resp = client.get("/", headers=_basic_header("admin", "secret"))
+    resp = client.get("/dashboard", headers=_basic_header("admin", "secret"))
     assert resp.status_code == 200
-    assert "US Trading Bot" in resp.text
+    assert "DoAide Trade" in resp.text
 
 
 def test_dashboard_fails_closed_without_password(client: TestClient, monkeypatch) -> None:
     """Auth enabled but no password configured -> 500, never open access."""
     _use_settings(monkeypatch, DASHBOARD_AUTH_ENABLED=True, DASHBOARD_PASSWORD="")
-    resp = client.get("/", headers=_basic_header("admin", "anything"))
+    resp = client.get("/dashboard", headers=_basic_header("admin", "anything"))
     assert resp.status_code == 500
 
 
 def test_dashboard_auth_can_be_disabled(client: TestClient, monkeypatch) -> None:
     _use_settings(monkeypatch, DASHBOARD_AUTH_ENABLED=False, DASHBOARD_PASSWORD="")
-    resp = client.get("/")
+    resp = client.get("/dashboard")
     assert resp.status_code == 200

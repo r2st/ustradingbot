@@ -227,7 +227,7 @@ def test_api_save_keys(client, monkeypatch, tmp_path) -> None:
 
 def test_dashboard_renders_provider_section(client, monkeypatch, tmp_path) -> None:
     _use(monkeypatch, tmp_path)
-    resp = client.get("/")
+    resp = client.get("/dashboard")
     assert resp.status_code == 200
     assert "Market Data Provider" in resp.text
     assert "Yahoo Finance" in resp.text

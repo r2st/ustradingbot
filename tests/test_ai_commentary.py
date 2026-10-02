@@ -703,6 +703,6 @@ def test_ai_dashboard_implements_ux_spec_elements(client: TestClient,
 
 def test_main_dashboard_links_to_analyst(client: TestClient,
                                          settings: Settings) -> None:
-    resp = client.get("/")
+    resp = client.get("/dashboard")
     assert resp.status_code == 200
     assert 'href="/ai-dashboard"' in resp.text

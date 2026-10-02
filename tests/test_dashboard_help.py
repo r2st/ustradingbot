@@ -69,7 +69,7 @@ def test_guides_have_detailed_help_fields() -> None:
 
 
 def _html(client: TestClient) -> str:
-    resp = client.get("/")
+    resp = client.get("/dashboard")
     assert resp.status_code == 200
     return resp.text
 

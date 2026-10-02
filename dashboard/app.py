@@ -1911,18 +1911,33 @@ def _build_section_guides() -> List[Dict[str, Any]]:
 # Routes
 # ---------------------------------------------------------------------------
 
-@app.get("/", response_class=HTMLResponse, tags=["System"])
+@app.get("/", response_class=HTMLResponse, tags=["System"], include_in_schema=False)
+async def landing(request: Request):
+    """Public landing page with branding and sign-in / get-started links."""
+    from dashboard.session import COOKIE_NAME, verify_token
+
+    settings = get_settings()
+    if settings.DASHBOARD_AUTH_ENABLED:
+        token = request.cookies.get(COOKIE_NAME, "")
+        if token and verify_token(token, settings.DASHBOARD_PASSWORD):
+            return RedirectResponse("/dashboard", status_code=status.HTTP_303_SEE_OTHER)
+    else:
+        return RedirectResponse("/dashboard", status_code=status.HTTP_303_SEE_OTHER)
+
+    return templates.TemplateResponse(
+        request,
+        "landing.html",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/dashboard", response_class=HTMLResponse, tags=["System"])
 async def dashboard(request: Request, _user: str = Depends(require_auth)):
     """Render the main dashboard page (requires HTTP Basic Auth)."""
-    # Open-positions view preference (cards vs. table). Cards are the default;
-    # the client persists the choice in the ``ustb_pos_view`` cookie so the
-    # first server-rendered paint already matches what the user last picked.
     positions_view = "table" if request.cookies.get("ustb_pos_view") == "table" else "cards"
     return templates.TemplateResponse(
         request,
         "dashboard.html",
-        # no-store: the page embeds live state and its JS/UI changes on every
-        # deploy — a heuristically-cached copy kept showing pre-deploy UI.
         headers={"Cache-Control": "no-store"},
         context={
             "positions_view": positions_view,
@@ -1939,8 +1954,6 @@ async def dashboard(request: Request, _user: str = Depends(require_auth)):
             "strategy_comparison": _build_strategy_comparison(),
             "scores": _build_sample_scores(),
             "risk": _build_risk_rules(),
-            # Drives the header's sign-out control — pointless (and confusing)
-            # to offer when the dashboard is running without auth.
             "auth_enabled": bool(get_settings().DASHBOARD_AUTH_ENABLED),
             "watchlist_us": US_WATCHLIST,
             "watchlist_ca": CA_WATCHLIST,
@@ -2002,10 +2015,10 @@ async def login_page(request: Request):
 
     settings = get_settings()
     if not settings.DASHBOARD_AUTH_ENABLED:
-        return RedirectResponse("/", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse("/dashboard", status_code=status.HTTP_303_SEE_OTHER)
     token = request.cookies.get(COOKIE_NAME, "")
     if token and verify_token(token, settings.DASHBOARD_PASSWORD):
-        return RedirectResponse("/", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse("/dashboard", status_code=status.HTTP_303_SEE_OTHER)
     return _login_page(request)
 
 
@@ -2027,7 +2040,7 @@ async def login_submit(request: Request):
     wants_html = "text/html" in (request.headers.get("accept") or "")
 
     if not settings.DASHBOARD_AUTH_ENABLED:
-        return RedirectResponse("/", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse("/dashboard", status_code=status.HTTP_303_SEE_OTHER)
 
     ckey = client_key(request)
     LoginGuard.check_locked(ckey)
@@ -2092,7 +2105,7 @@ async def login_submit(request: Request):
 
     LoginGuard.record_success(ckey)
     token = issue_token(expected_user, expected_pass)
-    response = RedirectResponse("/", status_code=status.HTTP_303_SEE_OTHER)
+    response = RedirectResponse("/dashboard", status_code=status.HTTP_303_SEE_OTHER)
     response.set_cookie(
         COOKIE_NAME,
         token,
@@ -2112,7 +2125,7 @@ async def logout(request: Request, _user: str = Depends(require_auth)):
     """Clear the session cookie.  Auth-guarded so the anonymous sweep sees 401."""
     from dashboard.session import COOKIE_NAME
 
-    response = RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    response = RedirectResponse("/", status_code=status.HTTP_303_SEE_OTHER)
     response.delete_cookie(COOKIE_NAME, path="/")
     return response
 

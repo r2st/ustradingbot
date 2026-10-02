@@ -29,7 +29,7 @@ def _no_auth(monkeypatch) -> None:
 
 @pytest.fixture
 def html(client) -> str:
-    resp = client.get("/")
+    resp = client.get("/dashboard")
     assert resp.status_code == 200
     return resp.text
 
@@ -64,9 +64,9 @@ def test_favicon_link_and_route(client, html) -> None:
 
 
 def test_header_wordmark_and_logo(html) -> None:
-    assert 'class="brand-logo"' in html            # inline Bull Circuit mark
-    assert 'class="wm-us"' in html and ">US<" in html
-    assert 'class="wm-bot"' in html and ">TradingBot<" in html
+    assert 'class="brand-logo"' in html            # inline DoAide Trade mark
+    assert 'class="wm-name"' in html and ">DoAide <" in html
+    assert 'class="wm-accent"' in html and ">Trade<" in html
 
 
 def test_pwa_icon_and_manifest_use_brand(client) -> None:
@@ -84,17 +84,15 @@ def test_pwa_icon_and_manifest_use_brand(client) -> None:
 # ─────────────────────────── 2. Dark palette ─────────────────────────────
 
 def test_dark_palette_is_default(html) -> None:
-    # The default :root block carries the Slate-Navy values.
-    assert "--bg: #0F172A;" in html
-    assert "--surface: #1E293B;" in html
-    assert "--text: #F8FAFC;" in html
-    assert "--text-muted: #94A3B8;" in html
+    # The default :root block carries the DoAide dark palette values.
+    assert "--bg: #0A0A0B;" in html
+    assert "--surface: #101012;" in html
+    assert "--text: #FFFFFF;" in html
     assert "--green: #22C55E;" in html
     assert "--red: #EF4444;" in html
-    # Background is the navy→slate gradient, applied to the body.
-    assert "linear-gradient(160deg, #0F172A 0%, #1E293B 100%)" in html
+    assert "linear-gradient(160deg, #0A0A0B 0%, #111113 100%)" in html
     assert "background: var(--bg-grad" in html
-    assert '<meta name="theme-color" content="#0F172A">' in html
+    assert '<meta name="theme-color" content="#0A0A0B">' in html
 
 
 def test_theme_toggle_still_present(html) -> None:
@@ -154,7 +152,7 @@ def test_positions_default_to_cards(client, monkeypatch, tmp_path) -> None:
         dash, "get_settings",
         lambda: Settings(DASHBOARD_AUTH_ENABLED=False, DATA_DIR=tmp_path),
     )
-    html = client.get("/").text
+    html = client.get("/dashboard").text
     region = _positions_region(html)
     assert 'class="pos-cards"' in region
     assert 'class="pos-card"' in region
@@ -176,7 +174,7 @@ def test_positions_table_view_via_cookie(client, monkeypatch, tmp_path) -> None:
         lambda: Settings(DASHBOARD_AUTH_ENABLED=False, DATA_DIR=tmp_path),
     )
     client.cookies.set("ustb_pos_view", "table")
-    html = client.get("/").text
+    html = client.get("/dashboard").text
     region = _positions_region(html)
     assert "score-table" in region
     assert 'class="pos-cards"' not in region
@@ -195,7 +193,7 @@ def test_positions_empty_state_preserved(client, monkeypatch, tmp_path) -> None:
         dash, "get_settings",
         lambda: Settings(DASHBOARD_AUTH_ENABLED=False, DATA_DIR=tmp_path),
     )
-    html = client.get("/").text
+    html = client.get("/dashboard").text
     assert "No open positions yet" in html
 
 

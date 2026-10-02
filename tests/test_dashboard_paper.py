@@ -55,7 +55,7 @@ def _use(monkeypatch, data_dir, **kw) -> None:
 
 def test_dashboard_shows_paper_banner_by_default(client, monkeypatch, tmp_path) -> None:
     _use(monkeypatch, tmp_path)
-    resp = client.get("/")
+    resp = client.get("/dashboard")
     assert resp.status_code == 200
     assert "Paper Trading" in resp.text
     assert "Simulated money" in resp.text
@@ -65,7 +65,7 @@ def test_dashboard_shows_paper_banner_by_default(client, monkeypatch, tmp_path) 
 
 def test_dashboard_shows_live_banner_when_live(client, monkeypatch, tmp_path) -> None:
     _use(monkeypatch, tmp_path, BROKER="ibkr", IBKR_PORT=7496)
-    resp = client.get("/")
+    resp = client.get("/dashboard")
     assert resp.status_code == 200
     assert "Live Trading" in resp.text
     assert "Real money is at risk" in resp.text
@@ -74,7 +74,7 @@ def test_dashboard_shows_live_banner_when_live(client, monkeypatch, tmp_path) ->
 def test_dashboard_renders_positions_and_history(client, monkeypatch, tmp_path) -> None:
     _seed(tmp_path)
     _use(monkeypatch, tmp_path)
-    resp = client.get("/")
+    resp = client.get("/dashboard")
     assert resp.status_code == 200
     assert "AAPL" in resp.text          # open position
     assert "MSFT" in resp.text          # closed trade
@@ -83,7 +83,7 @@ def test_dashboard_renders_positions_and_history(client, monkeypatch, tmp_path) 
 
 def test_dashboard_empty_state_renders(client, monkeypatch, tmp_path) -> None:
     _use(monkeypatch, tmp_path)  # no data seeded
-    resp = client.get("/")
+    resp = client.get("/dashboard")
     assert resp.status_code == 200
     assert "No open positions yet" in resp.text
 
@@ -195,7 +195,7 @@ def test_dashboard_page_wires_paper_live_refresh(client, monkeypatch, tmp_path) 
     """The page must poll the account snapshot in place — a static render let
     the position list drift out of sync with the live engine panel count."""
     _use(monkeypatch, tmp_path)
-    html = client.get("/").text
+    html = client.get("/dashboard").text
     assert "refreshPaperAccount" in html
     assert "/api/paper/account" in html
     assert 'id="paperPositionsWrap"' in html

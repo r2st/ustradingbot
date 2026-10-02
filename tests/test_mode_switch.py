@@ -163,7 +163,7 @@ def test_api_switch_to_paper_ok(client, monkeypatch, tmp_path) -> None:
 
 def test_dashboard_renders_toggle_button(client, monkeypatch, tmp_path) -> None:
     _use(monkeypatch, tmp_path)
-    resp = client.get("/")
+    resp = client.get("/dashboard")
     assert resp.status_code == 200
     assert "Switch to Live" in resp.text
     assert "REAL money" in resp.text  # confirmation dialog copy

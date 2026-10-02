@@ -24,7 +24,7 @@ def html(client, monkeypatch, tmp_path) -> str:
     data_dir.mkdir()
     settings = Settings(DASHBOARD_AUTH_ENABLED=False, DATA_DIR=data_dir)
     monkeypatch.setattr(dash, "get_settings", lambda: settings)
-    resp = client.get("/")
+    resp = client.get("/dashboard")
     assert resp.status_code == 200
     return resp.text
 

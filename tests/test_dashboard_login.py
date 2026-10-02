@@ -115,7 +115,7 @@ def test_login_page_is_public(client, auth_env):
 
 def test_browser_navigation_is_sent_to_login(client, auth_env):
     """An unauthenticated *browser* request bounces to the branded page…"""
-    resp = client.get("/", headers={"Accept": "text/html"})
+    resp = client.get("/dashboard", headers={"Accept": "text/html"})
     assert resp.status_code == 303
     assert resp.headers["location"] == "/login"
 
@@ -126,7 +126,7 @@ def test_api_client_still_gets_basic_challenge(client, auth_env):
     This split is the whole point: it is the ``WWW-Authenticate`` header on an
     HTML navigation that makes the browser show its native credential dialog.
     """
-    resp = client.get("/")
+    resp = client.get("/dashboard")
     assert resp.status_code == 401
     assert resp.headers.get("www-authenticate") == "Basic"
 
@@ -138,7 +138,7 @@ def test_successful_login_sets_session_cookie(client, auth_env):
         headers={"Accept": "text/html"},
     )
     assert resp.status_code == 303
-    assert resp.headers["location"] == "/"
+    assert resp.headers["location"] == "/dashboard"
     cookie = resp.cookies.get(COOKIE_NAME)
     assert cookie
     assert verify_token(cookie, PASSWORD) == USERNAME
@@ -150,13 +150,13 @@ def test_successful_login_sets_session_cookie(client, auth_env):
 
 def test_session_cookie_grants_access(client, auth_env):
     token = issue_token(USERNAME, PASSWORD)
-    resp = client.get("/", headers={"Accept": "text/html"}, cookies={COOKIE_NAME: token})
+    resp = client.get("/dashboard", headers={"Accept": "text/html"}, cookies={COOKIE_NAME: token})
     assert resp.status_code == 200
 
 
 def test_forged_cookie_does_not_grant_access(client, auth_env):
     resp = client.get(
-        "/",
+        "/dashboard",
         headers={"Accept": "text/html"},
         cookies={COOKIE_NAME: "YWRtaW58OTk5OTk5OTk5OQ.notarealsignature"},
     )
@@ -166,7 +166,7 @@ def test_forged_cookie_does_not_grant_access(client, auth_env):
 
 def test_expired_cookie_does_not_grant_access(client, auth_env):
     stale = issue_token(USERNAME, PASSWORD, ttl_seconds=-1)
-    resp = client.get("/", headers={"Accept": "text/html"}, cookies={COOKIE_NAME: stale})
+    resp = client.get("/dashboard", headers={"Accept": "text/html"}, cookies={COOKIE_NAME: stale})
     assert resp.status_code == 303
 
 
@@ -211,7 +211,7 @@ def test_logout_clears_cookie(client, auth_env):
     token = issue_token(USERNAME, PASSWORD)
     resp = client.post("/logout", cookies={COOKIE_NAME: token})
     assert resp.status_code == 303
-    assert resp.headers["location"] == "/login"
+    assert resp.headers["location"] == "/"
     # An expiry in the past is how a cookie is deleted.
     assert COOKIE_NAME in resp.headers.get("set-cookie", "")
 
@@ -220,7 +220,7 @@ def test_login_page_redirects_when_already_signed_in(client, auth_env):
     token = issue_token(USERNAME, PASSWORD)
     resp = client.get("/login", cookies={COOKIE_NAME: token})
     assert resp.status_code == 303
-    assert resp.headers["location"] == "/"
+    assert resp.headers["location"] == "/dashboard"
 
 
 # --------------------------------------------------------------------------- #

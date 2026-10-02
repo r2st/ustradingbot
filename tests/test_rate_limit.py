@@ -84,12 +84,12 @@ def test_login_lockout_after_repeated_failures(monkeypatch, tmp_path):
     bad = ("admin", "nope")
     # 3 failed logins are answered 401; the 4th is locked out with a 429.
     for _ in range(3):
-        assert client.get("/", auth=bad).status_code == 401
-    locked = client.get("/", auth=bad)
+        assert client.get("/dashboard", auth=bad).status_code == 401
+    locked = client.get("/dashboard", auth=bad)
     assert locked.status_code == 429
     assert "Retry-After" in locked.headers
     # Even correct credentials are refused while the lockout is active.
-    assert client.get("/", auth=("admin", "adminpw")).status_code == 429
+    assert client.get("/dashboard", auth=("admin", "adminpw")).status_code == 429
 
 
 def test_anonymous_requests_never_lock_out(monkeypatch, tmp_path):
@@ -107,9 +107,9 @@ def test_anonymous_requests_never_lock_out(monkeypatch, tmp_path):
         RATE_LIMIT_LOGIN_MAX_FAILURES=3,
     )
     for _ in range(10):
-        assert client.get("/", follow_redirects=False).status_code == 401
+        assert client.get("/dashboard", follow_redirects=False).status_code == 401
     # Correct credentials still work — no lockout was ever armed.
-    assert client.get("/", auth=("admin", "adminpw")).status_code == 200
+    assert client.get("/dashboard", auth=("admin", "adminpw")).status_code == 200
 
 
 def test_lockout_is_not_extended_by_further_attempts(monkeypatch, tmp_path):
@@ -124,12 +124,12 @@ def test_lockout_is_not_extended_by_further_attempts(monkeypatch, tmp_path):
     )
     bad = ("admin", "nope")
     for _ in range(2):
-        client.get("/", auth=bad)
-    first = int(client.get("/", auth=bad).headers["Retry-After"])
+        client.get("/dashboard", auth=bad)
+    first = int(client.get("/dashboard", auth=bad).headers["Retry-After"])
     # Hammering the endpoint leaves the original deadline intact (it only ever
     # counts down); before the fix each attempt re-armed a full lockout.
     for _ in range(5):
-        again = int(client.get("/", auth=bad).headers["Retry-After"])
+        again = int(client.get("/dashboard", auth=bad).headers["Retry-After"])
         assert again <= first
 
 
@@ -155,8 +155,8 @@ def test_first_lockout_uses_the_short_default(monkeypatch, tmp_path):
     )
     bad = ("admin", "nope")
     for _ in range(2):
-        client.get("/", auth=bad)
-    locked = client.get("/", auth=bad)
+        client.get("/dashboard", auth=bad)
+    locked = client.get("/dashboard", auth=bad)
     assert locked.status_code == 429
     # 60s default, not the 15-minute ceiling.
     assert int(locked.headers["Retry-After"]) <= 61
@@ -172,9 +172,9 @@ def test_successful_login_clears_failures(monkeypatch, tmp_path):
     )
     good = ("admin", "adminpw")
     bad = ("admin", "nope")
-    assert client.get("/", auth=bad).status_code == 401
-    assert client.get("/", auth=bad).status_code == 401
+    assert client.get("/dashboard", auth=bad).status_code == 401
+    assert client.get("/dashboard", auth=bad).status_code == 401
     # A success resets the counter, so the budget starts over.
-    assert client.get("/", auth=good).status_code == 200
+    assert client.get("/dashboard", auth=good).status_code == 200
     for _ in range(2):
-        assert client.get("/", auth=bad).status_code == 401  # not locked yet
+        assert client.get("/dashboard", auth=bad).status_code == 401  # not locked yet

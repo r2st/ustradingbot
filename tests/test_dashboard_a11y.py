@@ -32,7 +32,7 @@ def _no_auth(monkeypatch) -> None:
 
 @pytest.fixture
 def html(client) -> str:
-    return client.get("/").text
+    return client.get("/dashboard").text
 
 
 def test_page_renders(html) -> None:
