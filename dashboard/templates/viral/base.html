@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0A0A0B">
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<title>{% block title %}DoAide Trade{% endblock %}</title>
+<meta name="description" content="{% block description %}Free trading calculators and tools by DoAide Trade.{% endblock %}">
+<meta property="og:title" content="{% block og_title %}DoAide Trade{% endblock %}">
+<meta property="og:description" content="{% block og_description %}Free trading calculators and tools.{% endblock %}">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://trade.doaide.com{% block og_url %}{% endblock %}">
+<link rel="stylesheet" href="/static/viral.css">
+{% block json_ld %}{% endblock %}
+</head>
+<body>
+<header class="v-header">
+  <div class="v-header-inner">
+    <a href="/" class="v-brand">
+      <svg width="28" height="28" viewBox="0 0 32 32" fill="none"><rect width="32" height="32" rx="8" fill="#F0B429"/><path d="M8 22L12 10L16 18L20 12L24 20" stroke="#0A0A0B" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      DoAide <em>Trade</em>
+    </a>
+    <nav class="v-nav">
+      <a href="/tools">Tools</a>
+      <a href="/blog">Blog</a>
+    </nav>
+  </div>
+</header>
+
+<main style="padding:32px 0;min-height:70vh">
+  <div class="v-container">
+    {% block content %}{% endblock %}
+  </div>
+</main>
+
+<div class="v-cta">
+  <h3>Ready to automate your trading?</h3>
+  <p>AI-powered trading bot with real-time risk management and analytics.</p>
+  <a href="/" class="v-btn">Get Started</a>
+</div>
+
+<footer class="v-footer">
+  <div class="v-footer-inner">
+    <a href="https://doaide.com" style="color:inherit">doaide.com</a>
+    <span>&copy; 2024 DoAide</span>
+  </div>
+</footer>
+
+{% block share_script %}
+<script>
+function copyLink(url) {
+  navigator.clipboard.writeText(url || window.location.href).then(function() {
+    var btn = document.getElementById('copy-btn');
+    if (btn) { btn.textContent = 'Copied!'; setTimeout(function() { btn.textContent = 'Copy Link'; }, 2000); }
+  });
+}
+</script>
+{% endblock %}
+{% block extra_script %}{% endblock %}
+</body>
+</html>

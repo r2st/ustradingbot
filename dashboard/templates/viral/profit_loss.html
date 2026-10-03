@@ -1,0 +1,76 @@
+{% extends "viral/base.html" %}
+{% block title %}Profit & Loss Calculator | DoAide Trade{% endblock %}
+{% block description %}Free P&L calculator. Calculate gross/net profit, commissions, and return percentage.{% endblock %}
+{% block og_title %}Profit & Loss Calculator{% endblock %}
+{% block og_url %}/tools/profit-loss-calculator{% endblock %}
+{% block json_ld %}
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Profit & Loss Calculator","url":"https://trade.doaide.com/tools/profit-loss-calculator","description":"Calculate trade P&L including commissions and return percentage.","applicationCategory":"FinanceApplication","operatingSystem":"Web","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}}</script>
+{% endblock %}
+{% block content %}
+<h1>Profit &amp; Loss Calculator</h1>
+<p class="v-subtitle">Calculate your trade P&amp;L including commissions and return percentage.</p>
+
+<div class="v-card">
+  <div class="v-grid v-grid-2">
+    <div class="v-form-group">
+      <label class="v-label">Entry Price ($)</label>
+      <input type="number" id="entry" class="v-input" value="150" min="0" step="0.01" oninput="calc()">
+    </div>
+    <div class="v-form-group">
+      <label class="v-label">Exit Price ($)</label>
+      <input type="number" id="exit" class="v-input" value="165" min="0" step="0.01" oninput="calc()">
+    </div>
+    <div class="v-form-group">
+      <label class="v-label">Quantity (shares)</label>
+      <input type="number" id="qty" class="v-input" value="100" min="0" step="1" oninput="calc()">
+    </div>
+    <div class="v-form-group">
+      <label class="v-label">Commission Per Trade ($)</label>
+      <input type="number" id="comm" class="v-input" value="0" min="0" step="0.01" oninput="calc()">
+    </div>
+  </div>
+</div>
+
+<div id="results" class="v-card" style="display:none">
+  <h2 style="margin-top:0">Results</h2>
+  <div class="v-grid v-grid-4">
+    <div class="v-result"><div class="v-result-label">Gross P&amp;L</div><div class="v-result-value" id="r-gross"></div></div>
+    <div class="v-result"><div class="v-result-label">Total Commissions</div><div class="v-result-value" id="r-comm"></div></div>
+    <div class="v-result"><div class="v-result-label">Net P&amp;L</div><div class="v-result-value" id="r-net"></div></div>
+    <div class="v-result"><div class="v-result-label">Return</div><div class="v-result-value" id="r-ret"></div></div>
+  </div>
+</div>
+
+<div class="v-share">
+  <span class="v-share-label">Share</span>
+  <a href="https://wa.me/?text=Free%20P%26L%20Calculator%20https://trade.doaide.com/tools/profit-loss-calculator" target="_blank" rel="noopener" class="v-share-btn">WhatsApp</a>
+  <a href="https://twitter.com/intent/tweet?text=Free%20P%26L%20Calculator&url=https://trade.doaide.com/tools/profit-loss-calculator" target="_blank" rel="noopener" class="v-share-btn">Twitter/X</a>
+  <button class="v-share-btn" id="copy-btn" onclick="copyLink('https://trade.doaide.com/tools/profit-loss-calculator')">Copy Link</button>
+</div>
+{% endblock %}
+{% block extra_script %}
+<script>
+function fmt(n) { return '$' + Math.abs(n).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}); }
+function calc() {
+  var entry = parseFloat(document.getElementById('entry').value) || 0;
+  var exit = parseFloat(document.getElementById('exit').value) || 0;
+  var qty = parseFloat(document.getElementById('qty').value) || 0;
+  var comm = parseFloat(document.getElementById('comm').value) || 0;
+  var gross = (exit - entry) * qty;
+  var totalComm = comm * 2;
+  var net = gross - totalComm;
+  var ret = entry * qty > 0 ? (net / (entry * qty)) * 100 : 0;
+  var cls = net >= 0 ? 'green' : 'red';
+  document.getElementById('r-gross').textContent = (gross >= 0 ? '+' : '-') + fmt(gross);
+  document.getElementById('r-gross').className = 'v-result-value ' + (gross >= 0 ? 'green' : 'red');
+  document.getElementById('r-comm').textContent = fmt(totalComm);
+  document.getElementById('r-comm').className = 'v-result-value';
+  document.getElementById('r-net').textContent = (net >= 0 ? '+' : '-') + fmt(net);
+  document.getElementById('r-net').className = 'v-result-value ' + cls;
+  document.getElementById('r-ret').textContent = (ret >= 0 ? '+' : '') + ret.toFixed(2) + '%';
+  document.getElementById('r-ret').className = 'v-result-value ' + cls;
+  document.getElementById('results').style.display = 'block';
+}
+calc();
+</script>
+{% endblock %}

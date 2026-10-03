@@ -1,0 +1,83 @@
+{% extends "viral/base.html" %}
+{% block title %}Risk/Reward Calculator | DoAide Trade{% endblock %}
+{% block description %}Free risk/reward calculator. Evaluate trade setups with visual R:R analysis.{% endblock %}
+{% block og_title %}Risk/Reward Calculator{% endblock %}
+{% block og_url %}/tools/risk-reward-calculator{% endblock %}
+{% block json_ld %}
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Risk/Reward Calculator","url":"https://trade.doaide.com/tools/risk-reward-calculator","description":"Calculate risk-to-reward ratio for trade setups with visual analysis.","applicationCategory":"FinanceApplication","operatingSystem":"Web","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}}</script>
+{% endblock %}
+{% block content %}
+<h1>Risk/Reward Calculator</h1>
+<p class="v-subtitle">Evaluate your trade setup by calculating the risk-to-reward ratio.</p>
+
+<div class="v-card">
+  <div class="v-grid v-grid-3">
+    <div class="v-form-group">
+      <label class="v-label">Entry Price ($)</label>
+      <input type="number" id="entry" class="v-input" value="150" min="0" step="0.01" oninput="calc()">
+    </div>
+    <div class="v-form-group">
+      <label class="v-label">Take Profit ($)</label>
+      <input type="number" id="tp" class="v-input" value="170" min="0" step="0.01" oninput="calc()">
+    </div>
+    <div class="v-form-group">
+      <label class="v-label">Stop Loss ($)</label>
+      <input type="number" id="sl" class="v-input" value="145" min="0" step="0.01" oninput="calc()">
+    </div>
+  </div>
+</div>
+
+<div id="results" class="v-card" style="display:none">
+  <h2 style="margin-top:0">Results</h2>
+  <div class="v-grid v-grid-3" style="margin-bottom:20px">
+    <div class="v-result"><div class="v-result-label">Risk</div><div class="v-result-value red" id="r-risk"></div></div>
+    <div class="v-result"><div class="v-result-label">Reward</div><div class="v-result-value green" id="r-reward"></div></div>
+    <div class="v-result"><div class="v-result-label">R:R Ratio</div><div class="v-result-value gold" id="r-ratio"></div></div>
+  </div>
+  <div style="margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-bottom:4px">
+      <span>Risk</span><span>Reward</span>
+    </div>
+    <div style="display:flex;height:12px;border-radius:6px;overflow:hidden">
+      <div id="bar-risk" style="background:var(--red);transition:width .3s"></div>
+      <div id="bar-reward" style="background:var(--green);transition:width .3s"></div>
+    </div>
+  </div>
+  <div style="text-align:center">
+    <span class="v-badge" id="r-badge"></span>
+  </div>
+</div>
+
+<div class="v-share">
+  <span class="v-share-label">Share</span>
+  <a href="https://wa.me/?text=Free%20Risk/Reward%20Calculator%20https://trade.doaide.com/tools/risk-reward-calculator" target="_blank" rel="noopener" class="v-share-btn">WhatsApp</a>
+  <a href="https://twitter.com/intent/tweet?text=Free%20Risk/Reward%20Calculator&url=https://trade.doaide.com/tools/risk-reward-calculator" target="_blank" rel="noopener" class="v-share-btn">Twitter/X</a>
+  <button class="v-share-btn" id="copy-btn" onclick="copyLink('https://trade.doaide.com/tools/risk-reward-calculator')">Copy Link</button>
+</div>
+{% endblock %}
+{% block extra_script %}
+<script>
+function calc() {
+  var entry = parseFloat(document.getElementById('entry').value) || 0;
+  var tp = parseFloat(document.getElementById('tp').value) || 0;
+  var sl = parseFloat(document.getElementById('sl').value) || 0;
+  var risk = Math.abs(entry - sl);
+  var reward = Math.abs(tp - entry);
+  if (risk === 0) { document.getElementById('results').style.display = 'none'; return; }
+  var ratio = reward / risk;
+  document.getElementById('r-risk').textContent = '$' + risk.toFixed(2);
+  document.getElementById('r-reward').textContent = '$' + reward.toFixed(2);
+  document.getElementById('r-ratio').textContent = '1:' + ratio.toFixed(2);
+  var total = risk + reward;
+  document.getElementById('bar-risk').style.width = ((risk / total) * 100) + '%';
+  document.getElementById('bar-reward').style.width = ((reward / total) * 100) + '%';
+  var badge = document.getElementById('r-badge');
+  if (ratio >= 3) { badge.textContent = 'Excellent'; badge.className = 'v-badge green'; }
+  else if (ratio >= 2) { badge.textContent = 'Good'; badge.className = 'v-badge green'; }
+  else if (ratio >= 1) { badge.textContent = 'Acceptable'; badge.className = 'v-badge gold'; }
+  else { badge.textContent = 'Poor'; badge.className = 'v-badge red'; }
+  document.getElementById('results').style.display = 'block';
+}
+calc();
+</script>
+{% endblock %}

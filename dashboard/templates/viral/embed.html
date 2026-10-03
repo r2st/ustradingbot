@@ -1,0 +1,63 @@
+{% extends "viral/base.html" %}
+{% block title %}Embed Our Calculators | DoAide Trade{% endblock %}
+{% block og_title %}Embed Our Trading Calculators{% endblock %}
+{% block og_url %}/embed{% endblock %}
+{% block content %}
+<h1>Embed Our Calculators</h1>
+<p class="v-subtitle">Add free trading calculators to your website, blog, or trading community.</p>
+
+<div class="v-card">
+  <div class="v-grid v-grid-3">
+    <div class="v-form-group">
+      <label class="v-label">Calculator</label>
+      <select id="tool" class="v-input" onchange="updateCode()">
+        <option value="/tools/position-size-calculator">Position Size Calculator</option>
+        <option value="/tools/profit-loss-calculator">Profit &amp; Loss Calculator</option>
+        <option value="/tools/risk-reward-calculator">Risk/Reward Calculator</option>
+      </select>
+    </div>
+    <div class="v-form-group">
+      <label class="v-label">Width</label>
+      <input type="text" id="width" class="v-input" value="100%" oninput="updateCode()">
+    </div>
+    <div class="v-form-group">
+      <label class="v-label">Height</label>
+      <input type="text" id="height" class="v-input" value="600" oninput="updateCode()">
+    </div>
+  </div>
+</div>
+
+<div class="v-card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <span class="v-label" style="margin:0">Embed Code</span>
+    <button class="v-share-btn" onclick="copyEmbed()">Copy Code</button>
+  </div>
+  <pre class="v-code" id="embed-code"></pre>
+</div>
+
+<h2>Preview</h2>
+<div class="v-card" style="padding:0;overflow:hidden">
+  <iframe id="preview" style="border:none;display:block;width:100%;height:600px"></iframe>
+</div>
+{% endblock %}
+{% block extra_script %}
+<script>
+function updateCode() {
+  var tool = document.getElementById('tool').value;
+  var w = document.getElementById('width').value;
+  var h = document.getElementById('height').value;
+  var src = 'https://trade.doaide.com' + tool;
+  var code = '<iframe src="' + src + '" width="' + w + '" height="' + h + '" frameborder="0" style="border:none;border-radius:12px;" title="DoAide Trade Calculator"></iframe>';
+  document.getElementById('embed-code').textContent = code;
+  document.getElementById('preview').src = tool;
+}
+function copyEmbed() {
+  navigator.clipboard.writeText(document.getElementById('embed-code').textContent).then(function() {
+    var btn = event.target;
+    btn.textContent = 'Copied!';
+    setTimeout(function() { btn.textContent = 'Copy Code'; }, 2000);
+  });
+}
+updateCode();
+</script>
+{% endblock %}

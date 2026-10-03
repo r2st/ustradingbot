@@ -1,0 +1,25 @@
+{% extends "viral/base.html" %}
+{% block title %}Free Trading Calculators | DoAide Trade{% endblock %}
+{% block description %}Free trading calculators: position size, profit/loss, and risk/reward ratio.{% endblock %}
+{% block og_title %}Free Trading Calculators{% endblock %}
+{% block og_url %}/tools{% endblock %}
+{% block json_ld %}
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"CollectionPage","name":"Free Trading Calculators","url":"https://trade.doaide.com/tools","description":"Free trading calculators for position sizing, P&L, and risk/reward analysis."}</script>
+{% endblock %}
+{% block content %}
+<h1>Free Trading Calculators</h1>
+<p class="v-subtitle">Professional-grade calculators for smarter trading decisions.</p>
+
+<a href="/tools/position-size-calculator" class="v-card v-card-link">
+  <div class="v-card-title">Position Size Calculator</div>
+  <div class="v-card-desc">Calculate the optimal number of shares based on account size, risk tolerance, and stop loss.</div>
+</a>
+<a href="/tools/profit-loss-calculator" class="v-card v-card-link">
+  <div class="v-card-title">Profit &amp; Loss Calculator</div>
+  <div class="v-card-desc">Calculate your P&amp;L including commissions, return percentage, and break-even price.</div>
+</a>
+<a href="/tools/risk-reward-calculator" class="v-card v-card-link">
+  <div class="v-card-title">Risk/Reward Calculator</div>
+  <div class="v-card-desc">Evaluate trade setups by calculating the risk-to-reward ratio with visual analysis.</div>
+</a>
+{% endblock %}

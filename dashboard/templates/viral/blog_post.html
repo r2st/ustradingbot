@@ -1,0 +1,30 @@
+{% extends "viral/base.html" %}
+{% block title %}{{ article.title }} | DoAide Trade{% endblock %}
+{% block description %}{{ article.excerpt }}{% endblock %}
+{% block og_title %}{{ article.title }}{% endblock %}
+{% block og_url %}/blog/{{ article.slug }}{% endblock %}
+{% block json_ld %}
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"Article","headline":"{{ article.title }}","datePublished":"{{ article.date }}","author":{"@type":"Organization","name":"DoAide"},"publisher":{"@type":"Organization","name":"DoAide","url":"https://doaide.com"},"url":"https://trade.doaide.com/blog/{{ article.slug }}","description":"{{ article.excerpt }}"}</script>
+{% endblock %}
+{% block content %}
+<a href="/blog" style="font-size:12px;display:inline-block;margin-bottom:24px">&larr; Back to Blog</a>
+
+<div class="v-blog-meta">
+  <span>{{ article.date }}</span>
+  <span>&middot;</span>
+  <span>{{ article.read_time }}</span>
+</div>
+
+<h1>{{ article.title }}</h1>
+
+<div class="v-blog-content" style="margin-top:24px">
+  {{ article.content_html|safe }}
+</div>
+
+<div class="v-share" style="padding-top:24px;border-top:1px solid var(--border)">
+  <span class="v-share-label">Share</span>
+  <a href="https://wa.me/?text={{ article.title|urlencode }}%20https://trade.doaide.com/blog/{{ article.slug }}" target="_blank" rel="noopener" class="v-share-btn">WhatsApp</a>
+  <a href="https://twitter.com/intent/tweet?text={{ article.title|urlencode }}&url=https://trade.doaide.com/blog/{{ article.slug }}" target="_blank" rel="noopener" class="v-share-btn">Twitter/X</a>
+  <button class="v-share-btn" id="copy-btn" onclick="copyLink('https://trade.doaide.com/blog/{{ article.slug }}')">Copy Link</button>
+</div>
+{% endblock %}

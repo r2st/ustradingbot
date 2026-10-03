@@ -1,0 +1,71 @@
+{% extends "viral/base.html" %}
+{% block title %}Position Size Calculator | DoAide Trade{% endblock %}
+{% block description %}Free position size calculator. Calculate optimal shares based on account size, risk, and stop loss.{% endblock %}
+{% block og_title %}Position Size Calculator{% endblock %}
+{% block og_url %}/tools/position-size-calculator{% endblock %}
+{% block json_ld %}
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Position Size Calculator","url":"https://trade.doaide.com/tools/position-size-calculator","description":"Calculate optimal position size based on account size, risk percentage, and stop loss.","applicationCategory":"FinanceApplication","operatingSystem":"Web","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}}</script>
+{% endblock %}
+{% block content %}
+<h1>Position Size Calculator</h1>
+<p class="v-subtitle">Calculate the optimal number of shares to trade based on your risk parameters.</p>
+
+<div class="v-card">
+  <div class="v-grid v-grid-2">
+    <div class="v-form-group">
+      <label class="v-label">Account Size ($)</label>
+      <input type="number" id="account" class="v-input" value="25000" min="0" step="100" oninput="calc()">
+    </div>
+    <div class="v-form-group">
+      <label class="v-label">Risk Per Trade (%)</label>
+      <input type="number" id="risk" class="v-input" value="2" min="0" max="100" step="0.5" oninput="calc()">
+    </div>
+    <div class="v-form-group">
+      <label class="v-label">Entry Price ($)</label>
+      <input type="number" id="entry" class="v-input" value="150" min="0" step="0.01" oninput="calc()">
+    </div>
+    <div class="v-form-group">
+      <label class="v-label">Stop Loss Price ($)</label>
+      <input type="number" id="stop" class="v-input" value="145" min="0" step="0.01" oninput="calc()">
+    </div>
+  </div>
+</div>
+
+<div id="results" class="v-card" style="display:none">
+  <h2 style="margin-top:0">Results</h2>
+  <div class="v-grid v-grid-4">
+    <div class="v-result"><div class="v-result-label">Risk Amount</div><div class="v-result-value gold" id="r-risk"></div></div>
+    <div class="v-result"><div class="v-result-label">Risk Per Share</div><div class="v-result-value" id="r-rps"></div></div>
+    <div class="v-result"><div class="v-result-label">Position Size</div><div class="v-result-value gold" id="r-shares"></div></div>
+    <div class="v-result"><div class="v-result-label">Position Value</div><div class="v-result-value" id="r-value"></div></div>
+  </div>
+</div>
+
+<div class="v-share">
+  <span class="v-share-label">Share</span>
+  <a href="https://wa.me/?text=Free%20Position%20Size%20Calculator%20https://trade.doaide.com/tools/position-size-calculator" target="_blank" rel="noopener" class="v-share-btn">WhatsApp</a>
+  <a href="https://twitter.com/intent/tweet?text=Free%20Position%20Size%20Calculator&url=https://trade.doaide.com/tools/position-size-calculator" target="_blank" rel="noopener" class="v-share-btn">Twitter/X</a>
+  <button class="v-share-btn" id="copy-btn" onclick="copyLink('https://trade.doaide.com/tools/position-size-calculator')">Copy Link</button>
+</div>
+{% endblock %}
+{% block extra_script %}
+<script>
+function calc() {
+  var account = parseFloat(document.getElementById('account').value) || 0;
+  var risk = parseFloat(document.getElementById('risk').value) || 0;
+  var entry = parseFloat(document.getElementById('entry').value) || 0;
+  var stop = parseFloat(document.getElementById('stop').value) || 0;
+  var riskAmt = account * (risk / 100);
+  var rps = Math.abs(entry - stop);
+  if (rps === 0) { document.getElementById('results').style.display = 'none'; return; }
+  var shares = Math.floor(riskAmt / rps);
+  var posValue = shares * entry;
+  document.getElementById('r-risk').textContent = '$' + riskAmt.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  document.getElementById('r-rps').textContent = '$' + rps.toFixed(2);
+  document.getElementById('r-shares').textContent = shares.toLocaleString() + ' shares';
+  document.getElementById('r-value').textContent = '$' + posValue.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  document.getElementById('results').style.display = 'block';
+}
+calc();
+</script>
+{% endblock %}

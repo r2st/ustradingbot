@@ -2863,6 +2863,10 @@ for _r in (
 ):
     app.include_router(_r)
 
+from dashboard.viral_router import router as _viral_router
+
+app.include_router(_viral_router)
+
 
 @app.on_event("startup")
 async def _startup_rate_limit_backend() -> None:

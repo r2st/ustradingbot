@@ -1,0 +1,24 @@
+{% extends "viral/base.html" %}
+{% block title %}Blog | DoAide Trade{% endblock %}
+{% block description %}Trading insights, risk management strategies, and algorithmic trading guides.{% endblock %}
+{% block og_title %}DoAide Trade Blog{% endblock %}
+{% block og_url %}/blog{% endblock %}
+{% block json_ld %}
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"Blog","name":"DoAide Trade Blog","url":"https://trade.doaide.com/blog","description":"Trading insights, risk management strategies, and algorithmic trading guides."}</script>
+{% endblock %}
+{% block content %}
+<h1>Blog</h1>
+<p class="v-subtitle">Trading insights, risk management, and algorithmic trading guides.</p>
+
+{% for article in articles %}
+<a href="/blog/{{ article.slug }}" class="v-card v-card-link">
+  <div class="v-blog-meta">
+    <span>{{ article.date }}</span>
+    <span>&middot;</span>
+    <span>{{ article.read_time }}</span>
+  </div>
+  <div class="v-card-title">{{ article.title }}</div>
+  <div class="v-card-desc">{{ article.excerpt }}</div>
+</a>
+{% endfor %}
+{% endblock %}
