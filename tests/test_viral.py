@@ -59,6 +59,27 @@ class TestBlogPages:
         assert "AI Trading Bots" in r.text
         assert "Risk Management" in r.text
         assert "Algorithmic Trading" in r.text
+        assert "Stock Screening Tools" in r.text
+        assert "Technical Analysis" in r.text
+        assert "Free Trading Tools" in r.text
+
+    def test_blog_post_stock_screening_india(self):
+        r = client.get("/blog/stock-screening-tools-india")
+        assert r.status_code == 200
+        assert "Best Stock Screening Tools for Indian Investors" in r.text
+        assert "Screener.in" in r.text
+
+    def test_blog_post_technical_analysis(self):
+        r = client.get("/blog/technical-analysis-beginners-guide")
+        assert r.status_code == 200
+        assert "Technical Analysis for Beginners" in r.text
+        assert "Candlestick" in r.text
+
+    def test_blog_post_free_tools_2026(self):
+        r = client.get("/blog/best-free-trading-tools-2026")
+        assert r.status_code == 200
+        assert "Best Free Trading Tools in 2026" in r.text
+        assert "DoAide Trade Position Size Calculator" in r.text
 
     def test_blog_post_ai_trading(self):
         r = client.get("/blog/ai-trading-bots-retail-investing")
@@ -99,6 +120,28 @@ class TestEmbedPage:
         assert r.status_code != 401
 
 
+class TestLandingPage:
+    def test_landing_contains_faq(self):
+        r = client.get("/")
+        assert r.status_code == 200
+        assert "Frequently Asked Questions" in r.text
+
+    def test_landing_faq_json_ld(self):
+        r = client.get("/")
+        assert "FAQPage" in r.text
+        assert "application/ld+json" in r.text
+
+    def test_landing_has_features_cta(self):
+        r = client.get("/")
+        assert "Why traders choose DoAide Trade" in r.text
+        assert "Try Free Trading Tools" in r.text
+
+    def test_landing_seo_meta(self):
+        r = client.get("/")
+        assert 'content="index, follow"' in r.text
+        assert 'rel="canonical"' in r.text
+
+
 class TestSEO:
     def test_sitemap_xml(self):
         r = client.get("/sitemap.xml")
@@ -106,6 +149,12 @@ class TestSEO:
         assert "application/xml" in r.headers.get("content-type", "")
         assert "<urlset" in r.text
         assert "trade.doaide.com/tools" in r.text
+
+    def test_sitemap_contains_new_blog_posts(self):
+        r = client.get("/sitemap.xml")
+        assert "stock-screening-tools-india" in r.text
+        assert "technical-analysis-beginners-guide" in r.text
+        assert "best-free-trading-tools-2026" in r.text
 
     def test_robots_txt(self):
         r = client.get("/robots.txt")
