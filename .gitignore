@@ -70,3 +70,7 @@ rejected.jsonl
 
 # Session scratch (Claude Code temp working files)
 scratchpad/
+
+# Environment
+.env*
+!.env.example
