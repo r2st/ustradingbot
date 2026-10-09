@@ -1,0 +1,80 @@
+<!-- Feedback Widget — floating button + modal -->
+<div id="fb-widget">
+  <button id="fb-toggle" aria-label="Send feedback" title="Feedback">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+  </button>
+  <div id="fb-modal" style="display:none">
+    <div class="fb-header">
+      <span>Send Feedback</span>
+      <button id="fb-close" aria-label="Close">&times;</button>
+    </div>
+    <form id="fb-form">
+      <select id="fb-cat" name="category">
+        <option value="general">General</option>
+        <option value="bug">Bug Report</option>
+        <option value="feature">Feature Request</option>
+        <option value="praise">Praise</option>
+      </select>
+      <textarea id="fb-msg" name="message" placeholder="Your feedback…" rows="4" maxlength="2000" required></textarea>
+      <button type="submit" id="fb-submit">Send</button>
+      <div id="fb-status" style="display:none"></div>
+    </form>
+  </div>
+</div>
+<style>
+#fb-widget{position:fixed;bottom:24px;left:24px;z-index:9999;font-family:"Schibsted Grotesk",system-ui,sans-serif}
+#fb-toggle{width:48px;height:48px;border-radius:50%;border:none;background:#F0B429;color:#0A0A0B;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 12px rgba(0,0,0,.3);transition:transform .15s}
+#fb-toggle:hover{transform:scale(1.1)}
+#fb-modal{position:absolute;bottom:60px;left:0;width:320px;background:#101012;border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:16px;box-shadow:0 8px 32px rgba(0,0,0,.5)}
+.fb-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;color:#fff;font-weight:600}
+#fb-close{background:none;border:none;color:rgba(255,255,255,.5);font-size:20px;cursor:pointer}
+#fb-cat{width:100%;padding:8px;margin-bottom:8px;background:#1A1A1D;border:1px solid rgba(255,255,255,.1);border-radius:6px;color:#fff;font-size:13px}
+#fb-msg{width:100%;padding:8px;background:#1A1A1D;border:1px solid rgba(255,255,255,.1);border-radius:6px;color:#fff;resize:vertical;font-size:13px;font-family:inherit}
+#fb-submit{width:100%;margin-top:8px;padding:10px;background:#F0B429;color:#0A0A0B;border:none;border-radius:6px;font-weight:600;cursor:pointer;font-size:14px}
+#fb-submit:hover{background:#D9A326}
+#fb-submit:disabled{opacity:.5;cursor:not-allowed}
+#fb-status{margin-top:8px;font-size:13px;text-align:center}
+</style>
+<script>
+(function(){
+  var toggle=document.getElementById("fb-toggle"),
+      modal=document.getElementById("fb-modal"),
+      close=document.getElementById("fb-close"),
+      form=document.getElementById("fb-form"),
+      status=document.getElementById("fb-status"),
+      submit=document.getElementById("fb-submit");
+
+  toggle.addEventListener("click",function(){modal.style.display=modal.style.display==="none"?"block":"none"});
+  close.addEventListener("click",function(){modal.style.display="none"});
+
+  form.addEventListener("submit",function(e){
+    e.preventDefault();
+    submit.disabled=true;
+    status.style.display="none";
+    fetch("/api/feedback",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        category:document.getElementById("fb-cat").value,
+        message:document.getElementById("fb-msg").value,
+        page:location.pathname
+      })
+    }).then(function(r){
+      if(r.ok){
+        status.textContent="Thanks for your feedback!";
+        status.style.color="#22C55E";
+        form.reset();
+        setTimeout(function(){modal.style.display="none";status.style.display="none"},1500);
+      }else{
+        return r.json().then(function(d){throw new Error(d.error||"Failed")});
+      }
+    }).catch(function(err){
+      status.textContent=err.message;
+      status.style.color="#EF4444";
+    }).finally(function(){
+      status.style.display="block";
+      submit.disabled=false;
+    });
+  });
+})();
+</script>

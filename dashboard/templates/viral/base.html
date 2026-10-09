@@ -12,6 +12,7 @@
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://trade.doaide.com{% block og_url %}{% endblock %}">
 <link rel="stylesheet" href="/static/viral.css">
+<script defer src="https://analytics.doaide.com/script.js" data-website-id="32893208-8775-4a86-937f-4542984e7a7e"></script>
 {% block json_ld %}{% endblock %}
 </head>
 <body>
@@ -58,5 +59,6 @@ function copyLink(url) {
 </script>
 {% endblock %}
 {% block extra_script %}{% endblock %}
+{% include "feedback_widget.html" %}
 </body>
 </html>
