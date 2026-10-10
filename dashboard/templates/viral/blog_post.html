@@ -4,7 +4,10 @@
 {% block og_title %}{{ article.title }}{% endblock %}
 {% block og_url %}/blog/{{ article.slug }}{% endblock %}
 {% block json_ld %}
-<script type="application/ld+json">{"@context":"https://schema.org","@type":"Article","headline":"{{ article.title }}","datePublished":"{{ article.date }}","author":{"@type":"Organization","name":"DoAide"},"publisher":{"@type":"Organization","name":"DoAide","url":"https://doaide.com"},"url":"https://trade.doaide.com/blog/{{ article.slug }}","description":"{{ article.excerpt }}"}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BlogPosting","headline":"{{ article.title }}","datePublished":"{{ article.iso_date or article.date }}","dateModified":"{{ article.iso_date or article.date }}","author":{"@type":"Organization","name":"DoAide"},"publisher":{"@type":"Organization","name":"DoAide","url":"https://doaide.com","logo":{"@type":"ImageObject","url":"https://trade.doaide.com/static/favicon.svg"}},"url":"https://trade.doaide.com/blog/{{ article.slug }}","description":"{{ article.excerpt }}","mainEntityOfPage":{"@type":"WebPage","@id":"https://trade.doaide.com/blog/{{ article.slug }}"}}</script>
+{% if article.faq_json_ld %}
+<script type="application/ld+json">{{ article.faq_json_ld|safe }}</script>
+{% endif %}
 {% endblock %}
 {% block content %}
 <a href="/blog" style="font-size:12px;display:inline-block;margin-bottom:24px">&larr; Back to Blog</a>
