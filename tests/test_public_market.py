@@ -32,8 +32,6 @@ def _fake_market(monkeypatch: pytest.MonkeyPatch):
         return _bars(100.0, 0.5)
 
     monkeypatch.setattr(public_market_router, "_fetch_ohlcv", fake)
-    monkeypatch.setenv("DASHBOARD_AUTH_ENABLED", "True")
-    monkeypatch.setenv("DASHBOARD_PASSWORD", "secret")
     public_market_router.clear_cache()
     yield
     public_market_router.clear_cache()
@@ -116,9 +114,14 @@ class TestPublicPages:
             assert r.status_code == 200
             assert "temporarily unavailable" in r.text
 
-    def test_dashboard_still_requires_login(self):
-        r = client.get("/dashboard")
-        assert r.status_code == 401
+    def test_dashboard_still_requires_login(self, monkeypatch: pytest.MonkeyPatch, tmp_path):
+        import dashboard.app as dash
+        from config.settings import Settings
+
+        settings = Settings(DASHBOARD_AUTH_ENABLED=True, DASHBOARD_PASSWORD="pw", DATA_DIR=tmp_path)
+        monkeypatch.setattr(dash, "get_settings", lambda: settings)
+        assert client.get("/dashboard").status_code == 401
+        assert client.get("/screener").status_code == 200
 
     def test_landing_links_free_pages(self):
         r = client.get("/")

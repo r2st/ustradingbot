@@ -83,6 +83,7 @@
 <p class="v-disclaimer">Indicators are computed from daily bars for information only — not investment advice.</p>
 {% endblock %}
 {% block extra_script %}
+<script src="/static/share.js"></script>
 <script>
 (function () {
   var ROWS = {{ data.rows | tojson }};
@@ -148,6 +149,12 @@
     });
   });
   if (ROWS.length) render();
+  $('wa-screener').addEventListener('click', function (e) {
+    var rows = window.__screenerRows || ROWS;
+    if (!rows.length) return;
+    e.preventDefault();
+    DoAideShare.open(DoAideShare.watchlistText('Stocks from my screen', rows, 'https://trade.doaide.com/screener'));
+  });
 })();
 </script>
 {% endblock %}

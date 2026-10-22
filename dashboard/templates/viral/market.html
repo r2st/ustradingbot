@@ -80,9 +80,22 @@
 
 <div class="v-share">
   <span class="v-share-label">Share</span>
-  <a href="https://wa.me/?text=Free%20US%20market%20overview%20https://trade.doaide.com/market" target="_blank" rel="noopener" class="v-share-btn">WhatsApp</a>
+  <a href="https://wa.me/?text=Free%20US%20market%20overview%20https://trade.doaide.com/market" target="_blank" rel="noopener" class="v-share-btn" id="wa-market">WhatsApp</a>
   <a href="https://twitter.com/intent/tweet?text=Free%20US%20market%20overview&url=https://trade.doaide.com/market" target="_blank" rel="noopener" class="v-share-btn">Twitter/X</a>
   <button type="button" class="v-share-btn" id="copy-btn" onclick="copyLink('https://trade.doaide.com/market')">Copy Link</button>
 </div>
 <p class="v-disclaimer">Prices are delayed end-of-day/intraday snapshots for information only — not investment advice.</p>
+{% endblock %}
+{% block extra_script %}
+<script src="/static/share.js"></script>
+<script>
+(function () {
+  var rows = {{ data.indices | tojson }}.concat({{ data.gainers | tojson }});
+  document.getElementById('wa-market').addEventListener('click', function (e) {
+    if (!rows.length) return;
+    e.preventDefault();
+    DoAideShare.open(DoAideShare.watchlistText('US market today', rows, 'https://trade.doaide.com/market'));
+  });
+})();
+</script>
 {% endblock %}

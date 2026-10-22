@@ -1774,6 +1774,12 @@
   .ov-hold-pnl.pnl-pos { color: var(--green); }
   .ov-hold-pnl.pnl-neg { color: var(--red); }
   .ov-holdings .empty-note { padding: 14px 16px; }
+  .wa-btn { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+  .wa-btn::before {
+    content: ""; width: 8px; height: 8px; border-radius: 50%; background: #25D366; flex: 0 0 auto;
+  }
+  h4 .wa-btn { margin-left: 10px; vertical-align: middle; }
+  .wa-amounts { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); cursor: pointer; }
 
   /* System health strip */
   .ov-health {
@@ -2153,6 +2159,9 @@
     <div class="ov-holdings-head">
       <h3 id="ovHoldingsTitle">Top Holdings</h3>
       <span class="ov-holdings-meta" id="ovHoldingsMeta"></span>
+      <label class="wa-amounts" title="Off by default so a forwarded message doesn't reveal your account size">
+        <input type="checkbox" id="ovShareAmounts"> Include $ amounts</label>
+      <button type="button" class="btn-secondary wa-btn" id="ovShareWa">Share on WhatsApp</button>
     </div>
     <div id="ovHoldingsList"><div class="empty-note">Loading…</div></div>
   </div>
@@ -4041,7 +4050,9 @@
 
     <!-- Watchlist monitor (monitoring F8): live price + scan status -->
     <h4 style="margin-top:18px;">Watchlist Monitor
-      <span class="bt-hint" id="wlMonScanTs"></span></h4>
+      <span class="bt-hint" id="wlMonScanTs"></span>
+      <button type="button" class="btn-secondary wa-btn" id="wlShareWa"
+              title="Share this watchlist's prices and day moves on WhatsApp">Share on WhatsApp</button></h4>
     <p class="muted-note">What might the bot do next — live price, day change, and each
       symbol's status in the latest scan (signal / near entry / held / rejected / excluded).</p>
     <div style="overflow-x:auto;">
@@ -8626,6 +8637,7 @@
       if (ts) ts.textContent = d.last_scan_at
         ? "last scan " + etStamp(d.last_scan_at)
         : "no scan recorded yet";
+      window.__wlMonitorRows = d.symbols || [];
       var tb = document.getElementById("wlMonRows");
       var chipStyle = {
         signal: "background:rgba(46,204,113,.25);",
@@ -11041,6 +11053,25 @@
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", load);
   else load();
   setInterval(function () { if (!document.hidden) load(); }, 60000);
+})();
+</script>
+
+<script src="/static/share.js"></script>
+<script>
+(function () {
+  "use strict";
+  function on(id, fn) { var el = document.getElementById(id); if (el) el.addEventListener("click", fn); }
+  on("ovShareWa", function () {
+    var d = window.getPortfolioSummary && window.getPortfolioSummary();
+    if (!d) return;
+    var amounts = document.getElementById("ovShareAmounts");
+    DoAideShare.open(DoAideShare.portfolioText(d, { includeAmounts: !!(amounts && amounts.checked) }));
+  });
+  on("wlShareWa", function () {
+    var rows = window.__wlMonitorRows || [];
+    if (!rows.length) return;
+    DoAideShare.open(DoAideShare.watchlistText("My watchlist today", rows, "https://trade.doaide.com/screener"));
+  });
 })();
 </script>
 
