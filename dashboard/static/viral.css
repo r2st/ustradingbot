@@ -89,3 +89,19 @@ pre.v-code{background:rgba(255,255,255,.04);border:1px solid var(--border);borde
   h1{font-size:22px}
   .v-card{padding:16px}
 }
+
+/* Touch targets (>=48px) for phones and other coarse pointers. */
+@media (pointer:coarse),(max-width:768px){
+  .v-btn,.v-share-btn,button{min-height:48px;min-width:48px;display:inline-flex;align-items:center;justify-content:center;padding:12px 18px}
+  .v-input,select.v-input{min-height:48px;font-size:16px}
+  .v-header-inner{flex-wrap:wrap;gap:4px}
+  .v-nav{gap:0;overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%}
+  .v-nav a{display:inline-flex;align-items:center;min-height:48px;padding:0 12px;white-space:nowrap}
+  .v-brand{min-height:48px}
+  .v-card-link{min-height:48px}
+  .v-footer-inner a{display:inline-flex;align-items:center;min-height:48px}
+  .v-table th[data-sort]{height:48px}
+  .v-table td{padding-top:12px;padding-bottom:12px}
+  .v-share{gap:8px}
+  .v-share-btn{flex:1 1 30%}
+}

@@ -1818,6 +1818,32 @@
     .ov-metric, .ov-action { transition: none; }
     .ov-metric:hover, .ov-action:hover { transform: none; }
   }
+  /* ── Touch targets (≥48px) ──────────────────────────────────────────
+     Phones and other coarse pointers get 48×48 minimum hit areas on every
+     control (WCAG 2.5.5 / Material guidance).  Applied last so it wins over
+     the denser desktop sizing above without touching it. */
+  @media (pointer: coarse), (max-width: 768px) {
+    button, .btn-primary, .btn-secondary, .btn-danger, .btn-download, .btn-sm,
+    .icon-btn, .mode-toggle-btn, .nav-toggle, .nav-cat-toggle, .seg-toggle button,
+    .viz-seg-btn, .uni-subtab, .uni-idx-fbtn, .pos-view-toggle button, .sel-toggle,
+    .chip.act-filter, .chip.mt-del, .ov-action, .provider-card-link {
+      min-height: 48px; min-width: 48px;
+    }
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+    select, textarea { min-height: 48px; font-size: 16px; }
+    input[type="checkbox"], input[type="radio"] { width: 22px; height: 22px; }
+    label:has(> input[type="checkbox"]), label:has(> input[type="radio"]) {
+      display: inline-flex; align-items: center; gap: 8px; min-height: 48px;
+    }
+    .section-nav a[href^="#"] { display: flex; align-items: center; min-height: 48px; }
+    .section-help-link {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 48px; min-height: 48px;
+    }
+    .btn-sm { padding-top: 10px; padding-bottom: 10px; }
+    .ov-holdings-head .wa-btn { flex: 1 1 100%; justify-content: center; }
+    h4 .wa-btn { display: flex; margin: 8px 0 0; width: 100%; justify-content: center; }
+  }
   /* Progressive enhancement: both .view-off and .router-booting are applied by
      script, so with JS disabled every section stays visible and the page
      degrades to its previous single-scroll behaviour. */

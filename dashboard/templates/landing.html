@@ -85,7 +85,7 @@ body {
 .header-nav a {
   display: inline-flex;
   align-items: center;
-  min-height: 44px;
+  min-height: 48px;
   padding: 0 12px;
   border-radius: 8px;
   color: var(--text-muted);
@@ -566,6 +566,17 @@ input:focus {
     font-size: 11px;
   }
   .particles { display: none; }
+}
+
+/* ── Touch targets (≥48px) on phones / coarse pointers ── */
+@media (pointer: coarse), (max-width: 768px) {
+  .tab, .btn, .field input { min-height: 48px; }
+  .field input { font-size: 16px; }
+  .header-nav { gap: 0; }
+  .header-nav a { padding: 0 10px; }
+  .footer-link, .free-note a { display: inline-flex; align-items: center; min-height: 48px; }
+  .faq-section button, .faq-section summary { min-height: 48px; }
+  .features-section a { min-height: 48px; display: inline-flex !important; align-items: center; }
 }
 
 /* ── Reduced Motion ── */
