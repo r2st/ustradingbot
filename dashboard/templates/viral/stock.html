@@ -22,7 +22,7 @@
 <p class="v-subtitle">{{ r.sector }} · free, no sign-up
   <span class="v-stamp">Updated {{ data.as_of[:16].replace('T', ' ') }} UTC</span></p>
 
-<div class="v-grid v-grid-4 v-mb">
+<div class="v-grid v-grid-4 v-grid-stats v-mb">
   <div class="v-result"><div class="v-result-label">Price</div><div class="v-result-value">${{ '%.2f'|format(r.price) }}</div><div>{{ chg(r.change_pct) }} today</div></div>
   <div class="v-result"><div class="v-result-label">1 month</div><div class="v-result-value">{{ chg(r.month_pct) }}</div></div>
   <div class="v-result"><div class="v-result-label">RSI (14)</div><div class="v-result-value">{{ r.rsi if r.rsi is not none else '—' }}</div></div>

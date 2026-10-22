@@ -86,6 +86,9 @@ pre.v-code{background:rgba(255,255,255,.04);border:1px solid var(--border);borde
 @media(max-width:640px){
   .v-hide-sm{display:none}
   .v-grid-2,.v-grid-3,.v-grid-4{grid-template-columns:1fr}
+  .v-grid-stats{grid-template-columns:1fr 1fr;gap:8px}
+  .v-grid-stats .v-result{padding:12px}
+  .v-grid-stats .v-result-value{font-size:20px}
   h1{font-size:22px}
   .v-card{padding:16px}
 }

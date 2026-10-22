@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -174,3 +176,12 @@ class TestStockPage:
 
     def test_stock_pages_are_in_the_sitemap(self):
         assert "https://trade.doaide.com/stock/AAPL" in client.get("/sitemap.xml").text
+
+
+def test_stat_tiles_stay_two_up_on_phones():
+    """Four full-width tiles pushed the stock page's content below the fold."""
+    css = (Path(__file__).resolve().parents[1] / "dashboard" / "static" / "viral.css").read_text()
+    mobile = css.split("@media(max-width:640px){", 1)[1].split("}\n}", 1)[0]
+    assert ".v-grid-stats{grid-template-columns:1fr 1fr" in mobile
+    assert 'class="v-grid v-grid-4 v-grid-stats v-mb"' in client.get("/stock/AAPL").text
+    assert 'class="v-grid v-grid-4 v-grid-stats v-mb"' in client.get("/market").text
