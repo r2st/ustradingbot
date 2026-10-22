@@ -2078,6 +2078,8 @@
   </div>
 </div>
 
+{% include "onboarding.html" %}
+
 <!-- ═══════════════════ MODE-SWITCH DIALOG ═══════════════════ -->
 <div class="modal-overlay" id="modeModal">
   <div class="modal">
@@ -2151,6 +2153,7 @@
     <div class="ov-hero-meta">
       <div>{{ paper.mode|capitalize }} account{% if paper.is_live %} · {{ paper.broker }}{% else %} · simulated broker{% endif %}</div>
       <div id="ovStamp">as of {{ status.timestamp }}</div>
+      <div>New here? <button type="button" class="onb-tour-link" data-open-onboarding>Take the tour</button></div>
     </div>
   </div>
 

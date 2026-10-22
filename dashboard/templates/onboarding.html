@@ -1,0 +1,151 @@
+<!-- ═══════════════════ FIRST-RUN ONBOARDING GUIDE ═══════════════════
+     Shown once per browser (localStorage "doaide_onboarded"), re-openable from
+     the "Take the tour" link in the overview.  Uses the shared .modal-overlay
+     so the keyboard-shortcut handler treats it as an open dialog. -->
+<style>
+  .onb { width: min(520px, 94vw); padding: 0; overflow: hidden; }
+  .onb-progress { display: flex; gap: 6px; padding: 18px 24px 0; }
+  .onb-progress span { flex: 1; height: 4px; border-radius: 2px; background: var(--surface-2); }
+  .onb-progress span.done { background: var(--accent); }
+  .onb-body { padding: 18px 24px 8px; min-height: 210px; }
+  .onb-step { display: none; }
+  .onb-step.active { display: block; }
+  .onb-kicker { font-size: 11px; letter-spacing: .8px; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+  .onb-step h3 { font-size: 20px; margin: 6px 0 10px; }
+  .onb-step p { color: var(--text-muted); line-height: 1.55; font-size: 14px; margin: 0 0 10px; }
+  .onb-step ul { margin: 0 0 10px; padding-left: 18px; color: var(--text-muted); font-size: 14px; line-height: 1.6; }
+  .onb-step strong { color: var(--text); }
+  .onb-goto { display: inline-flex; align-items: center; min-height: 40px; color: var(--accent); font-size: 14px; font-weight: 600; text-decoration: none; }
+  .onb-foot { display: flex; align-items: center; gap: 10px; padding: 14px 24px 20px; border-top: 1px solid var(--border); }
+  .onb-foot .onb-skip { margin-right: auto; background: none; border: none; color: var(--text-muted); font-size: 13px; cursor: pointer; padding: 8px 4px; }
+  .onb-count { font-size: 12px; color: var(--text-muted); }
+  .onb-tour-link { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 12px; padding: 0; text-decoration: underline; }
+  @media (pointer: coarse), (max-width: 768px) {
+    .onb-goto, .onb-foot .onb-skip, .onb-tour-link { min-height: 48px; }
+    .onb-foot { flex-wrap: wrap; }
+    .onb-foot .btn-primary, .onb-foot .btn-secondary { flex: 1 1 40%; }
+  }
+</style>
+
+<div class="modal-overlay" id="onboardingModal" role="dialog" aria-modal="true" aria-label="Getting started guide">
+  <div class="modal onb">
+    <div class="onb-progress" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+    <div class="onb-body">
+      <section class="onb-step" data-step="1">
+        <div class="onb-kicker">Welcome</div>
+        <h3>Welcome to DoAide Trade 👋</h3>
+        <p>An AI trading assistant that scans US stocks, scores setups with five strategies,
+          and manages risk on every trade.</p>
+        <p><strong>You're in {{ 'LIVE' if paper.is_live else 'paper' }} mode.</strong>
+          {% if paper.is_live %}Orders go to your real brokerage account.{% else %}Everything runs on simulated money —
+          nothing you do here can lose real funds. Experiment freely.{% endif %}</p>
+      </section>
+      <section class="onb-step" data-step="2">
+        <div class="onb-kicker">Step 1 · Your numbers</div>
+        <h3>Portfolio at a glance</h3>
+        <p>The <strong>Overview</strong> shows your portfolio value, today's P&amp;L (in $ and %),
+          and your top holdings by size.</p>
+        <p>Tap <strong>Share on WhatsApp</strong> to send a summary — it shares percentages only
+          unless you tick "Include $ amounts".</p>
+        <a class="onb-goto" href="#nav-overview" data-onb-close>Open Overview →</a>
+      </section>
+      <section class="onb-step" data-step="3">
+        <div class="onb-kicker">Step 2 · What to watch</div>
+        <h3>Build your watchlist</h3>
+        <p>Add tickers to named lists. The engine scans every <strong>enabled</strong> list and the
+          Watchlist Monitor shows live prices and whether a stock is near a signal.</p>
+        <a class="onb-goto" href="#nav-watchlist" data-onb-close>Open Watchlists →</a>
+      </section>
+      <section class="onb-step" data-step="4">
+        <div class="onb-kicker">Step 3 · Let it run</div>
+        <h3>Start the engine</h3>
+        <ul>
+          <li>The bot trades during US market hours (9:30–16:00 ET, weekdays).</li>
+          <li>Every entry gets a stop loss, a target and position sizing from your risk rules.</li>
+          <li>Prefer to decide yourself? Use <strong>Manual Trade</strong>.</li>
+        </ul>
+        <a class="onb-goto" href="#nav-engine" data-onb-close>Open Engine controls →</a>
+      </section>
+      <section class="onb-step" data-step="5">
+        <div class="onb-kicker">You're set</div>
+        <h3>Tips to get around</h3>
+        <ul>
+          <li>Press <strong>⌘K / Ctrl-K</strong> to jump to any section.</li>
+          <li>Every section has a <strong>?</strong> link to its how-to guide.</li>
+          <li>Share the free <a href="/screener" target="_blank" rel="noopener">screener</a> and
+            <a href="/market" target="_blank" rel="noopener">market overview</a> — no login needed.</li>
+        </ul>
+        <p>You can reopen this guide any time from <strong>Take the tour</strong> on the Overview.</p>
+      </section>
+    </div>
+    <div class="onb-foot">
+      <button type="button" class="onb-skip" id="onbSkip">Skip tour</button>
+      <span class="onb-count" id="onbCount">1 / 5</span>
+      <button type="button" class="btn-secondary" id="onbBack">Back</button>
+      <button type="button" class="btn-primary" id="onbNext">Next</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var KEY = "doaide_onboarded";
+  var modal = document.getElementById("onboardingModal");
+  if (!modal) return;
+  var steps = modal.querySelectorAll(".onb-step");
+  var bars = modal.querySelectorAll(".onb-progress span");
+  var back = document.getElementById("onbBack");
+  var next = document.getElementById("onbNext");
+  var count = document.getElementById("onbCount");
+  var current = 0;
+
+  function show(i) {
+    current = Math.max(0, Math.min(steps.length - 1, i));
+    steps.forEach(function (s, k) { s.classList.toggle("active", k === current); });
+    bars.forEach(function (b, k) { b.classList.toggle("done", k <= current); });
+    back.style.visibility = current === 0 ? "hidden" : "visible";
+    next.textContent = current === steps.length - 1 ? "Get started" : "Next";
+    count.textContent = (current + 1) + " / " + steps.length;
+  }
+
+  function remember() { try { localStorage.setItem(KEY, "1"); } catch (e) {} }
+
+  function open() {
+    show(0);
+    modal.classList.add("open");
+    next.focus();
+  }
+
+  function close() {
+    remember();
+    modal.classList.remove("open");
+  }
+
+  window.openOnboarding = open;
+
+  next.addEventListener("click", function () {
+    if (current === steps.length - 1) close(); else show(current + 1);
+  });
+  back.addEventListener("click", function () { show(current - 1); });
+  document.getElementById("onbSkip").addEventListener("click", close);
+  modal.addEventListener("click", function (e) { if (e.target === modal) close(); });
+  modal.querySelectorAll("[data-onb-close]").forEach(function (a) { a.addEventListener("click", close); });
+  modal.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") { e.preventDefault(); close(); }
+    else if (e.key === "ArrowRight") show(current + 1);
+    else if (e.key === "ArrowLeft") show(current - 1);
+  });
+  // Delegated: the "Take the tour" trigger renders after this include.
+  document.addEventListener("click", function (e) {
+    if (e.target.closest && e.target.closest("[data-open-onboarding]")) open();
+  });
+
+  var seen = false;
+  try { seen = localStorage.getItem(KEY) === "1"; } catch (e) { seen = true; }
+  if (!seen) {
+    if (document.readyState === "complete") open();
+    else window.addEventListener("load", open);
+  }
+})();
+</script>
