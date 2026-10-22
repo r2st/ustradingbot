@@ -1,0 +1,103 @@
+{% extends "viral/base.html" %}
+{% block title %}My Stock Watchlist — Free, No Login | DoAide Trade{% endblock %}
+{% block description %}Build a free stock watchlist in your browser: star any stock on the screener and track price, RSI, trend and volume here. No account needed — saved on your device.{% endblock %}
+{% block og_title %}Free Stock Watchlist — No Login{% endblock %}
+{% block og_description %}Star stocks on the free screener and track them here. Saved in your browser, no sign-up.{% endblock %}
+{% block og_url %}/watchlist{% endblock %}
+{% block robots %}index, follow{% endblock %}
+{% block json_ld %}
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"DoAide Trade Watchlist","url":"https://trade.doaide.com/watchlist","description":"Free browser-based stock watchlist: track price, RSI, trend and volume for your favourite US stocks.","applicationCategory":"FinanceApplication","operatingSystem":"Web","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}}</script>
+{% endblock %}
+{% block content %}
+<h1>My Watchlist</h1>
+<p class="v-subtitle">Your starred stocks, saved in this browser — no account needed.</p>
+
+<div id="wl-empty" class="v-card" hidden>
+  <h2 style="margin-top:0">No stocks yet</h2>
+  <p>Star any stock on the <a href="/screener">screener</a> or on a stock page and it will show up here. Your list is stored on this device only.</p>
+  <p><a href="/screener" class="v-btn">Open the screener →</a></p>
+</div>
+
+<div id="wl-loading" class="v-card"><p class="v-muted">Loading your watchlist…</p></div>
+
+<div id="wl-table-wrap" class="v-card v-table-wrap" style="padding:0" hidden>
+  <table class="v-table" id="wl-table">
+    <caption class="v-sr-only">Watchlist stocks</caption>
+    <thead><tr>
+      <th scope="col"></th>
+      <th scope="col">Symbol</th>
+      <th scope="col" class="v-hide-sm">Sector</th>
+      <th scope="col" class="num">Price</th>
+      <th scope="col" class="num">Day</th>
+      <th scope="col" class="num">1M</th>
+      <th scope="col" class="num">RSI</th>
+      <th scope="col" class="num v-hide-sm">Vol vs avg</th>
+    </tr></thead>
+    <tbody id="wl-rows"></tbody>
+  </table>
+</div>
+<p id="wl-stamp" class="v-muted" style="font-size:13px" hidden></p>
+
+<div class="v-card">
+  <h2 style="margin-top:0">How this watchlist works</h2>
+  <p>Your watchlist lives in your browser's local storage — nothing is uploaded and no account is needed. Clearing site data or switching devices starts a fresh list. Prices and indicators refresh from the same data behind the <a href="/screener">free screener</a>.</p>
+</div>
+
+<div class="v-share">
+  <span class="v-share-label">Share</span>
+  <a href="https://wa.me/?text=Build%20a%20free%20stock%20watchlist%20https://trade.doaide.com/watchlist" target="_blank" rel="noopener" class="v-share-btn" id="wa-watchlist">WhatsApp</a>
+  <a href="https://twitter.com/intent/tweet?text=Free%20stock%20watchlist%2C%20no%20login&url=https://trade.doaide.com/watchlist" target="_blank" rel="noopener" class="v-share-btn">Twitter/X</a>
+  <button type="button" class="v-share-btn" id="copy-btn" onclick="copyLink('https://trade.doaide.com/watchlist')">Copy Link</button>
+</div>
+<p class="v-disclaimer">Indicators are computed from daily bars for information only — not investment advice.</p>
+{% endblock %}
+{% block extra_script %}
+<script src="/static/share.js"></script>
+<script src="/static/watchlist.js"></script>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var DATA = null;
+
+  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); }
+  function pct(v) {
+    if (v === null || v === undefined) return '<span class="v-muted">—</span>';
+    var cls = v > 0 ? 'v-up' : (v < 0 ? 'v-down' : 'v-muted');
+    return '<span class="' + cls + '">' + (v > 0 ? '+' : '') + v.toFixed(2) + '%</span>';
+  }
+
+  function render() {
+    var list = DoAideWatchlist.list();
+    $('wl-loading').hidden = true;
+    if (!list.length) { $('wl-empty').hidden = false; $('wl-table-wrap').hidden = true; $('wl-stamp').hidden = true; return; }
+    $('wl-empty').hidden = true;
+    $('wl-table-wrap').hidden = false;
+    var bySym = {};
+    (DATA && DATA.rows || []).forEach(function (r) { bySym[r.symbol] = r; });
+    $('wl-rows').innerHTML = list.map(function (sym) {
+      var r = bySym[sym];
+      if (!r) {
+        return '<tr><td>' + DoAideWatchlist.starHtml(sym) + '</td><td><a href="/stock/' + esc(sym) + '"><strong>' + esc(sym) +
+          '</strong></a></td><td class="v-hide-sm v-muted" colspan="6">No data right now</td></tr>';
+      }
+      return '<tr><td>' + DoAideWatchlist.starHtml(sym) + '</td><td><a href="/stock/' + esc(sym) + '"><strong>' + esc(sym) +
+        '</strong></a></td><td class="v-hide-sm">' + esc(r.sector) + '</td><td class="num">$' + r.price.toFixed(2) +
+        '</td><td class="num">' + pct(r.change_pct) + '</td><td class="num">' + pct(r.month_pct) +
+        '</td><td class="num">' + (r.rsi === null || r.rsi === undefined ? '—' : r.rsi.toFixed(1)) +
+        '</td><td class="num v-hide-sm">' + (r.vol_ratio === null || r.vol_ratio === undefined ? '—' : r.vol_ratio.toFixed(2) + 'x') + '</td></tr>';
+    }).join('');
+    if (DATA && DATA.as_of) {
+      $('wl-stamp').hidden = false;
+      $('wl-stamp').textContent = 'Updated ' + DATA.as_of.slice(0, 16).replace('T', ' ') + ' UTC';
+    }
+  }
+
+  DoAideWatchlist.bind(document, render);
+
+  fetch('/api/public/screener', { headers: { Accept: 'application/json' } })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) { DATA = d; render(); })
+    .catch(function () { render(); });
+})();
+</script>
+{% endblock %}

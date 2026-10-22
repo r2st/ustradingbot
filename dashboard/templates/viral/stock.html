@@ -48,6 +48,7 @@
 {% endif %}
 
 <p style="margin-top:16px"><a href="/screener" class="v-btn">Screen all stocks →</a>
+  <button type="button" class="v-share-btn" id="wl-btn" style="margin-left:8px">☆ Add to watchlist</button>
   <a href="/tools/position-size-calculator" class="v-share-btn" style="margin-left:8px">Size a position</a></p>
 
 <div class="v-share">
@@ -61,6 +62,17 @@
 {% endblock %}
 {% block extra_script %}
 <script src="/static/share.js"></script>
+<script src="/static/watchlist.js"></script>
+<script>
+(function () {
+  var btn = document.getElementById('wl-btn');
+  if (!btn) return;
+  var sym = {{ symbol | tojson }};
+  function paint(on) { btn.textContent = on ? '★ On watchlist' : '☆ Add to watchlist'; }
+  paint(DoAideWatchlist.has(sym));
+  btn.addEventListener('click', function () { paint(DoAideWatchlist.toggle(sym)); });
+})();
+</script>
 {% if data and not data.ai_summary %}
 <script>
 (function () {

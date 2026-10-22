@@ -1,0 +1,137 @@
+{% extends "viral/base.html" %}
+{% block title %}Moving Average Crossover Signals — Golden Cross & Death Cross Scanner | DoAide Trade{% endblock %}
+{% block description %}Free 20/50-day moving average crossover scanner for large-cap US stocks. See which stocks just printed a golden cross or death cross — no login needed.{% endblock %}
+{% block og_title %}Golden Cross / Death Cross Scanner — Free{% endblock %}
+{% block og_description %}Which US large-caps are above or below their 20/50-day SMA cross? Free daily scan.{% endblock %}
+{% block og_url %}/signals/ma-crossover{% endblock %}
+{% block json_ld %}
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Moving Average Crossover Scanner","url":"https://trade.doaide.com/signals/ma-crossover","description":"Free 20/50-day SMA crossover scanner for large-cap US stocks: golden cross and death cross signals.","applicationCategory":"FinanceApplication","operatingSystem":"Web","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}}</script>
+{% endblock %}
+{% block content %}
+<p class="v-muted" style="font-size:13px"><a href="/tools">Tools</a> › MA Crossover Signals</p>
+<h1>Moving Average Crossover Signals</h1>
+<p class="v-subtitle">20/50-day SMA crossover state for {{ rows|length }} large-cap US stocks — golden and death crosses, free, no sign-up.
+  <span class="v-stamp">Updated {{ as_of[:16].replace('T', ' ') }} UTC</span></p>
+
+{% if fresh %}
+<div class="v-card">
+  <h2 style="margin-top:0">Fresh crosses (last 10 sessions)</h2>
+  <p>{% for r in fresh %}
+    <a href="/stock/{{ r.symbol }}" class="v-share-btn" style="margin:0 6px 6px 0;display:inline-block">
+      {{ r.symbol }} · <span class="{{ 'v-up' if r.ma_state == 'golden' else 'v-down' }}">{{ 'Golden' if r.ma_state == 'golden' else 'Death' }}</span>
+      {{ r.ma_cross_days }}d ago</a>
+  {% endfor %}</p>
+</div>
+{% endif %}
+
+<div class="v-card">
+  <div class="v-grid v-grid-4">
+    <div class="v-form-group">
+      <label class="v-label" for="f-signal">Signal</label>
+      <select id="f-signal" class="v-input">
+        <option value="">All signals</option>
+        <option value="golden">Golden cross (20 &gt; 50)</option>
+        <option value="death">Death cross (20 &lt; 50)</option>
+      </select>
+    </div>
+    <div class="v-form-group">
+      <label class="v-label" for="f-fresh">Recency</label>
+      <select id="f-fresh" class="v-input">
+        <option value="">Any</option>
+        <option value="10">Crossed in last 10 days</option>
+        <option value="30">Crossed in last 30 days</option>
+      </select>
+    </div>
+    <div class="v-form-group">
+      <label class="v-label" for="f-search">Symbol</label>
+      <input id="f-search" class="v-input" type="search" placeholder="e.g. NVDA" autocomplete="off">
+    </div>
+  </div>
+  <p class="v-muted" style="font-size:13px"><span id="match-count">{{ rows|length }}</span> matching stocks</p>
+</div>
+
+<div class="v-card v-table-wrap" style="padding:0">
+  <table class="v-table" id="ma-table">
+    <caption class="v-sr-only">Moving average crossover signals</caption>
+    <thead><tr>
+      <th scope="col">Symbol</th>
+      <th scope="col" class="v-hide-sm">Sector</th>
+      <th scope="col" class="num">Price</th>
+      <th scope="col" class="num">Day</th>
+      <th scope="col">Signal</th>
+      <th scope="col" class="num v-hide-sm">Crossed</th>
+    </tr></thead>
+    <tbody id="ma-rows">
+      <tr><td colspan="6" class="v-muted">Market data is temporarily unavailable. Please try again in a few minutes.</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="v-card">
+  <h2 style="margin-top:0">How to read this scan</h2>
+  <p>A <strong>golden cross</strong> prints when the 20-day simple moving average rises above the 50-day — a classic sign that short-term momentum has turned up relative to the medium-term trend. A <strong>death cross</strong> is the opposite: the 20-day falling below the 50-day signals weakening momentum.</p>
+  <p>Fresh crosses (within the last few sessions) matter most — the older a cross, the more of the move has already happened. Confirm any crossover with <a href="/signals/volume">volume</a> before acting, and size entries with the <a href="/tools/position-size-calculator">position size calculator</a>.</p>
+</div>
+
+<div class="v-share">
+  <span class="v-share-label">Share</span>
+  <a href="https://wa.me/?text=Free%20golden%20cross%20scanner%20https://trade.doaide.com/signals/ma-crossover" target="_blank" rel="noopener" class="v-share-btn">WhatsApp</a>
+  <a href="https://twitter.com/intent/tweet?text=Free%20MA%20crossover%20scanner&url=https://trade.doaide.com/signals/ma-crossover" target="_blank" rel="noopener" class="v-share-btn">Twitter/X</a>
+  <button type="button" class="v-share-btn" id="copy-btn" onclick="copyLink('https://trade.doaide.com/signals/ma-crossover')">Copy Link</button>
+</div>
+<p class="v-disclaimer">Signals are computed from daily bars for information only — not investment advice.</p>
+{% endblock %}
+{% block extra_script %}
+<script src="/static/share.js"></script>
+<script>
+(function () {
+  var ROWS = {{ rows | tojson }};
+  var $ = function (id) { return document.getElementById(id); };
+
+  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); }
+  function pct(v) {
+    if (v === null || v === undefined) return '<span class="v-muted">—</span>';
+    var cls = v > 0 ? 'v-up' : (v < 0 ? 'v-down' : 'v-muted');
+    return '<span class="' + cls + '">' + (v > 0 ? '+' : '') + v.toFixed(2) + '%</span>';
+  }
+  function signal(r) {
+    return r.ma_state === 'golden'
+      ? '<span class="v-up">Golden cross</span>'
+      : '<span class="v-down">Death cross</span>';
+  }
+  function crossed(r) {
+    if (r.ma_cross_days === null || r.ma_cross_days === undefined) return '<span class="v-muted">&gt; 30d</span>';
+    return r.ma_cross_days === 0 ? 'Today' : r.ma_cross_days + 'd ago';
+  }
+
+  function filtered() {
+    var sig = $('f-signal').value, fresh = $('f-fresh').value;
+    var q = $('f-search').value.trim().toUpperCase();
+    return ROWS.filter(function (r) {
+      if (sig && r.ma_state !== sig) return false;
+      if (q && r.symbol.indexOf(q) === -1) return false;
+      if (fresh && (r.ma_cross_days === null || r.ma_cross_days > parseInt(fresh, 10))) return false;
+      return true;
+    }).sort(function (a, b) {
+      var x = a.ma_cross_days === null ? 999 : a.ma_cross_days;
+      var y = b.ma_cross_days === null ? 999 : b.ma_cross_days;
+      return x - y || (a.symbol > b.symbol ? 1 : -1);
+    });
+  }
+
+  function render() {
+    var rows = filtered();
+    $('match-count').textContent = rows.length;
+    $('ma-rows').innerHTML = rows.length ? rows.map(function (r) {
+      return '<tr><td><a href="/stock/' + esc(r.symbol) + '"><strong>' + esc(r.symbol) + '</strong></a></td><td class="v-hide-sm">' + esc(r.sector) +
+        '</td><td class="num">$' + r.price.toFixed(2) + '</td><td class="num">' + pct(r.change_pct) +
+        '</td><td>' + signal(r) + '</td><td class="num v-hide-sm">' + crossed(r) + '</td></tr>';
+    }).join('') : '<tr><td colspan="6" class="v-muted">No stocks match these filters.</td></tr>';
+  }
+
+  ['f-signal', 'f-fresh'].forEach(function (id) { $(id).addEventListener('change', render); });
+  $('f-search').addEventListener('input', render);
+  if (ROWS.length) render();
+})();
+</script>
+{% endblock %}

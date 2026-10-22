@@ -1,0 +1,127 @@
+{% extends "viral/base.html" %}
+{% block title %}Unusual Volume Scanner — Today's Volume vs 20-Day Average | DoAide Trade{% endblock %}
+{% block description %}Free unusual-volume scanner for large-cap US stocks: see which stocks are trading well above their 20-day average volume today. No login needed.{% endblock %}
+{% block og_title %}Unusual Volume Scanner — Free{% endblock %}
+{% block og_description %}Which US large-caps are trading on unusual volume today? Free daily scan, no sign-up.{% endblock %}
+{% block og_url %}/signals/volume{% endblock %}
+{% block json_ld %}
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Unusual Volume Scanner","url":"https://trade.doaide.com/signals/volume","description":"Free unusual-volume scanner for large-cap US stocks: today's volume against the 20-day average.","applicationCategory":"FinanceApplication","operatingSystem":"Web","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}}</script>
+{% endblock %}
+{% block content %}
+<p class="v-muted" style="font-size:13px"><a href="/tools">Tools</a> › Volume Analysis</p>
+<h1>Unusual Volume Scanner</h1>
+<p class="v-subtitle">Today's volume against the 20-day average for {{ rows|length }} large-cap US stocks — free, no sign-up.
+  <span class="v-stamp">Updated {{ as_of[:16].replace('T', ' ') }} UTC</span></p>
+
+<div class="v-card">
+  <div class="v-grid v-grid-4">
+    <div class="v-form-group">
+      <label class="v-label" for="f-ratio">Volume vs 20-day avg</label>
+      <select id="f-ratio" class="v-input">
+        <option value="">Any</option>
+        <option value="2">Heavy (&ge; 2x average)</option>
+        <option value="1.5">Elevated (&ge; 1.5x average)</option>
+        <option value="low">Quiet (&lt; 0.5x average)</option>
+      </select>
+    </div>
+    <div class="v-form-group">
+      <label class="v-label" for="f-dir">Price move</label>
+      <select id="f-dir" class="v-input">
+        <option value="">Any</option>
+        <option value="up">Up today</option>
+        <option value="down">Down today</option>
+      </select>
+    </div>
+    <div class="v-form-group">
+      <label class="v-label" for="f-search">Symbol</label>
+      <input id="f-search" class="v-input" type="search" placeholder="e.g. NVDA" autocomplete="off">
+    </div>
+  </div>
+  <p class="v-muted" style="font-size:13px"><span id="match-count">{{ rows|length }}</span> matching stocks</p>
+</div>
+
+<div class="v-card v-table-wrap" style="padding:0">
+  <table class="v-table" id="vol-table">
+    <caption class="v-sr-only">Unusual volume scan results</caption>
+    <thead><tr>
+      <th scope="col">Symbol</th>
+      <th scope="col" class="v-hide-sm">Sector</th>
+      <th scope="col" class="num">Price</th>
+      <th scope="col" class="num">Day</th>
+      <th scope="col" class="num">Vol vs avg</th>
+      <th scope="col" class="num v-hide-sm">Volume</th>
+    </tr></thead>
+    <tbody id="vol-rows">
+      <tr><td colspan="6" class="v-muted">Market data is temporarily unavailable. Please try again in a few minutes.</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="v-card">
+  <h2 style="margin-top:0">Why volume matters</h2>
+  <p>Volume is the market's conviction meter. A price move on <strong>2x average volume</strong> means institutions are participating; the same move on thin volume is noise. Breakouts confirmed by heavy volume are far more likely to follow through, while heavy-volume declines warn of distribution.</p>
+  <p>Pair this scan with the <a href="/signals/ma-crossover">MA crossover scanner</a> — a fresh golden cross on elevated volume is one of the strongest classic setups. Then plan the trade with the <a href="/tools/risk-reward-calculator">risk/reward calculator</a>.</p>
+</div>
+
+<div class="v-share">
+  <span class="v-share-label">Share</span>
+  <a href="https://wa.me/?text=Free%20unusual%20volume%20scanner%20https://trade.doaide.com/signals/volume" target="_blank" rel="noopener" class="v-share-btn">WhatsApp</a>
+  <a href="https://twitter.com/intent/tweet?text=Free%20unusual%20volume%20scanner&url=https://trade.doaide.com/signals/volume" target="_blank" rel="noopener" class="v-share-btn">Twitter/X</a>
+  <button type="button" class="v-share-btn" id="copy-btn" onclick="copyLink('https://trade.doaide.com/signals/volume')">Copy Link</button>
+</div>
+<p class="v-disclaimer">Signals are computed from daily bars for information only — not investment advice.</p>
+{% endblock %}
+{% block extra_script %}
+<script src="/static/share.js"></script>
+<script>
+(function () {
+  var ROWS = {{ rows | tojson }};
+  var $ = function (id) { return document.getElementById(id); };
+
+  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); }
+  function pct(v) {
+    if (v === null || v === undefined) return '<span class="v-muted">—</span>';
+    var cls = v > 0 ? 'v-up' : (v < 0 ? 'v-down' : 'v-muted');
+    return '<span class="' + cls + '">' + (v > 0 ? '+' : '') + v.toFixed(2) + '%</span>';
+  }
+  function ratio(v) {
+    var cls = v >= 2 ? 'v-up' : (v < 0.5 ? 'v-muted' : '');
+    return '<span class="' + cls + '"><strong>' + v.toFixed(2) + 'x</strong></span>';
+  }
+  function vol(v) {
+    if (v === null || v === undefined) return '—';
+    if (v >= 1e9) return (v / 1e9).toFixed(2) + 'B';
+    if (v >= 1e6) return (v / 1e6).toFixed(1) + 'M';
+    if (v >= 1e3) return (v / 1e3).toFixed(0) + 'K';
+    return String(v);
+  }
+
+  function filtered() {
+    var band = $('f-ratio').value, dir = $('f-dir').value;
+    var q = $('f-search').value.trim().toUpperCase();
+    return ROWS.filter(function (r) {
+      if (q && r.symbol.indexOf(q) === -1) return false;
+      if (dir === 'up' && !(r.change_pct > 0)) return false;
+      if (dir === 'down' && !(r.change_pct < 0)) return false;
+      if (band === 'low') { if (!(r.vol_ratio < 0.5)) return false; }
+      else if (band) { if (!(r.vol_ratio >= parseFloat(band))) return false; }
+      return true;
+    });
+  }
+
+  function render() {
+    var rows = filtered();
+    $('match-count').textContent = rows.length;
+    $('vol-rows').innerHTML = rows.length ? rows.map(function (r) {
+      return '<tr><td><a href="/stock/' + esc(r.symbol) + '"><strong>' + esc(r.symbol) + '</strong></a></td><td class="v-hide-sm">' + esc(r.sector) +
+        '</td><td class="num">$' + r.price.toFixed(2) + '</td><td class="num">' + pct(r.change_pct) +
+        '</td><td class="num">' + ratio(r.vol_ratio) + '</td><td class="num v-hide-sm">' + vol(r.volume) + '</td></tr>';
+    }).join('') : '<tr><td colspan="6" class="v-muted">No stocks match these filters.</td></tr>';
+  }
+
+  ['f-ratio', 'f-dir'].forEach(function (id) { $(id).addEventListener('change', render); });
+  $('f-search').addEventListener('input', render);
+  if (ROWS.length) render();
+})();
+</script>
+{% endblock %}

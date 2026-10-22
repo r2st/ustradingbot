@@ -1,0 +1,53 @@
+{% extends "viral/base.html" %}
+{% block title %}Stock Price Alerts — Get Notified When a Stock Hits Your Price | DoAide Trade{% endblock %}
+{% block description %}Set price alerts on US stocks and get notified the moment a stock crosses your target — above or below any price. Part of the DoAide Trade dashboard.{% endblock %}
+{% block og_title %}Stock Price Alerts — DoAide Trade{% endblock %}
+{% block og_description %}Get notified the moment a stock crosses your target price. Above or below, any watchlist stock.{% endblock %}
+{% block og_url %}/price-alerts{% endblock %}
+{% block json_ld %}
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"What is a stock price alert?","acceptedAnswer":{"@type":"Answer","text":"A price alert is a rule that watches a stock for you and notifies you the moment the price crosses a level you choose — for example, when NVDA falls below $150 or AAPL rises above $250. Instead of staring at charts, you set the level once and get told when it happens."}},{"@type":"Question","name":"How do price alerts work in DoAide Trade?","acceptedAnswer":{"@type":"Answer","text":"You pick a symbol, a direction (above or below) and a threshold price, with an optional note about why the level matters. The platform checks prices through the trading day and fires a push notification when the level is crossed. Triggered alerts are kept in your history so you can review them later."}},{"@type":"Question","name":"Are the price alerts free?","acceptedAnswer":{"@type":"Answer","text":"Price alerts are part of the DoAide Trade dashboard. The public tools — the screener, market overview, calculators, signal scanners and browser watchlist — are free with no sign-up."}},{"@type":"Question","name":"What price levels should I set alerts at?","acceptedAnswer":{"@type":"Answer","text":"The most useful alert levels are ones tied to your plan: your planned entry price, your stop-loss level, a breakout level such as a prior high, or a moving average. Setting alerts at levels where you already know what you will do removes emotion from the decision."}}]}</script>
+{% endblock %}
+{% block content %}
+<h1>Stock Price Alerts</h1>
+<p class="v-subtitle">Stop staring at charts. Set a level once — get told the moment it's crossed.</p>
+
+<div class="v-grid v-grid-3 v-mb">
+  <div class="v-card">
+    <div class="v-card-title">Above or below any price</div>
+    <div class="v-card-desc">"Tell me when NVDA drops below $150" or "when AAPL breaks $250" — one rule per level, with a note on why it matters.</div>
+  </div>
+  <div class="v-card">
+    <div class="v-card-title">Checked through the day</div>
+    <div class="v-card-desc">Alerts are evaluated against live quotes during market hours and fire the moment your level is crossed — not at the close.</div>
+  </div>
+  <div class="v-card">
+    <div class="v-card-title">Push notifications + history</div>
+    <div class="v-card-desc">Get a push notification when an alert triggers, and review every triggered alert later in your history.</div>
+  </div>
+</div>
+
+<div class="v-card">
+  <h2 style="margin-top:0">Alert levels worth setting</h2>
+  <ul>
+    <li><strong>Your entry price</strong> — waiting for a pullback? Set the alert and close the chart.</li>
+    <li><strong>Your stop-loss level</strong> — a second pair of eyes on the level where your thesis is wrong.</li>
+    <li><strong>Breakout levels</strong> — prior highs, round numbers, or the level from a <a href="/signals/ma-crossover">moving average cross</a>.</li>
+    <li><strong>Profit targets</strong> — computed with the <a href="/tools/risk-reward-calculator">risk/reward calculator</a>, so you exit on plan instead of on emotion.</li>
+  </ul>
+</div>
+
+<div class="v-card" style="text-align:center">
+  <h2 style="margin-top:0">Try it on your stocks</h2>
+  <p>Price alerts live in the DoAide Trade dashboard, alongside the AI trading engine, portfolio analytics and trade journal.</p>
+  <p><a href="/login" class="v-btn">Open the dashboard →</a></p>
+  <p class="v-muted" style="font-size:13px">No account yet? Start with the free <a href="/screener">screener</a> and <a href="/watchlist">browser watchlist</a> — no sign-up needed.</p>
+</div>
+
+<div class="v-share">
+  <span class="v-share-label">Share</span>
+  <a href="https://wa.me/?text=Stock%20price%20alerts%20https://trade.doaide.com/price-alerts" target="_blank" rel="noopener" class="v-share-btn">WhatsApp</a>
+  <a href="https://twitter.com/intent/tweet?text=Stock%20price%20alerts&url=https://trade.doaide.com/price-alerts" target="_blank" rel="noopener" class="v-share-btn">Twitter/X</a>
+  <button type="button" class="v-share-btn" id="copy-btn" onclick="copyLink('https://trade.doaide.com/price-alerts')">Copy Link</button>
+</div>
+<p class="v-disclaimer">Alerts are informational only — not investment advice.</p>
+{% endblock %}

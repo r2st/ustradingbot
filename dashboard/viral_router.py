@@ -27,6 +27,167 @@ def _get_templates():
 
 ARTICLES = [
     {
+        "slug": "best-free-stock-screeners-india-2026",
+        "title": "Best Free Stock Screeners in India 2026: Honest Comparison of What You Actually Get",
+        "excerpt": "Which stock screeners are genuinely free for Indian investors in 2026? A practical comparison of Screener.in, Chartink, Trendlyne, TickerTape, StockEdge and more — what the free tier includes, where the paywalls are, and which to pick for your style.",
+        "date": "October 22, 2026",
+        "iso_date": "2026-10-22",
+        "read_time": "9 min read",
+        "faq_json_ld": '{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Which stock screener is completely free in India in 2026?","acceptedAnswer":{"@type":"Answer","text":"Screener.in offers the most generous genuinely free tier for fundamental screening in India — custom queries, 10-year financials, and peer comparison without paying. Chartink is the most complete free technical screener, with real-time scans during market hours. Both cover all NSE and BSE stocks on their free plans. Most other platforms (Trendlyne, TickerTape, StockEdge) are freemium: useful free tiers, but their most powerful filters sit behind a subscription."}},{"@type":"Question","name":"What is the difference between a free and paid stock screener?","acceptedAnswer":{"@type":"Answer","text":"Free tiers typically include basic filters (market cap, P/E, ROE, price action), limited saved screens, and delayed or end-of-day data. Paid tiers add real-time alerts, more saved screens, premium ratios (forensic scores, forecast data), export to Excel, and backtesting. For most retail investors doing weekly or monthly screening, a free tier is enough — pay only when a specific missing feature blocks your workflow."}},{"@type":"Question","name":"Is Chartink free for intraday scanning?","acceptedAnswer":{"@type":"Answer","text":"Yes. Chartink runs its scans free of charge during market hours on near-real-time data, which is unusual among free tools. You can build custom scans combining price, volume, and indicator conditions, and browse thousands of community-shared scans. The paid plans mainly add faster refresh, more alerts, and combined screeners — the core scanning engine is free."}},{"@type":"Question","name":"Can I screen US stocks for free from India?","acceptedAnswer":{"@type":"Answer","text":"Yes. Free tools like the DoAide Trade screener cover large-cap US stocks with RSI, moving average trend, momentum, and volume filters with no login. TradingView free also screens US markets with a limited number of filters. If you invest in US stocks through Indian platforms such as INDmoney or Vested, a free US screener helps shortlist before you buy."}},{"@type":"Question","name":"Do free screeners have delayed data?","acceptedAnswer":{"@type":"Answer","text":"Often, yes. Most free fundamental screeners update after market close, which is fine for investing decisions. For intraday trading, Chartink free offers near-real-time scans; most other free technical screeners delay quotes by several minutes. Treat any free screener as a research and shortlisting tool, and verify live prices on your broker terminal before placing orders."}}]}',
+        "content_html": """
+<p>Every list of "best stock screeners in India" ranks the same five platforms — but rarely tells you what you actually get without paying. In 2026, the freemium lines have shifted: features that were free two years ago now sit behind subscriptions, while a few tools have opened up. This guide compares the genuinely free tiers of the major Indian screeners, so you can build a complete screening workflow at zero cost.</p>
+
+<h2>What "Free" Really Means in 2026</h2>
+
+<p>Screener pricing models fall into three buckets:</p>
+<ul>
+<li><strong>Genuinely free</strong> — the core product is free, monetised by ads or a lightweight premium tier (Screener.in, Chartink)</li>
+<li><strong>Freemium</strong> — a functional free tier designed to upsell you (Trendlyne, TickerTape, StockEdge)</li>
+<li><strong>Trial-ware</strong> — "free" means a 7-14 day trial, after which the useful filters lock (several newer AI screeners)</li>
+</ul>
+
+<h2>The Free Tiers, Compared</h2>
+
+<h3>1. Screener.in — Best Free Fundamental Screener</h3>
+<p><strong>Free tier includes:</strong> custom query screening across every NSE/BSE stock, 10-year P&amp;L, balance sheet and cash-flow history, quarterly results, peer comparison, shareholding patterns, and a handful of saved screens.</p>
+<p><strong>What's paywalled:</strong> higher saved-screen limits, email alerts on screens, concall transcripts and notes.</p>
+<p><strong>Verdict:</strong> the single most useful free tool for Indian fundamental investors. The query language (e.g. <code>ROE &gt; 15 AND Debt to equity &lt; 0.5</code>) is unmatched at this price — which is zero.</p>
+
+<h3>2. Chartink — Best Free Technical Screener</h3>
+<p><strong>Free tier includes:</strong> real-time scans during market hours, a custom scan builder covering candlestick patterns, indicators (RSI, MACD, moving averages), volume conditions, and thousands of community-shared scans.</p>
+<p><strong>What's paywalled:</strong> faster scan refresh, combined multi-timeframe screeners, more alerts.</p>
+<p><strong>Verdict:</strong> for intraday and swing traders, Chartink free does what paid tools charge thousands a year for.</p>
+
+<h3>3. Trendlyne — Best Free Scores and Signals</h3>
+<p><strong>Free tier includes:</strong> DVM scores (Durability, Valuation, Momentum) on every stock, basic screeners, shareholding and bulk-deal data with limited lookback.</p>
+<p><strong>What's paywalled:</strong> the Super Screener's full 130+ filters, forecaster data, alerts, and most of the lookback history.</p>
+<p><strong>Verdict:</strong> use the free DVM scores as a quick quality check on stocks your other screens surface.</p>
+
+<h3>4. TickerTape — Best Free Interface</h3>
+<p><strong>Free tier includes:</strong> a clean screener with ~50 filters, basic peer comparison, and the Market Mood Index sentiment gauge.</p>
+<p><strong>What's paywalled:</strong> custom filter combinations beyond the cap, deep-dive forensic and red-flag checks, export.</p>
+<p><strong>Verdict:</strong> the most beginner-friendly screener; power users will hit the free cap quickly.</p>
+
+<h3>5. StockEdge — Best Free Mobile Screener</h3>
+<p><strong>Free tier includes:</strong> pre-built scans (50+), end-of-day technical and fundamental filters, FII/DII and bulk-deal tracking on mobile.</p>
+<p><strong>What's paywalled:</strong> combination scans, strategy backtests, and the learning modules.</p>
+<p><strong>Verdict:</strong> the best free option if you screen primarily on your phone.</p>
+
+<h3>6. NSE/BSE Official Tools — Free but Basic</h3>
+<p>Both exchanges offer free stock selection tools on their websites — gainers/losers, 52-week highs, delivery percentage data. Limited as screeners, but the delivery-quantity data on NSE's site is free information that most paid tools charge for.</p>
+
+<h2>Building a Zero-Cost Screening Workflow</h2>
+
+<ol>
+<li><strong>Quarterly</strong> — run your fundamental screen on Screener.in after results season (ROE, debt, growth, promoter holding filters)</li>
+<li><strong>Save the shortlist</strong> — keep the output as a watchlist (free on all platforms, or in your <a href="/watchlist">browser watchlist</a>)</li>
+<li><strong>Weekly</strong> — run the shortlist through a free Chartink technical scan for entry setups (price above 200-DMA, RSI 40-65, volume above average)</li>
+<li><strong>Validate</strong> — check Trendlyne's free DVM score as a second opinion</li>
+<li><strong>Size the trade</strong> — use a free <a href="/tools/position-size-calculator">position size calculator</a> so one pick can't hurt the portfolio</li>
+</ol>
+
+<h2>When Paying Actually Makes Sense</h2>
+
+<p>Upgrade only when a specific limitation costs you money or time: you need real-time alerts because you trade intraday setups (Chartink premium), you want forensic accounting red flags before buying small-caps (Trendlyne/TickerTape premium), or you export data for your own models (most platforms' paid tiers). A subscription you don't use weekly is a donation.</p>
+
+<h2>The Bottom Line</h2>
+
+<p>In 2026 you can run a professional-grade screening workflow in India without paying a rupee: Screener.in for fundamentals, Chartink for technicals, Trendlyne's free scores for validation, and free calculators for risk management. Start free, learn what your process actually needs, and only then decide if a paid tier earns its fee.</p>
+""",
+    },
+    {
+        "slug": "how-to-use-rsi-for-trading",
+        "title": "How to Use RSI for Trading: Entries, Exits and the Mistakes That Cost Money",
+        "excerpt": "A practical guide to the Relative Strength Index — what RSI actually measures, how to use it for entries and exits in trending and ranging markets, divergence signals, and the classic mistakes that make traders lose money with it.",
+        "date": "October 22, 2026",
+        "iso_date": "2026-10-22",
+        "read_time": "10 min read",
+        "faq_json_ld": '{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"What is a good RSI to buy a stock?","acceptedAnswer":{"@type":"Answer","text":"There is no single magic number. In a ranging market, RSI below 30 (oversold) flags potential buying zones. In an uptrend, the better buy zone is an RSI pullback to 40-50 — strong stocks rarely reach 30. The mistake is buying every RSI-30 reading: in a downtrend, oversold can stay oversold for weeks. Always combine the RSI reading with the trend context before buying."}},{"@type":"Question","name":"Which RSI setting is best — 14, 9 or 21?","acceptedAnswer":{"@type":"Answer","text":"The default 14-period RSI is the best starting point for daily charts and swing trading. A 9-period RSI reacts faster and suits short-term traders who accept more false signals; 21-period RSI is smoother and suits position traders. Changing the period does not change what RSI measures — it only trades off responsiveness against noise. Pick one setting and learn its behaviour rather than switching constantly."}},{"@type":"Question","name":"What is RSI divergence and is it reliable?","acceptedAnswer":{"@type":"Answer","text":"RSI divergence occurs when price makes a new high but RSI makes a lower high (bearish divergence), or price makes a new low while RSI makes a higher low (bullish divergence). It signals that momentum is fading before price confirms. Divergence is a warning, not an entry trigger — it can persist through several more highs or lows. Trade it only with a confirmation such as a trendline break, a reversal candle, or a moving average cross."}},{"@type":"Question","name":"Can RSI stay overbought for a long time?","acceptedAnswer":{"@type":"Answer","text":"Yes — and this is the most expensive misunderstanding about RSI. In strong uptrends, RSI can hold above 70 for weeks while the price keeps climbing. Overbought means momentum is strong, not that a reversal is due. Shorting a stock purely because RSI crossed 70 is a losing strategy in trending markets. Use overbought readings to tighten stops or take partial profits, not to open counter-trend trades."}},{"@type":"Question","name":"Does RSI work for intraday trading?","acceptedAnswer":{"@type":"Answer","text":"Yes, with adjusted expectations. On 5- and 15-minute charts, use RSI as a momentum filter rather than an overbought/oversold timer: take long setups when RSI is between 40 and 65 and the price is above VWAP, and skip entries when RSI is at extremes. Intraday RSI gives many more signals, so pairing it with a trend filter (VWAP or a 20-period EMA) is essential to avoid being whipsawed."}}]}',
+        "content_html": """
+<p>The Relative Strength Index is probably the most-watched indicator in retail trading — and the most misused. "Buy below 30, sell above 70" is repeated everywhere, and followed literally, it loses money in exactly the markets where most people apply it. This guide covers what RSI actually measures, how professionals use it differently in trends and ranges, and the specific mistakes that turn a useful tool into a losing system.</p>
+
+<h2>What RSI Actually Measures</h2>
+
+<p>RSI, developed by J. Welles Wilder, compares the average size of recent gains to the average size of recent losses over a lookback period (14 bars by default) and squeezes the result into a 0-100 scale:</p>
+<ul>
+<li><strong>RSI above 50</strong> — average gains exceed average losses; buyers are in control</li>
+<li><strong>RSI below 50</strong> — sellers are in control</li>
+<li><strong>RSI above 70</strong> — the recent advance has been unusually one-sided ("overbought")</li>
+<li><strong>RSI below 30</strong> — the recent decline has been unusually one-sided ("oversold")</li>
+</ul>
+
+<p>The crucial insight: RSI measures the <em>speed</em> of the move, not its <em>destination</em>. An overbought reading says the stock rose fast — it says nothing about whether it will stop rising.</p>
+
+<h2>Rule 1: Context First — Trend or Range?</h2>
+
+<p>The same RSI reading means opposite things in different market regimes:</p>
+
+<h3>In a Range (sideways market)</h3>
+<p>Mean-reversion logic works. Price oscillates between support and resistance, and RSI extremes mark the turns:</p>
+<ul>
+<li><strong>Buy zone</strong>: RSI dips below 30 near range support, then crosses back above 30</li>
+<li><strong>Sell zone</strong>: RSI rises above 70 near range resistance, then crosses back below 70</li>
+<li>Wait for the re-cross — buying while RSI is still falling catches knives</li>
+</ul>
+
+<h3>In an Uptrend</h3>
+<p>Mean-reversion logic fails; momentum logic works. Strong stocks rarely give you RSI 30:</p>
+<ul>
+<li><strong>Buy zone</strong>: RSI pulls back to 40-50 while price holds above the 50-day moving average — the classic trend-pullback entry</li>
+<li><strong>RSI 70+ is a hold signal, not a sell signal</strong> — in strong trends RSI can stay overbought for weeks</li>
+<li>The 40 level often acts as RSI support in healthy uptrends; a decisive break below it is an early trend-weakening warning</li>
+</ul>
+
+<h3>In a Downtrend</h3>
+<p>Mirror image: RSI 50-60 rallies are shorting zones, and "oversold" readings below 30 are not buy signals — they are what downtrends look like. Check trend direction with a <a href="/signals/ma-crossover">moving average crossover scan</a> before applying any RSI rule.</p>
+
+<h2>Rule 2: Divergence Is a Warning, Not a Trigger</h2>
+
+<p><strong>Bearish divergence</strong>: price prints a higher high, RSI prints a lower high — the advance is running on fewer buyers. <strong>Bullish divergence</strong>: price prints a lower low, RSI a higher low — selling pressure is drying up.</p>
+
+<p>Divergences precede many major turns, but they are early — sometimes by weeks. The professional approach:</p>
+<ol>
+<li>Spot the divergence and mark it — this is the alert, not the trade</li>
+<li>Wait for price confirmation: a trendline break, a close below a swing low (for bearish), or a reversal candle on above-average <a href="/signals/volume">volume</a></li>
+<li>Enter on the confirmation with a stop beyond the extreme that formed the divergence</li>
+</ol>
+
+<h2>Rule 3: Use RSI as a Filter, Not a System</h2>
+
+<p>RSI answers one question — "how one-sided has recent price action been?" — so it works best filtering entries that another tool generates:</p>
+<ul>
+<li><strong>Trend + RSI</strong>: take moving-average crossover buys only when RSI is between 40 and 65 — strong enough to confirm momentum, not so stretched that you're buying the top of the move</li>
+<li><strong>Breakout + RSI</strong>: a breakout with RSI 55-70 has momentum behind it; a breakout with RSI already above 75 is late</li>
+<li><strong>Intraday</strong>: on 15-minute charts, go long only when price is above VWAP and RSI is 40-65; short only below VWAP with RSI 35-60</li>
+</ul>
+
+<h2>The Four Expensive RSI Mistakes</h2>
+
+<ol>
+<li><strong>Shorting because RSI crossed 70</strong> — in a trending market this is a machine for donating money. Overbought means strong, and strong often gets stronger</li>
+<li><strong>Buying every RSI-30 print in a downtrend</strong> — oversold stays oversold. Each "cheap" entry gets cheaper</li>
+<li><strong>Trading divergence without confirmation</strong> — divergences can stack three or four deep before a trend actually turns</li>
+<li><strong>Tuning the period until the backtest looks perfect</strong> — an RSI setting optimised on past data is curve-fitting; the edge evaporates live</li>
+</ol>
+
+<h2>A Complete RSI Pullback Setup</h2>
+
+<p>Putting it together into one concrete, rule-based swing setup:</p>
+<ol>
+<li><strong>Universe</strong>: stocks above their 50-day moving average (uptrend filter — use a <a href="/screener">free screener</a>)</li>
+<li><strong>Signal</strong>: 14-day RSI pulls back into the 40-50 zone, then turns up (today's RSI higher than yesterday's)</li>
+<li><strong>Confirmation</strong>: the turn happens at or above the 50-day moving average, on volume at least equal to the 20-day average</li>
+<li><strong>Entry</strong>: next session, above the signal bar's high</li>
+<li><strong>Stop</strong>: below the pullback swing low</li>
+<li><strong>Target</strong>: at least twice the stop distance — check with the <a href="/tools/risk-reward-calculator">risk/reward calculator</a> — and size the position with the <a href="/tools/position-size-calculator">position size calculator</a> so the stop costs at most 1-2% of the account</li>
+</ol>
+
+<h2>The Bottom Line</h2>
+
+<p>RSI is a momentum speedometer, not a reversal predictor. Read it inside the trend context: mean-revert at extremes in ranges, buy 40-50 pullbacks in uptrends, and treat overbought as strength rather than a sell signal. Use divergence as an alert that demands confirmation, pair RSI with one trend tool and one volume check, and let position sizing — not the indicator — protect your account.</p>
+""",
+    },
+    {
         "slug": "advanced-stock-screening-strategies-nse-bse",
         "title": "Advanced Stock Screening Strategies for NSE and BSE: Finding Multibaggers in India",
         "excerpt": "Learn advanced stock screening techniques for the Indian market — combining fundamental quality filters, technical momentum signals, and promoter activity data to find high-potential multibagger stocks on NSE and BSE.",
@@ -1313,6 +1474,21 @@ async def risk_reward_calculator(request: Request):
 
 
 # ---------------------------------------------------------------------------
+# Watchlist (browser localStorage) & price alerts landing
+# ---------------------------------------------------------------------------
+
+
+@router.get("/watchlist", response_class=HTMLResponse)
+async def watchlist_page(request: Request):
+    return _get_templates().TemplateResponse(request, "viral/watchlist.html")
+
+
+@router.get("/price-alerts", response_class=HTMLResponse)
+async def price_alerts_landing(request: Request):
+    return _get_templates().TemplateResponse(request, "viral/price_alerts.html")
+
+
+# ---------------------------------------------------------------------------
 # Embed
 # ---------------------------------------------------------------------------
 
@@ -1363,6 +1539,10 @@ _STATIC_PAGES = [
     ("/tools/position-size-calculator", "monthly", "0.8"),
     ("/tools/profit-loss-calculator", "monthly", "0.8"),
     ("/tools/risk-reward-calculator", "monthly", "0.8"),
+    ("/signals/ma-crossover", "daily", "0.8"),
+    ("/signals/volume", "daily", "0.8"),
+    ("/watchlist", "monthly", "0.7"),
+    ("/price-alerts", "monthly", "0.7"),
     ("/blog", "weekly", "0.8"),
     ("/embed", "monthly", "0.5"),
 ]

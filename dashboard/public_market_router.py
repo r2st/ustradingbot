@@ -90,6 +90,43 @@ def _pct(new: float, old: float) -> Optional[float]:
     return round((new - old) / old * 100.0, 2) if old else None
 
 
+def _ma_cross(close) -> tuple:
+    """(state, days_ago) of the 20/50-day SMA relationship.
+
+    ``state`` is ``"golden"`` when the 20-day SMA is above the 50-day,
+    ``"death"`` when below, ``None`` with too little history.  ``days_ago``
+    counts bars since the SMAs last crossed, or ``None`` when the current
+    state covers the whole visible window.
+    """
+    if len(close) < 50:
+        return None, None
+    sma20 = close.rolling(20).mean()
+    sma50 = close.rolling(50).mean()
+    above = (sma20 > sma50).iloc[49:]
+    state = "golden" if bool(above.iloc[-1]) else "death"
+    flips = above[above != above.iloc[-1]]
+    days_ago = None
+    if len(flips):
+        days_ago = int(len(above) - 1 - above.index.get_loc(flips.index[-1]))
+    return state, days_ago
+
+
+def _volume_stats(df) -> tuple:
+    """(last volume, 20-day average volume, ratio) — any may be ``None``."""
+    if "Volume" not in df:
+        return None, None, None
+    vol = df["Volume"].dropna()
+    if not len(vol):
+        return None, None, None
+    last = int(vol.iloc[-1])
+    if len(vol) < 21:
+        return last, None, None
+    avg = float(vol.iloc[-21:-1].mean())
+    if avg <= 0:
+        return last, None, None
+    return last, int(avg), round(last / avg, 2)
+
+
 def _symbol_row(symbol: str) -> Optional[Dict[str, Any]]:
     """Price, day/1M change, RSI and trend flags for one symbol."""
     try:
@@ -106,9 +143,8 @@ def _symbol_row(symbol: str) -> Optional[Dict[str, Any]]:
     month_ago = float(close.iloc[-22]) if len(close) >= 22 else float(close.iloc[0])
     sma50 = float(close.tail(50).mean()) if len(close) >= 50 else None
     high = float(close.tail(126).max())
-    volume = None
-    if "Volume" in df and len(df["Volume"].dropna()):
-        volume = int(df["Volume"].dropna().iloc[-1])
+    ma_state, ma_cross_days = _ma_cross(close)
+    volume, avg_volume, vol_ratio = _volume_stats(df)
     return {
         "symbol": symbol,
         "sector": get_sector(symbol),
@@ -119,6 +155,10 @@ def _symbol_row(symbol: str) -> Optional[Dict[str, Any]]:
         "above_sma50": (last > sma50) if sma50 is not None else None,
         "off_high_pct": _pct(last, high),
         "volume": volume,
+        "avg_volume": avg_volume,
+        "vol_ratio": vol_ratio,
+        "ma_state": ma_state,
+        "ma_cross_days": ma_cross_days,
     }
 
 
@@ -207,6 +247,56 @@ async def market_api():
 async def screener_api():
     """Login-free screener rows for the core US watchlist (cached ~10 minutes)."""
     return await run_in_threadpool(build_screener)
+
+
+@router.get("/signals/ma-crossover", response_class=HTMLResponse, include_in_schema=False)
+async def ma_crossover_page(request: Request):
+    data = await run_in_threadpool(build_screener)
+    rows = [r for r in data["rows"] if r.get("ma_state")]
+    fresh = [r for r in rows if r.get("ma_cross_days") is not None and r["ma_cross_days"] <= 10]
+    fresh.sort(key=lambda r: r["ma_cross_days"])
+    return _templates().TemplateResponse(
+        request, "viral/ma_crossover.html",
+        context={"as_of": data["as_of"], "rows": rows, "fresh": fresh},
+    )
+
+
+@router.get("/signals/volume", response_class=HTMLResponse, include_in_schema=False)
+async def volume_signals_page(request: Request):
+    data = await run_in_threadpool(build_screener)
+    rows = [r for r in data["rows"] if r.get("vol_ratio") is not None]
+    rows.sort(key=lambda r: r["vol_ratio"], reverse=True)
+    return _templates().TemplateResponse(
+        request, "viral/volume_signals.html",
+        context={"as_of": data["as_of"], "rows": rows},
+    )
+
+
+@router.get("/api/public/signals/ma-crossover")
+async def ma_crossover_api():
+    """Login-free 20/50-day SMA crossover state for the core watchlist."""
+    data = await run_in_threadpool(build_screener)
+    return {
+        "as_of": data["as_of"],
+        "rows": [
+            {k: r[k] for k in ("symbol", "sector", "price", "change_pct",
+                               "ma_state", "ma_cross_days", "above_sma50")}
+            for r in data["rows"] if r.get("ma_state")
+        ],
+    }
+
+
+@router.get("/api/public/signals/volume")
+async def volume_signals_api():
+    """Login-free unusual-volume scan (today vs the 20-day average)."""
+    data = await run_in_threadpool(build_screener)
+    rows = [
+        {k: r[k] for k in ("symbol", "sector", "price", "change_pct",
+                           "volume", "avg_volume", "vol_ratio")}
+        for r in data["rows"] if r.get("vol_ratio") is not None
+    ]
+    rows.sort(key=lambda r: r["vol_ratio"], reverse=True)
+    return {"as_of": data["as_of"], "rows": rows}
 
 
 def _watchlist_symbol(symbol: str) -> str:

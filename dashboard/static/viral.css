@@ -83,6 +83,8 @@ pre.v-code{background:rgba(255,255,255,.04);border:1px solid var(--border);borde
 .v-table tbody tr:last-child td{border-bottom:none}
 .v-sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 .v-disclaimer{font-size:12px;color:var(--text-muted);margin-top:16px}
+.v-star{background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:18px;line-height:1;padding:4px 8px}
+.v-star.v-star-on{color:var(--accent)}
 @media(max-width:640px){
   .v-hide-sm{display:none}
   .v-grid-2,.v-grid-3,.v-grid-4{grid-template-columns:1fr}
