@@ -357,3 +357,56 @@ async def live_pnl_intraday(date: str = "", _user: str = Depends(require_auth)):
         except OSError:
             pass
     return {"date": want, "points": points}
+
+
+def build_portfolio_summary(settings, top_n: int = 5) -> Dict[str, Any]:
+    """Headline metrics for the dashboard summary card.
+
+    Portfolio value, the day's P&L (absolute and as a % of the opening value)
+    and the largest holdings by market value.  Built on
+    :func:`build_pnl_snapshot` so the numbers always reconcile with the live
+    P&L section; stale rows fall back to cost basis for sizing.
+    """
+    snap = build_pnl_snapshot(settings)
+    totals = snap["totals"]
+    equity = float(totals["account_equity"])
+    day_pnl = float(totals["today_total"])
+    opening = equity - day_pnl
+    day_pct = round(day_pnl / opening * 100.0, 2) if opening > 0 else None
+
+    holdings: List[Dict[str, Any]] = []
+    for row in snap["positions"]:
+        price = row["current_price"] if row["current_price"] is not None else row["entry_price"]
+        value = round(float(price or 0) * int(row["quantity"] or 0), 2)
+        holdings.append({
+            "symbol": row["symbol"],
+            "side": row["side"],
+            "quantity": row["quantity"],
+            "market_value": value,
+            "weight_pct": round(value / equity * 100.0, 2) if equity > 0 else None,
+            "unrealized_pnl": row["unrealized_pnl"],
+            "unrealized_pct": row["unrealized_pct"],
+            "stale": row["stale"],
+        })
+    holdings.sort(key=lambda h: h["market_value"], reverse=True)
+    invested = round(sum(h["market_value"] for h in holdings), 2)
+
+    return {
+        "as_of": snap["as_of"],
+        "account_equity": round(equity, 2),
+        "invested": invested,
+        "cash": round(equity - invested, 2),
+        "day_pnl": round(day_pnl, 2),
+        "day_pnl_pct": day_pct,
+        "unrealized": totals["unrealized"],
+        "positions_total": totals["positions_total"],
+        "holdings": holdings[:top_n],
+    }
+
+
+@router.get("/summary")
+async def live_summary(_user: str = Depends(require_auth)):
+    """Portfolio value, day's P&L and top holdings for the dashboard summary."""
+    from fastapi.concurrency import run_in_threadpool
+
+    return await run_in_threadpool(build_portfolio_summary, get_settings())

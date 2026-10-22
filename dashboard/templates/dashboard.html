@@ -1750,6 +1750,31 @@
   .ov-action .oa-title { font-size: 14px; font-weight: 600; }
   .ov-action .oa-sub { font-size: 11.5px; color: var(--text-muted); }
 
+  /* Top holdings */
+  .ov-delta-pct { font-weight: 500; opacity: .85; }
+  .ov-holdings { margin: 0 24px 20px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); }
+  .ov-holdings-head {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px;
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+  }
+  .ov-holdings-head h3 { margin: 0; font-size: 13px; letter-spacing: .5px; text-transform: uppercase; color: var(--text-muted); }
+  .ov-holdings-meta { font-size: 12px; color: var(--text-muted); margin-right: auto; }
+  .ov-hold-row {
+    display: grid; grid-template-columns: minmax(70px, 1fr) 2fr auto auto;
+    align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border);
+    font-variant-numeric: tabular-nums; font-size: 14px;
+  }
+  .ov-hold-row:last-child { border-bottom: none; }
+  .ov-hold-sym { font-weight: 650; }
+  .ov-hold-sym small { display: block; font-weight: 400; font-size: 11px; color: var(--text-muted); }
+  .ov-hold-bar { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+  .ov-hold-bar span { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+  .ov-hold-val { text-align: right; }
+  .ov-hold-pnl { text-align: right; min-width: 64px; }
+  .ov-hold-pnl.pnl-pos { color: var(--green); }
+  .ov-hold-pnl.pnl-neg { color: var(--red); }
+  .ov-holdings .empty-note { padding: 14px 16px; }
+
   /* System health strip */
   .ov-health {
     display: flex; flex-wrap: wrap; gap: 8px 10px;
@@ -1773,6 +1798,9 @@
     .ov-hero-value { font-size: 32px; }
     .ov-hero-meta { margin-left: 0; text-align: left; width: 100%; }
     .ov-metrics, .ov-actions, .ov-health { padding-left: 16px; padding-right: 16px; }
+    .ov-holdings { margin-left: 16px; margin-right: 16px; }
+    .ov-hold-row { grid-template-columns: 1fr auto auto; }
+    .ov-hold-bar { display: none; }
     /* Two tiles per row keeps the "at a glance" panel glanceable instead of a
        tall single column of six full-width cards. */
     .ov-metrics { grid-template-columns: repeat(2, 1fr); gap: 10px; }
@@ -2081,11 +2109,12 @@
 <div class="section" id="nav-overview">
   <div class="ov-hero">
     <div class="ov-hero-main">
-      <span class="ov-hero-label">Account Equity</span>
+      <span class="ov-hero-label" title="Account equity: starting capital + realized + unrealized P&amp;L">Portfolio Value</span>
       <span class="ov-hero-value" id="ovEquity">${{ "{:,.2f}".format(paper.account_equity) }}</span>
     </div>
     <span class="ov-hero-delta flat" id="ovDelta" title="Today's total P&amp;L (open + closed)">
       <span id="ovDeltaVal">—</span>
+      <span class="ov-delta-pct" id="ovDeltaPct"></span>
     </span>
     <div class="ov-hero-meta">
       <div>{{ paper.mode|capitalize }} account{% if paper.is_live %} · {{ paper.broker }}{% else %} · simulated broker{% endif %}</div>
@@ -2118,6 +2147,14 @@
       <span class="m-label">Profit Factor</span>
       <span class="m-value" id="ovProfitFactor">—</span>
     </div>
+  </div>
+
+  <div class="ov-holdings" id="ovHoldings" aria-labelledby="ovHoldingsTitle">
+    <div class="ov-holdings-head">
+      <h3 id="ovHoldingsTitle">Top Holdings</h3>
+      <span class="ov-holdings-meta" id="ovHoldingsMeta"></span>
+    </div>
+    <div id="ovHoldingsList"><div class="empty-note">Loading…</div></div>
   </div>
 
   <div class="ov-health" id="ovHealth">
@@ -10939,6 +10976,71 @@
       case "/": e.preventDefault(); openCmdK(); break;
     }
   });
+})();
+</script>
+
+<!-- ═══════════════════ OVERVIEW: TOP HOLDINGS ═══════════════════
+     Day's P&L % and the largest positions by market value, from
+     /api/live/summary (built on the same snapshot as the live P&L section). -->
+<script>
+(function () {
+  "use strict";
+  var SUMMARY = null;
+  window.getPortfolioSummary = function () { return SUMMARY; };
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return "&#" + c.charCodeAt(0) + ";"; });
+  }
+  function money(v) {
+    if (v == null || isNaN(v)) return "—";
+    var n = Number(v);
+    return (n < 0 ? "-$" : "$") + Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function pct(v) {
+    if (v == null || isNaN(v)) return "—";
+    return (v > 0 ? "+" : "") + Number(v).toFixed(2) + "%";
+  }
+
+  function render(d) {
+    SUMMARY = d;
+    var dp = document.getElementById("ovDeltaPct");
+    if (dp) dp.textContent = d.day_pnl_pct == null ? "" : "(" + pct(d.day_pnl_pct) + ")";
+    var meta = document.getElementById("ovHoldingsMeta");
+    if (meta) {
+      meta.textContent = d.positions_total
+        ? d.positions_total + " open · " + money(d.invested) + " invested · " + money(d.cash) + " cash"
+        : "";
+    }
+    var list = document.getElementById("ovHoldingsList");
+    if (!list) return;
+    if (!d.holdings || !d.holdings.length) {
+      list.innerHTML = '<div class="empty-note">No open positions yet — holdings appear here once the bot (or you) opens a trade.</div>';
+      return;
+    }
+    var maxW = Math.max.apply(null, d.holdings.map(function (h) { return h.weight_pct || 0; })) || 1;
+    list.innerHTML = d.holdings.map(function (h) {
+      var cls = h.unrealized_pnl == null ? "" : (h.unrealized_pnl < 0 ? "pnl-neg" : "pnl-pos");
+      var w = h.weight_pct == null ? 0 : h.weight_pct;
+      return '<div class="ov-hold-row">' +
+        '<div class="ov-hold-sym">' + esc(h.symbol) + '<small>' + esc(h.quantity) + ' sh' +
+          (h.side === "short" ? ' · short' : '') + (h.weight_pct == null ? '' : ' · ' + w.toFixed(1) + '%') + '</small></div>' +
+        '<div class="ov-hold-bar" aria-hidden="true"><span style="width:' + Math.max(2, w / maxW * 100).toFixed(0) + '%"></span></div>' +
+        '<div class="ov-hold-val">' + money(h.market_value) + '</div>' +
+        '<div class="ov-hold-pnl ' + cls + '">' + (h.stale ? "stale" : pct(h.unrealized_pct)) + '</div>' +
+        '</div>';
+    }).join("");
+  }
+
+  function load() {
+    fetch("/api/live/summary", { credentials: "same-origin" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { if (d) render(d); })
+      .catch(function () {});
+  }
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", load);
+  else load();
+  setInterval(function () { if (!document.hidden) load(); }, 60000);
 })();
 </script>
 
