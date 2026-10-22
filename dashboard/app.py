@@ -91,8 +91,28 @@ templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+
+class CachedStaticFiles(StaticFiles):
+    """StaticFiles with a Cache-Control header.
+
+    Without one every page view revalidated Chart.js (~200 kB) and the CSS.
+    The names are not fingerprinted, so the lifetime is a day rather than a
+    year, and stale-while-revalidate lets a deploy's new copy arrive on the
+    next view without a blocking round-trip.
+    """
+
+    CACHE_CONTROL = "public, max-age=86400, stale-while-revalidate=604800"
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        if response.status_code in (200, 304):
+            response.headers["Cache-Control"] = self.CACHE_CONTROL
+        return response
+
+
 if _STATIC_DIR.is_dir():
-    app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+    app.mount("/static", CachedStaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 # ---------------------------------------------------------------------------
 # Authentication — HTTP Basic Auth guarding every page except /health
