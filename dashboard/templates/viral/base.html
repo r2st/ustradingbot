@@ -7,10 +7,17 @@
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
 <title>{% block title %}DoAide Trade{% endblock %}</title>
 <meta name="description" content="{% block description %}Free trading calculators and tools by DoAide Trade.{% endblock %}">
-<meta property="og:title" content="{% block og_title %}DoAide Trade{% endblock %}">
-<meta property="og:description" content="{% block og_description %}Free trading calculators and tools.{% endblock %}">
-<meta property="og:type" content="website">
+<meta name="robots" content="{% block robots %}index, follow{% endblock %}">
+<link rel="canonical" href="https://trade.doaide.com{{ self.og_url() or '/' }}">
+<meta property="og:site_name" content="DoAide Trade">
+<meta property="og:title" content="{% block og_title %}{{ self.title() }}{% endblock %}">
+<meta property="og:description" content="{% block og_description %}{{ self.description() }}{% endblock %}">
+<meta property="og:type" content="{% block og_type %}website{% endblock %}">
 <meta property="og:url" content="https://trade.doaide.com{% block og_url %}{% endblock %}">
+<meta property="og:locale" content="en_US">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="{{ self.og_title() }}">
+<meta name="twitter:description" content="{{ self.og_description() }}">
 <link rel="stylesheet" href="/static/viral.css">
 <script defer src="https://analytics.doaide.com/script.js" data-website-id="32893208-8775-4a86-937f-4542984e7a7e"></script>
 {% block json_ld %}{% endblock %}

@@ -1351,40 +1351,61 @@ async def blog_post(request: Request, slug: str):
 # SEO: sitemap & robots
 # ---------------------------------------------------------------------------
 
-_SITEMAP_XML = """<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://trade.doaide.com/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>
-  <url><loc>https://trade.doaide.com/tools</loc><changefreq>monthly</changefreq><priority>0.9</priority></url>
-  <url><loc>https://trade.doaide.com/tools/position-size-calculator</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
-  <url><loc>https://trade.doaide.com/tools/profit-loss-calculator</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
-  <url><loc>https://trade.doaide.com/tools/risk-reward-calculator</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
-  <url><loc>https://trade.doaide.com/embed</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
-  <url><loc>https://trade.doaide.com/blog</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
-  <url><loc>https://trade.doaide.com/blog/advanced-stock-screening-strategies-nse-bse</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
-  <url><loc>https://trade.doaide.com/blog/sebi-fno-regulations-2026-derivatives-traders</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
-  <url><loc>https://trade.doaide.com/blog/best-intraday-trading-indicators-nse-vwap-ema-rsi</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
-  <url><loc>https://trade.doaide.com/blog/best-stock-screener-india-nse-bse</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
-  <url><loc>https://trade.doaide.com/blog/sebi-regulations-retail-traders-india-2026</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
-  <url><loc>https://trade.doaide.com/blog/intraday-trading-tips-strategies-india</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
-  <url><loc>https://trade.doaide.com/blog/stock-screening-tools-india</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
-  <url><loc>https://trade.doaide.com/blog/technical-analysis-beginners-guide</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
-  <url><loc>https://trade.doaide.com/blog/best-free-trading-tools-2026</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
-  <url><loc>https://trade.doaide.com/blog/ai-trading-bots-retail-investing</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
-  <url><loc>https://trade.doaide.com/blog/risk-management-rules-traders</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
-  <url><loc>https://trade.doaide.com/blog/algorithmic-trading-beginners-guide</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
-</urlset>"""
+SITE_URL = "https://trade.doaide.com"
+
+#: Public, indexable pages: (path, changefreq, priority).  Blog posts are
+#: appended from ARTICLES so a new article can never be missing from the map.
+_STATIC_PAGES = [
+    ("/", "weekly", "1.0"),
+    ("/screener", "daily", "0.9"),
+    ("/market", "daily", "0.9"),
+    ("/tools", "monthly", "0.9"),
+    ("/tools/position-size-calculator", "monthly", "0.8"),
+    ("/tools/profit-loss-calculator", "monthly", "0.8"),
+    ("/tools/risk-reward-calculator", "monthly", "0.8"),
+    ("/blog", "weekly", "0.8"),
+    ("/embed", "monthly", "0.5"),
+]
+
+
+def build_sitemap_xml() -> str:
+    """Render sitemap.xml from the static page list plus every blog article."""
+    urls = [
+        f"  <url><loc>{SITE_URL}{path}</loc><changefreq>{freq}</changefreq>"
+        f"<priority>{prio}</priority></url>"
+        for path, freq, prio in _STATIC_PAGES
+    ]
+    for article in ARTICLES:
+        lastmod = f"<lastmod>{article['iso_date']}</lastmod>" if article.get("iso_date") else ""
+        urls.append(
+            f"  <url><loc>{SITE_URL}/blog/{article['slug']}</loc>{lastmod}"
+            "<changefreq>monthly</changefreq><priority>0.7</priority></url>"
+        )
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        + "\n".join(urls)
+        + "\n</urlset>"
+    )
 
 
 @router.get("/sitemap.xml", response_class=Response)
 async def sitemap():
-    return Response(content=_SITEMAP_XML.strip(), media_type="application/xml")
+    return Response(content=build_sitemap_xml(), media_type="application/xml")
 
 
 _ROBOTS_TXT = """User-agent: *
 Allow: /
-Allow: /tools/
-Allow: /blog/
-Allow: /embed
+Disallow: /dashboard
+Disallow: /ai-dashboard
+Disallow: /api/
+Disallow: /login
+Disallow: /logout
+Disallow: /docs
+Disallow: /redoc
+Disallow: /openapi.json
+Disallow: /metrics
+Disallow: /ws/
 
 Sitemap: https://trade.doaide.com/sitemap.xml
 """
