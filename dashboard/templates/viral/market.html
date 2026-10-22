@@ -1,0 +1,88 @@
+{% extends "viral/base.html" %}
+{% block title %}US Stock Market Today — S&amp;P 500, Nasdaq, Sector Moves | DoAide Trade{% endblock %}
+{% block description %}Free US market overview: S&amp;P 500, Nasdaq 100, Dow and Russell 2000 moves, sector ETF performance, top gainers and losers. No login needed.{% endblock %}
+{% block og_title %}US Stock Market Today — Free Market Overview{% endblock %}
+{% block og_description %}Index moves, sector performance, top gainers and losers. Free, no login.{% endblock %}
+{% block og_url %}/market{% endblock %}
+{% block json_ld %}
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebPage","name":"US Stock Market Overview","url":"https://trade.doaide.com/market","description":"Free US market overview: index moves, sector ETF performance, top gainers and losers.","isPartOf":{"@type":"WebSite","name":"DoAide Trade","url":"https://trade.doaide.com/"}}</script>
+{% endblock %}
+{% macro chg(v) -%}
+{%- if v is none -%}<span class="v-muted">—</span>
+{%- else -%}<span class="{{ 'v-up' if v > 0 else ('v-down' if v < 0 else 'v-muted') }}">{{ '+' if v > 0 else '' }}{{ '%.2f'|format(v) }}%</span>
+{%- endif -%}
+{%- endmacro %}
+{% block content %}
+<h1>US Market Overview</h1>
+<p class="v-subtitle">Major indices, sector rotation and today's biggest movers — free, no sign-up.
+  <span class="v-stamp">Updated {{ data.as_of[:16].replace('T', ' ') }} UTC</span></p>
+
+{% if not data.indices and not data.sectors %}
+<div class="v-card"><p class="v-muted">Market data is temporarily unavailable. Please try again in a few minutes.</p></div>
+{% endif %}
+
+{% if data.indices %}
+<div class="v-grid v-grid-4 v-mb">
+  {% for r in data.indices %}
+  <div class="v-result">
+    <div class="v-result-label">{{ r.name }} <span class="v-muted">({{ r.symbol }})</span></div>
+    <div class="v-result-value">${{ '%.2f'|format(r.price) }}</div>
+    <div>{{ chg(r.change_pct) }}</div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if data.breadth.total %}
+<div class="v-card">
+  <h2 style="margin-top:0">Market breadth</h2>
+  <p class="v-muted" style="font-size:14px">Across {{ data.breadth.total }} large-cap US stocks:
+    <span class="v-up">{{ data.breadth.advancers }} up</span> ·
+    <span class="v-down">{{ data.breadth.decliners }} down</span></p>
+  <div class="v-bar"><div class="v-bar-fill" style="width:{{ (100 * data.breadth.advancers / data.breadth.total)|round(0) }}%;background:var(--green)"></div></div>
+</div>
+{% endif %}
+
+{% if data.sectors %}
+<div class="v-card">
+  <h2 style="margin-top:0">Sector performance</h2>
+  <div class="v-table-wrap">
+  <table class="v-table">
+    <thead><tr><th scope="col">Sector</th><th scope="col">ETF</th><th scope="col" class="num">Day</th><th scope="col" class="num">1 Month</th></tr></thead>
+    <tbody>
+    {% for r in data.sectors %}
+      <tr><td>{{ r.name }}</td><td>{{ r.symbol }}</td><td class="num">{{ chg(r.change_pct) }}</td><td class="num">{{ chg(r.month_pct) }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endif %}
+
+{% if data.gainers %}
+<div class="v-grid v-grid-2">
+  <div class="v-card">
+    <h2 style="margin-top:0">Top gainers</h2>
+    <table class="v-table"><tbody>
+    {% for r in data.gainers %}<tr><td>{{ r.symbol }}</td><td class="num">${{ '%.2f'|format(r.price) }}</td><td class="num">{{ chg(r.change_pct) }}</td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+  <div class="v-card">
+    <h2 style="margin-top:0">Top losers</h2>
+    <table class="v-table"><tbody>
+    {% for r in data.losers %}<tr><td>{{ r.symbol }}</td><td class="num">${{ '%.2f'|format(r.price) }}</td><td class="num">{{ chg(r.change_pct) }}</td></tr>{% else %}<tr><td class="v-muted">—</td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+</div>
+{% endif %}
+
+<p style="margin-top:16px"><a href="/screener" class="v-btn">Open the free stock screener →</a></p>
+
+<div class="v-share">
+  <span class="v-share-label">Share</span>
+  <a href="https://wa.me/?text=Free%20US%20market%20overview%20https://trade.doaide.com/market" target="_blank" rel="noopener" class="v-share-btn">WhatsApp</a>
+  <a href="https://twitter.com/intent/tweet?text=Free%20US%20market%20overview&url=https://trade.doaide.com/market" target="_blank" rel="noopener" class="v-share-btn">Twitter/X</a>
+  <button type="button" class="v-share-btn" id="copy-btn" onclick="copyLink('https://trade.doaide.com/market')">Copy Link</button>
+</div>
+<p class="v-disclaimer">Prices are delayed end-of-day/intraday snapshots for information only — not investment advice.</p>
+{% endblock %}

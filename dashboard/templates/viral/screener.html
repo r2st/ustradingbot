@@ -1,0 +1,153 @@
+{% extends "viral/base.html" %}
+{% block title %}Free US Stock Screener — RSI, Momentum, 50-Day Trend | DoAide Trade{% endblock %}
+{% block description %}Free US stock screener for large-cap stocks: filter by sector, RSI, 1-month momentum and 50-day moving average trend. No login or sign-up needed.{% endblock %}
+{% block og_title %}Free US Stock Screener — No Login Needed{% endblock %}
+{% block og_description %}Filter large-cap US stocks by sector, RSI, momentum and trend. Free, no sign-up.{% endblock %}
+{% block og_url %}/screener{% endblock %}
+{% block json_ld %}
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"DoAide Trade Stock Screener","url":"https://trade.doaide.com/screener","description":"Free technical stock screener for large-cap US stocks: RSI, momentum and 50-day trend filters.","applicationCategory":"FinanceApplication","operatingSystem":"Web","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}}</script>
+{% endblock %}
+{% block content %}
+<h1>Free Stock Screener</h1>
+<p class="v-subtitle">Scan {{ data.rows|length }} large-cap US stocks by sector, RSI, momentum and trend — no sign-up.
+  <span class="v-stamp">Updated {{ data.as_of[:16].replace('T', ' ') }} UTC</span></p>
+
+<div class="v-card">
+  <div class="v-grid v-grid-4">
+    <div class="v-form-group">
+      <label class="v-label" for="f-sector">Sector</label>
+      <select id="f-sector" class="v-input">
+        <option value="">All sectors</option>
+        {% for s in data.sectors %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="v-form-group">
+      <label class="v-label" for="f-rsi">RSI (14)</label>
+      <select id="f-rsi" class="v-input">
+        <option value="">Any</option>
+        <option value="oversold">Oversold (&lt; 30)</option>
+        <option value="neutral">Neutral (30–70)</option>
+        <option value="overbought">Overbought (&gt; 70)</option>
+      </select>
+    </div>
+    <div class="v-form-group">
+      <label class="v-label" for="f-trend">Trend</label>
+      <select id="f-trend" class="v-input">
+        <option value="">Any</option>
+        <option value="up">Above 50-day avg</option>
+        <option value="down">Below 50-day avg</option>
+      </select>
+    </div>
+    <div class="v-form-group">
+      <label class="v-label" for="f-search">Symbol</label>
+      <input id="f-search" class="v-input" type="search" placeholder="e.g. NVDA" autocomplete="off">
+    </div>
+  </div>
+  <p class="v-muted" style="font-size:13px"><span id="match-count">{{ data.rows|length }}</span> matching stocks</p>
+</div>
+
+<div class="v-card v-table-wrap" style="padding:0">
+  <table class="v-table" id="screener">
+    <caption class="v-sr-only">Stock screener results</caption>
+    <thead><tr>
+      <th scope="col" data-sort="symbol">Symbol</th>
+      <th scope="col" data-sort="sector" class="v-hide-sm">Sector</th>
+      <th scope="col" data-sort="price" class="num">Price</th>
+      <th scope="col" data-sort="change_pct" class="num">Day</th>
+      <th scope="col" data-sort="month_pct" class="num">1M</th>
+      <th scope="col" data-sort="rsi" class="num">RSI</th>
+      <th scope="col" data-sort="off_high_pct" class="num v-hide-sm">From 6M high</th>
+    </tr></thead>
+    <tbody id="screener-rows">
+    {% for r in data.rows %}
+      <tr><td>{{ r.symbol }}</td><td class="v-hide-sm">{{ r.sector }}</td><td class="num">${{ '%.2f'|format(r.price) }}</td>
+        <td class="num">{{ r.change_pct if r.change_pct is not none else '—' }}%</td>
+        <td class="num">{{ r.month_pct if r.month_pct is not none else '—' }}%</td>
+        <td class="num">{{ r.rsi if r.rsi is not none else '—' }}</td>
+        <td class="num v-hide-sm">{{ r.off_high_pct if r.off_high_pct is not none else '—' }}%</td></tr>
+    {% else %}
+      <tr><td colspan="7" class="v-muted">Market data is temporarily unavailable. Please try again in a few minutes.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<p style="margin-top:16px"><a href="/market" class="v-btn">See today's market overview →</a></p>
+
+<div class="v-share">
+  <span class="v-share-label">Share</span>
+  <a href="https://wa.me/?text=Free%20US%20stock%20screener%20https://trade.doaide.com/screener" target="_blank" rel="noopener" class="v-share-btn" id="wa-screener">WhatsApp</a>
+  <a href="https://twitter.com/intent/tweet?text=Free%20US%20stock%20screener&url=https://trade.doaide.com/screener" target="_blank" rel="noopener" class="v-share-btn">Twitter/X</a>
+  <button type="button" class="v-share-btn" id="copy-btn" onclick="copyLink('https://trade.doaide.com/screener')">Copy Link</button>
+</div>
+<p class="v-disclaimer">Indicators are computed from daily bars for information only — not investment advice.</p>
+{% endblock %}
+{% block extra_script %}
+<script>
+(function () {
+  var ROWS = {{ data.rows | tojson }};
+  var sortKey = 'symbol', sortDir = 1;
+  var $ = function (id) { return document.getElementById(id); };
+
+  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); }
+  function pct(v) {
+    if (v === null || v === undefined) return '<span class="v-muted">—</span>';
+    var cls = v > 0 ? 'v-up' : (v < 0 ? 'v-down' : 'v-muted');
+    return '<span class="' + cls + '">' + (v > 0 ? '+' : '') + v.toFixed(2) + '%</span>';
+  }
+  function rsi(v) {
+    if (v === null || v === undefined) return '—';
+    var cls = v < 30 ? 'v-up' : (v > 70 ? 'v-down' : '');
+    return '<span class="' + cls + '">' + v.toFixed(1) + '</span>';
+  }
+
+  function filtered() {
+    var sector = $('f-sector').value, band = $('f-rsi').value, trend = $('f-trend').value;
+    var q = $('f-search').value.trim().toUpperCase();
+    return ROWS.filter(function (r) {
+      if (sector && r.sector !== sector) return false;
+      if (q && r.symbol.indexOf(q) === -1) return false;
+      if (trend === 'up' && r.above_sma50 !== true) return false;
+      if (trend === 'down' && r.above_sma50 !== false) return false;
+      if (band) {
+        if (r.rsi === null) return false;
+        if (band === 'oversold' && r.rsi >= 30) return false;
+        if (band === 'overbought' && r.rsi <= 70) return false;
+        if (band === 'neutral' && (r.rsi < 30 || r.rsi > 70)) return false;
+      }
+      return true;
+    }).sort(function (a, b) {
+      var x = a[sortKey], y = b[sortKey];
+      if (x === null || x === undefined) return 1;
+      if (y === null || y === undefined) return -1;
+      return (x > y ? 1 : x < y ? -1 : 0) * sortDir;
+    });
+  }
+
+  function render() {
+    var rows = filtered();
+    $('match-count').textContent = rows.length;
+    $('screener-rows').innerHTML = rows.length ? rows.map(function (r) {
+      return '<tr><td><strong>' + esc(r.symbol) + '</strong></td><td class="v-hide-sm">' + esc(r.sector) +
+        '</td><td class="num">$' + r.price.toFixed(2) + '</td><td class="num">' + pct(r.change_pct) +
+        '</td><td class="num">' + pct(r.month_pct) + '</td><td class="num">' + rsi(r.rsi) +
+        '</td><td class="num v-hide-sm">' + pct(r.off_high_pct) + '</td></tr>';
+    }).join('') : '<tr><td colspan="7" class="v-muted">No stocks match these filters.</td></tr>';
+    window.__screenerRows = rows;
+  }
+
+  ['f-sector', 'f-rsi', 'f-trend'].forEach(function (id) { $(id).addEventListener('change', render); });
+  $('f-search').addEventListener('input', render);
+  document.querySelectorAll('#screener th[data-sort]').forEach(function (th) {
+    th.style.cursor = 'pointer';
+    th.addEventListener('click', function () {
+      var k = th.getAttribute('data-sort');
+      sortDir = (k === sortKey) ? -sortDir : (k === 'symbol' || k === 'sector' ? 1 : -1);
+      sortKey = k;
+      render();
+    });
+  });
+  if (ROWS.length) render();
+})();
+</script>
+{% endblock %}

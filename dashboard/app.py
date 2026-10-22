@@ -2865,8 +2865,10 @@ for _r in (
 
 from dashboard.viral_router import router as _viral_router
 from dashboard.feedback_router import router as _feedback_router
+from dashboard.public_market_router import router as _public_market_router
 
 app.include_router(_viral_router)
+app.include_router(_public_market_router)
 app.include_router(_feedback_router)
 
 

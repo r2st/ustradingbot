@@ -70,7 +70,21 @@ pre.v-code{background:rgba(255,255,255,.04);border:1px solid var(--border);borde
 .v-badge.gold{background:rgba(240,180,41,.15);color:var(--accent)}
 .v-bar{height:10px;border-radius:5px;background:rgba(255,255,255,.06);overflow:hidden;margin:8px 0}
 .v-bar-fill{height:100%;border-radius:5px;transition:width .4s ease}
+.v-up{color:var(--green)}
+.v-down{color:var(--red)}
+.v-muted{color:var(--text-muted)}
+.v-stamp{display:block;font-size:12px;color:var(--text-muted);margin-top:4px}
+.v-mb{margin-bottom:16px}
+.v-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.v-table{width:100%;border-collapse:collapse;font-size:14px}
+.v-table th{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);text-align:left;font-weight:600;padding:10px 12px;border-bottom:1px solid var(--border);white-space:nowrap}
+.v-table td{padding:10px 12px;border-bottom:1px solid var(--border);white-space:nowrap}
+.v-table .num{text-align:right;font-variant-numeric:tabular-nums}
+.v-table tbody tr:last-child td{border-bottom:none}
+.v-sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.v-disclaimer{font-size:12px;color:var(--text-muted);margin-top:16px}
 @media(max-width:640px){
+  .v-hide-sm{display:none}
   .v-grid-2,.v-grid-3,.v-grid-4{grid-template-columns:1fr}
   h1{font-size:22px}
   .v-card{padding:16px}
