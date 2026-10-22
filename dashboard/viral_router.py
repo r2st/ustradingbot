@@ -1446,6 +1446,119 @@ ARTICLES = [
 <p>The journey from manual trading to algorithmic trading is a marathon, not a sprint. Focus on building a solid foundation, and the results will follow.</p>
 """,
     },
+    {
+        "slug": "indian-stock-market-beginners-guide-2026",
+        "title": "Indian Stock Market for Beginners: A Practical Guide to Getting Started in 2026",
+        "excerpt": "Everything a beginner needs to know about investing in the Indian stock market in 2026 — opening a Demat account, understanding NSE and BSE, picking your first stocks, and avoiding common mistakes.",
+        "date": "October 23, 2026",
+        "iso_date": "2026-10-23",
+        "read_time": "11 min read",
+        "faq_json_ld": '{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"How much money do I need to start investing in the Indian stock market?","acceptedAnswer":{"@type":"Answer","text":"You can start with as little as ₹500 through a SIP in an index mutual fund or ETF. For direct stock investing, there is no minimum — you can buy a single share of most companies. The key is to start small, learn the mechanics, and increase your investment as you gain confidence. Many brokers now charge zero brokerage on delivery trades, so transaction costs are not a barrier."}},{"@type":"Question","name":"What is the difference between NSE and BSE?","acceptedAnswer":{"@type":"Answer","text":"NSE (National Stock Exchange) and BSE (Bombay Stock Exchange) are both stock exchanges where shares are traded. NSE is the larger exchange by trading volume and is home to the Nifty 50 index. BSE is the older exchange (founded 1875) and tracks the Sensex index. Most stocks are listed on both exchanges, and prices are nearly identical. As a beginner, you will typically trade on NSE due to higher liquidity."}},{"@type":"Question","name":"Should I start with mutual funds or direct stocks?","acceptedAnswer":{"@type":"Answer","text":"Start with index mutual funds (like a Nifty 50 index fund) via SIP. They give you diversification, professional management, and you do not need to pick individual stocks. Once you have invested consistently for 6-12 months and understand how markets move, you can start allocating a small portion (10-20%) to direct stocks. This way you learn without risking too much on stock-picking mistakes."}},{"@type":"Question","name":"What is a Demat account and how do I open one?","acceptedAnswer":{"@type":"Answer","text":"A Demat (dematerialised) account holds your shares in electronic form, similar to how a bank account holds your money. You need both a Demat account and a trading account to buy and sell stocks. Open one with a SEBI-registered broker — popular discount brokers include Zerodha, Groww, Upstox and Angel One. The process is fully online: submit your PAN, Aadhaar, bank details, and complete e-KYC. Most accounts are active within 24-48 hours."}},{"@type":"Question","name":"How are stock market profits taxed in India?","acceptedAnswer":{"@type":"Answer","text":"Short-term capital gains (stocks held less than 12 months) are taxed at 15%. Long-term capital gains (held over 12 months) above ₹1 lakh per year are taxed at 10% without indexation benefit. Dividend income is taxed at your income tax slab rate. These rates apply to listed equity shares traded on recognised exchanges. Always keep records of your buy and sell transactions for tax filing."}}]}',
+        "content_html": """
+<p>India's stock market has over 19 crore Demat accounts as of 2026 — and millions of new investors join every year. If you are thinking about investing but feel overwhelmed by jargon, platforms and opinions, this guide cuts through the noise and gives you a practical path to getting started.</p>
+
+<h2>Step 1: Understand What You Are Buying</h2>
+
+<p>When you buy a stock, you buy a small piece of a company. If the company does well, the stock price tends to rise over time. You can also earn dividends — a share of the company's profits paid to shareholders.</p>
+
+<p>The two main exchanges in India are:</p>
+<ul>
+<li><strong>NSE (National Stock Exchange)</strong> — tracks the <strong>Nifty 50</strong> index (50 largest companies)</li>
+<li><strong>BSE (Bombay Stock Exchange)</strong> — tracks the <strong>Sensex</strong> (30 largest companies)</li>
+</ul>
+<p>Most stocks trade on both exchanges at nearly the same price. As a beginner, this distinction rarely matters — your broker routes your order to whichever exchange has better liquidity.</p>
+
+<h2>Step 2: Open a Demat + Trading Account</h2>
+
+<p>You need two things to invest:</p>
+<ol>
+<li><strong>Demat account</strong> — holds your shares electronically (like a bank locker for stocks)</li>
+<li><strong>Trading account</strong> — lets you place buy and sell orders</li>
+</ol>
+<p>Most brokers open both together. Popular discount brokers (low or zero brokerage):</p>
+<ul>
+<li>Zerodha, Groww, Upstox, Angel One, Dhan</li>
+</ul>
+<p>The process is fully online: PAN card, Aadhaar, bank account, and a selfie. Most accounts activate within 1-2 days.</p>
+
+<h2>Step 3: Start with Index Funds (Not Stock Picking)</h2>
+
+<p>This is the single most important piece of advice for beginners: <strong>don't start by picking individual stocks</strong>.</p>
+
+<p>Instead, start a monthly SIP (Systematic Investment Plan) in a <strong>Nifty 50 index fund</strong>. Here is why:</p>
+<ul>
+<li>You automatically own a piece of the 50 largest Indian companies</li>
+<li>No stock-picking skill required — the index does the selection</li>
+<li>Expense ratios are tiny (0.1-0.2% per year)</li>
+<li>Historically, the Nifty 50 has returned ~12-14% CAGR over 10+ year periods</li>
+</ul>
+<p>Use our <a href="/tools/sip-calculator">SIP Calculator</a> to see how your monthly investment can grow over time — with step-up and inflation adjustment.</p>
+
+<h2>Step 4: Learn to Read the Basics</h2>
+
+<p>Before buying individual stocks, understand these five numbers:</p>
+<ol>
+<li><strong>P/E Ratio</strong> — price relative to earnings; lower means cheaper, but context matters</li>
+<li><strong>Market Cap</strong> — total value of the company (large cap = safer, small cap = more volatile)</li>
+<li><strong>ROE (Return on Equity)</strong> — how efficiently the company uses shareholders' money</li>
+<li><strong>Debt-to-Equity</strong> — how much the company has borrowed; lower is generally safer</li>
+<li><strong>Promoter Holding</strong> — how much the founders/management own; higher = more aligned with you</li>
+</ol>
+<p>Use a free screener like <a href="/screener">our stock screener</a> to filter stocks by these metrics.</p>
+
+<h2>Step 5: Your First Stock Purchase</h2>
+
+<p>When you are ready for individual stocks (after a few months of SIP investing):</p>
+<ol>
+<li><strong>Start with large-cap companies</strong> — Reliance, TCS, HDFC Bank, Infosys. These are less volatile.</li>
+<li><strong>Invest only money you won't need for 3+ years</strong></li>
+<li><strong>Don't put more than 5-10% in any single stock</strong></li>
+<li><strong>Use a <a href="/tools/position-size-calculator">position size calculator</a></strong> to decide how many shares to buy</li>
+</ol>
+
+<h2>Mutual Funds vs Direct Stocks: The Honest Comparison</h2>
+
+<table class="v-table" style="margin:16px 0">
+<thead><tr><th>Factor</th><th>Index Mutual Fund</th><th>Direct Stocks</th></tr></thead>
+<tbody>
+<tr><td>Time required</td><td>10 min/month (set up SIP)</td><td>Several hours/week</td></tr>
+<tr><td>Skill required</td><td>None</td><td>Significant</td></tr>
+<tr><td>Diversification</td><td>Built in (50 stocks)</td><td>You build it yourself</td></tr>
+<tr><td>Expected return</td><td>12-14% long-term CAGR</td><td>Varies widely</td></tr>
+<tr><td>Risk</td><td>Market risk only</td><td>Market + stock-specific risk</td></tr>
+<tr><td>Tax efficiency</td><td>Same (equity taxation)</td><td>Same</td></tr>
+</tbody>
+</table>
+
+<p>Compare specific mutual funds side by side with our <a href="/tools/mutual-fund-comparison">Mutual Fund Comparison tool</a>.</p>
+
+<h2>Common Mistakes Beginners Make</h2>
+
+<ol>
+<li><strong>Buying based on tips</strong> — WhatsApp tips, Telegram channels and YouTube thumbnails are not research. If someone had a guaranteed way to make money, they would not be sharing it for free.</li>
+<li><strong>Not diversifying</strong> — putting all your money in one stock or one sector. Track your allocation with a <a href="/tools/portfolio-tracker">portfolio tracker</a>.</li>
+<li><strong>Panic selling in corrections</strong> — a 10-15% market drop is normal 1-2 times a year. If your time horizon is 5+ years, corrections are buying opportunities.</li>
+<li><strong>Ignoring taxes</strong> — short-term gains (under 12 months) are taxed at 15%. Hold longer when possible.</li>
+<li><strong>Checking prices too often</strong> — daily price watching creates anxiety and bad decisions. Check monthly at most.</li>
+</ol>
+
+<h2>How Much Should You Invest?</h2>
+
+<p>A common rule of thumb: invest the percentage of your income that equals <strong>100 minus your age</strong>. A 25-year-old might invest 75% of their savings in equity; a 50-year-old, 50%. But the real answer depends on your goals, expenses, and emergency fund (keep 6 months of expenses in a savings account or liquid fund before investing).</p>
+
+<h2>Getting Started Today</h2>
+
+<ol>
+<li>Open a Demat account (takes 10 minutes online)</li>
+<li>Start a ₹5,000/month SIP in a Nifty 50 index fund</li>
+<li>Read one company's annual report per month</li>
+<li>After 6 months, try buying 1-2 large-cap stocks with 10% of your portfolio</li>
+<li>Track everything in a <a href="/tools/portfolio-tracker">portfolio tracker</a></li>
+</ol>
+
+<p>The best time to start investing was 10 years ago. The second best time is today.</p>
+""",
+    },
 ]
 
 # ---------------------------------------------------------------------------
@@ -1471,6 +1584,21 @@ async def profit_loss_calculator(request: Request):
 @router.get("/tools/risk-reward-calculator", response_class=HTMLResponse)
 async def risk_reward_calculator(request: Request):
     return _get_templates().TemplateResponse(request, "viral/risk_reward.html")
+
+
+@router.get("/tools/mutual-fund-comparison", response_class=HTMLResponse)
+async def mutual_fund_comparison(request: Request):
+    return _get_templates().TemplateResponse(request, "viral/mf_compare.html")
+
+
+@router.get("/tools/sip-calculator", response_class=HTMLResponse)
+async def sip_calculator(request: Request):
+    return _get_templates().TemplateResponse(request, "viral/sip_calculator.html")
+
+
+@router.get("/tools/portfolio-tracker", response_class=HTMLResponse)
+async def portfolio_tracker(request: Request):
+    return _get_templates().TemplateResponse(request, "viral/portfolio_tracker.html")
 
 
 # ---------------------------------------------------------------------------
@@ -1539,6 +1667,9 @@ _STATIC_PAGES = [
     ("/tools/position-size-calculator", "monthly", "0.8"),
     ("/tools/profit-loss-calculator", "monthly", "0.8"),
     ("/tools/risk-reward-calculator", "monthly", "0.8"),
+    ("/tools/mutual-fund-comparison", "monthly", "0.8"),
+    ("/tools/sip-calculator", "monthly", "0.8"),
+    ("/tools/portfolio-tracker", "monthly", "0.8"),
     ("/signals/ma-crossover", "daily", "0.8"),
     ("/signals/volume", "daily", "0.8"),
     ("/watchlist", "monthly", "0.7"),

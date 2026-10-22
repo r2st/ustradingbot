@@ -1,0 +1,193 @@
+{% extends "viral/base.html" %}
+{% block title %}Portfolio Tracker with Pie Chart — Track Your Holdings | DoAide Trade{% endblock %}
+{% block description %}Free portfolio tracker. Add your stock holdings, see allocation pie chart, total value, gain/loss, and sector breakdown. Saved in your browser — no login needed.{% endblock %}
+{% block og_title %}Portfolio Tracker — Free, No Login{% endblock %}
+{% block og_url %}/tools/portfolio-tracker{% endblock %}
+{% block json_ld %}
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Portfolio Tracker","url":"https://trade.doaide.com/tools/portfolio-tracker","description":"Free portfolio tracker with pie chart, gain/loss calculation and sector breakdown. Saved locally.","applicationCategory":"FinanceApplication","operatingSystem":"Web","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}}</script>
+{% endblock %}
+{% block content %}
+<h1>Portfolio Tracker</h1>
+<p class="v-subtitle">Track your holdings with a visual pie chart. Everything is saved in your browser — no account needed.</p>
+
+<div class="v-card">
+  <h3 style="margin:0 0 12px">Add Holding</h3>
+  <div class="v-grid v-grid-4">
+    <div class="v-form-group">
+      <label class="v-label">Stock/Fund Name</label>
+      <input class="v-input" id="h-name" placeholder="e.g. Reliance">
+    </div>
+    <div class="v-form-group">
+      <label class="v-label">Qty / Units</label>
+      <input class="v-input" type="number" id="h-qty" value="10" min="0" step="1">
+    </div>
+    <div class="v-form-group">
+      <label class="v-label">Avg Buy Price (₹)</label>
+      <input class="v-input" type="number" id="h-buy" value="0" min="0" step="0.01">
+    </div>
+    <div class="v-form-group">
+      <label class="v-label">Current Price (₹)</label>
+      <input class="v-input" type="number" id="h-cur" value="0" min="0" step="0.01">
+    </div>
+  </div>
+  <div class="v-grid v-grid-2" style="margin-top:4px">
+    <div class="v-form-group">
+      <label class="v-label">Sector (optional)</label>
+      <select class="v-input" id="h-sector">
+        <option value="Other">Other</option>
+        <option value="IT">IT</option>
+        <option value="Banking">Banking</option>
+        <option value="Pharma">Pharma</option>
+        <option value="FMCG">FMCG</option>
+        <option value="Auto">Auto</option>
+        <option value="Energy">Energy</option>
+        <option value="Metals">Metals</option>
+        <option value="Realty">Realty</option>
+        <option value="Infra">Infra</option>
+        <option value="Mutual Fund">Mutual Fund</option>
+      </select>
+    </div>
+    <div class="v-form-group" style="display:flex;align-items:flex-end">
+      <button class="v-btn" onclick="addHolding()" style="width:100%">Add to Portfolio</button>
+    </div>
+  </div>
+</div>
+
+<div id="portfolio-section" style="display:none">
+  <div class="v-grid v-grid-4 v-grid-stats" style="margin-bottom:16px">
+    <div class="v-result"><div class="v-result-label">Total Invested</div><div class="v-result-value" id="s-invested"></div></div>
+    <div class="v-result"><div class="v-result-label">Current Value</div><div class="v-result-value gold" id="s-current"></div></div>
+    <div class="v-result"><div class="v-result-label">Total P&L</div><div class="v-result-value" id="s-pnl"></div></div>
+    <div class="v-result"><div class="v-result-label">Return %</div><div class="v-result-value" id="s-ret"></div></div>
+  </div>
+
+  <div class="v-grid v-grid-2">
+    <div class="v-card">
+      <h3 style="margin:0 0 12px">Allocation</h3>
+      <canvas id="pie-chart" height="250"></canvas>
+    </div>
+    <div class="v-card">
+      <h3 style="margin:0 0 12px">Sector Breakdown</h3>
+      <canvas id="sector-chart" height="250"></canvas>
+    </div>
+  </div>
+
+  <div class="v-card v-table-wrap" style="padding:0;margin-top:16px">
+    <table class="v-table" id="holdings-table">
+      <thead><tr><th>Name</th><th>Sector</th><th class="num">Qty</th><th class="num">Buy Price</th><th class="num">Current</th><th class="num">Value</th><th class="num">P&L</th><th class="num">%</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <div style="margin-top:12px;display:flex;gap:8px">
+    <button class="v-btn" onclick="exportCSV()">Export CSV</button>
+    <button class="v-btn" onclick="clearAll()" style="background:var(--red);color:#fff">Clear All</button>
+  </div>
+</div>
+
+<div class="v-share" style="margin-top:24px">
+  <span class="v-share-label">Share</span>
+  <a href="https://wa.me/?text=Free%20Portfolio%20Tracker%20https://trade.doaide.com/tools/portfolio-tracker" target="_blank" rel="noopener" class="v-share-btn">WhatsApp</a>
+  <button class="v-share-btn" id="copy-btn" onclick="copyLink('https://trade.doaide.com/tools/portfolio-tracker')">Copy Link</button>
+</div>
+{% endblock %}
+{% block extra_script %}
+<script src="/static/chart.umd.min.js"></script>
+<script>
+var holdings = [];
+var pieChart = null, sectorChart = null;
+var COLORS = ['#F0B429','#22C55E','#3B82F6','#EF4444','#A855F7','#EC4899','#F97316','#06B6D4','#84CC16','#6366F1'];
+
+function fmt(n) { return '₹' + Math.round(n).toLocaleString('en-IN'); }
+
+try { holdings = JSON.parse(localStorage.getItem('dt-portfolio') || '[]'); } catch(e) { holdings = []; }
+
+function save() { try { localStorage.setItem('dt-portfolio', JSON.stringify(holdings)); } catch(e) {} }
+
+function addHolding() {
+  var name = document.getElementById('h-name').value.trim();
+  if (!name) { alert('Enter a name'); return; }
+  holdings.push({
+    name: name,
+    qty: parseFloat(document.getElementById('h-qty').value) || 0,
+    buy: parseFloat(document.getElementById('h-buy').value) || 0,
+    cur: parseFloat(document.getElementById('h-cur').value) || 0,
+    sector: document.getElementById('h-sector').value
+  });
+  save();
+  document.getElementById('h-name').value = '';
+  render();
+}
+
+function removeHolding(i) { holdings.splice(i, 1); save(); render(); }
+
+function clearAll() { if (confirm('Clear entire portfolio?')) { holdings = []; save(); render(); } }
+
+function render() {
+  if (holdings.length === 0) { document.getElementById('portfolio-section').style.display = 'none'; return; }
+  document.getElementById('portfolio-section').style.display = '';
+
+  var totalInvested = 0, totalCurrent = 0;
+  holdings.forEach(function(h) {
+    totalInvested += h.qty * h.buy;
+    totalCurrent += h.qty * h.cur;
+  });
+  var pnl = totalCurrent - totalInvested;
+  var ret = totalInvested > 0 ? (pnl / totalInvested * 100) : 0;
+
+  document.getElementById('s-invested').textContent = fmt(totalInvested);
+  document.getElementById('s-current').textContent = fmt(totalCurrent);
+  document.getElementById('s-pnl').textContent = fmt(pnl);
+  document.getElementById('s-pnl').className = 'v-result-value ' + (pnl >= 0 ? 'green' : 'red');
+  document.getElementById('s-ret').textContent = ret.toFixed(2) + '%';
+  document.getElementById('s-ret').className = 'v-result-value ' + (ret >= 0 ? 'green' : 'red');
+
+  var tbody = document.getElementById('holdings-table').querySelector('tbody');
+  tbody.innerHTML = '';
+  holdings.forEach(function(h, i) {
+    var val = h.qty * h.cur;
+    var pl = (h.cur - h.buy) * h.qty;
+    var plPct = h.buy > 0 ? ((h.cur - h.buy) / h.buy * 100) : 0;
+    var cls = pl >= 0 ? 'v-up' : 'v-down';
+    tbody.innerHTML += '<tr><td style="color:#fff;font-weight:600">'+h.name+'</td><td class="v-muted">'+h.sector+'</td><td class="num">'+h.qty+'</td><td class="num">'+fmt(h.buy)+'</td><td class="num">'+fmt(h.cur)+'</td><td class="num" style="color:var(--accent)">'+fmt(val)+'</td><td class="num '+cls+'">'+fmt(pl)+'</td><td class="num '+cls+'">'+plPct.toFixed(1)+'%</td><td><button class="v-share-btn" style="font-size:11px;padding:2px 8px;min-height:auto" onclick="removeHolding('+i+')">×</button></td></tr>';
+  });
+
+  // Pie chart
+  var labels = holdings.map(function(h){return h.name});
+  var data = holdings.map(function(h){return Math.round(h.qty * h.cur)});
+  if (pieChart) pieChart.destroy();
+  pieChart = new Chart(document.getElementById('pie-chart'), {
+    type:'doughnut',
+    data:{labels:labels,datasets:[{data:data,backgroundColor:COLORS.slice(0,holdings.length),borderWidth:0}]},
+    options:{responsive:true,plugins:{legend:{position:'bottom',labels:{color:'#E4E4E7',font:{size:11},padding:8}}}}
+  });
+
+  // Sector chart
+  var sectors = {};
+  holdings.forEach(function(h) {
+    var v = h.qty * h.cur;
+    sectors[h.sector] = (sectors[h.sector] || 0) + v;
+  });
+  var sKeys = Object.keys(sectors).sort(function(a,b){return sectors[b]-sectors[a]});
+  if (sectorChart) sectorChart.destroy();
+  sectorChart = new Chart(document.getElementById('sector-chart'), {
+    type:'doughnut',
+    data:{labels:sKeys,datasets:[{data:sKeys.map(function(k){return Math.round(sectors[k])}),backgroundColor:COLORS.slice(0,sKeys.length),borderWidth:0}]},
+    options:{responsive:true,plugins:{legend:{position:'bottom',labels:{color:'#E4E4E7',font:{size:11},padding:8}}}}
+  });
+}
+
+function exportCSV() {
+  var csv = 'Name,Sector,Qty,Buy Price,Current Price,Value,P&L\n';
+  holdings.forEach(function(h) {
+    csv += '"'+h.name+'","'+h.sector+'",'+h.qty+','+h.buy+','+h.cur+','+(h.qty*h.cur)+','+((h.cur-h.buy)*h.qty)+'\n';
+  });
+  var blob = new Blob([csv], {type:'text/csv'});
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'portfolio.csv';
+  a.click();
+}
+
+render();
+</script>
+{% endblock %}

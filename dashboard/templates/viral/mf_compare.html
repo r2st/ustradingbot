@@ -1,0 +1,194 @@
+{% extends "viral/base.html" %}
+{% block title %}Mutual Fund Comparison Tool — Compare NAV, Returns, Expense Ratio | DoAide Trade{% endblock %}
+{% block description %}Free mutual fund comparison tool. Compare up to 4 Indian mutual funds by NAV, returns (1Y, 3Y, 5Y), expense ratio, AUM, and risk rating side by side.{% endblock %}
+{% block og_title %}Mutual Fund Comparison Tool — Free, No Login{% endblock %}
+{% block og_url %}/tools/mutual-fund-comparison{% endblock %}
+{% block json_ld %}
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Mutual Fund Comparison Tool","url":"https://trade.doaide.com/tools/mutual-fund-comparison","description":"Compare Indian mutual funds side by side — NAV, returns, expense ratio, AUM and risk.","applicationCategory":"FinanceApplication","operatingSystem":"Web","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}}</script>
+{% endblock %}
+{% block content %}
+<h1>Mutual Fund Comparison</h1>
+<p class="v-subtitle">Compare up to 4 mutual funds side by side. Enter fund details or pick from popular funds below.</p>
+
+<div class="v-card">
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+    <button class="v-btn" onclick="loadPreset('large_cap')" style="font-size:12px;padding:4px 12px">Large Cap</button>
+    <button class="v-btn" onclick="loadPreset('flexi_cap')" style="font-size:12px;padding:4px 12px">Flexi Cap</button>
+    <button class="v-btn" onclick="loadPreset('index')" style="font-size:12px;padding:4px 12px">Index Funds</button>
+    <button class="v-btn" onclick="loadPreset('elss')" style="font-size:12px;padding:4px 12px">ELSS (Tax Saver)</button>
+  </div>
+  <div id="fund-inputs"></div>
+  <div style="display:flex;gap:8px;margin-top:12px">
+    <button class="v-btn" onclick="addFund()" id="add-btn">+ Add Fund</button>
+    <button class="v-btn" onclick="compare()" style="background:var(--green);color:#000">Compare</button>
+  </div>
+</div>
+
+<div id="results" style="display:none">
+  <h2>Comparison Results</h2>
+  <div class="v-card v-table-wrap" style="padding:0">
+    <table class="v-table" id="compare-table">
+      <thead><tr><th>Metric</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <div id="chart-wrap" class="v-card" style="display:none">
+    <h3 style="margin:0 0 12px">Returns Comparison</h3>
+    <canvas id="returns-chart" height="250"></canvas>
+  </div>
+</div>
+
+<div class="v-share">
+  <span class="v-share-label">Share</span>
+  <a href="https://wa.me/?text=Free%20Mutual%20Fund%20Comparison%20Tool%20https://trade.doaide.com/tools/mutual-fund-comparison" target="_blank" rel="noopener" class="v-share-btn">WhatsApp</a>
+  <a href="https://twitter.com/intent/tweet?text=Free%20Mutual%20Fund%20Comparison%20Tool&url=https://trade.doaide.com/tools/mutual-fund-comparison" target="_blank" rel="noopener" class="v-share-btn">Twitter/X</a>
+  <button class="v-share-btn" id="copy-btn" onclick="copyLink('https://trade.doaide.com/tools/mutual-fund-comparison')">Copy Link</button>
+</div>
+{% endblock %}
+{% block extra_script %}
+<script src="/static/chart.umd.min.js"></script>
+<script>
+var funds = [];
+var PRESETS = {
+  large_cap: [
+    {name:'Mirae Asset Large Cap',nav:102.5,ret1:18.2,ret3:14.5,ret5:16.8,expense:0.53,aum:42000,risk:'Moderate'},
+    {name:'Axis Bluechip Fund',nav:56.3,ret1:15.8,ret3:12.1,ret5:14.2,expense:0.49,aum:35000,risk:'Moderate'},
+    {name:'SBI Bluechip Fund',nav:78.9,ret1:16.5,ret3:13.8,ret5:15.1,expense:0.82,aum:45000,risk:'Moderate'}
+  ],
+  flexi_cap: [
+    {name:'Parag Parikh Flexi Cap',nav:72.4,ret1:22.1,ret3:18.5,ret5:20.3,expense:0.63,aum:58000,risk:'Moderately High'},
+    {name:'HDFC Flexi Cap Fund',nav:45.2,ret1:19.3,ret3:16.2,ret5:17.8,expense:0.77,aum:52000,risk:'Moderately High'},
+    {name:'UTI Flexi Cap Fund',nav:310.5,ret1:17.8,ret3:14.9,ret5:16.1,expense:0.92,aum:28000,risk:'Moderately High'}
+  ],
+  index: [
+    {name:'UTI Nifty 50 Index',nav:142.3,ret1:14.5,ret3:12.8,ret5:14.9,expense:0.18,aum:18000,risk:'Moderate'},
+    {name:'HDFC Nifty 50 Index',nav:189.7,ret1:14.4,ret3:12.7,ret5:14.8,expense:0.20,aum:15000,risk:'Moderate'},
+    {name:'Motilal Oswal S&P 500 Index',nav:28.6,ret1:20.1,ret3:17.2,ret5:18.5,expense:0.49,aum:8000,risk:'Moderately High'}
+  ],
+  elss: [
+    {name:'Mirae Asset ELSS Tax Saver',nav:42.8,ret1:19.5,ret3:16.1,ret5:17.9,expense:0.58,aum:22000,risk:'Moderately High'},
+    {name:'Quant ELSS Tax Saver',nav:328.5,ret1:25.2,ret3:22.8,ret5:24.1,expense:0.57,aum:9000,risk:'High'},
+    {name:'Canara Robeco ELSS Tax Saver',nav:165.2,ret1:17.8,ret3:15.2,ret5:16.5,expense:0.55,aum:8500,risk:'Moderately High'}
+  ]
+};
+var chartInstance = null;
+
+function addFund(data) {
+  if (funds.length >= 4) return;
+  var i = funds.length;
+  var d = data || {name:'',nav:'',ret1:'',ret3:'',ret5:'',expense:'',aum:'',risk:'Moderate'};
+  funds.push(d);
+  var wrap = document.getElementById('fund-inputs');
+  var div = document.createElement('div');
+  div.className = 'v-card';
+  div.style.padding = '12px';
+  div.id = 'fund-' + i;
+  div.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><strong style="color:#fff;font-size:14px">Fund ' + (i+1) + '</strong><button class="v-share-btn" style="font-size:11px;padding:2px 8px;min-height:auto" onclick="removeFund('+i+')">Remove</button></div>'
+    + '<div class="v-grid v-grid-2">'
+    + '<div class="v-form-group"><label class="v-label">Fund Name</label><input class="v-input" id="fn-'+i+'" value="'+d.name+'" placeholder="e.g. Mirae Asset Large Cap"></div>'
+    + '<div class="v-form-group"><label class="v-label">NAV (₹)</label><input class="v-input" type="number" id="fv-'+i+'" value="'+d.nav+'" step="0.01"></div>'
+    + '<div class="v-form-group"><label class="v-label">1Y Return (%)</label><input class="v-input" type="number" id="f1-'+i+'" value="'+d.ret1+'" step="0.1"></div>'
+    + '<div class="v-form-group"><label class="v-label">3Y Return (%)</label><input class="v-input" type="number" id="f3-'+i+'" value="'+d.ret3+'" step="0.1"></div>'
+    + '<div class="v-form-group"><label class="v-label">5Y Return (%)</label><input class="v-input" type="number" id="f5-'+i+'" value="'+d.ret5+'" step="0.1"></div>'
+    + '<div class="v-form-group"><label class="v-label">Expense Ratio (%)</label><input class="v-input" type="number" id="fe-'+i+'" value="'+d.expense+'" step="0.01"></div>'
+    + '<div class="v-form-group"><label class="v-label">AUM (₹ Cr)</label><input class="v-input" type="number" id="fa-'+i+'" value="'+d.aum+'"></div>'
+    + '<div class="v-form-group"><label class="v-label">Risk</label><select class="v-input" id="fr-'+i+'"><option>Low</option><option>Moderate</option><option>Moderately High</option><option>High</option><option>Very High</option></select></div>'
+    + '</div>';
+  wrap.appendChild(div);
+  var sel = document.getElementById('fr-' + i);
+  if (sel) sel.value = d.risk;
+  if (funds.length >= 4) document.getElementById('add-btn').style.display = 'none';
+}
+
+function removeFund(idx) {
+  funds.splice(idx, 1);
+  renderInputs();
+}
+
+function renderInputs() {
+  var saved = [];
+  for (var i = 0; i < funds.length; i++) {
+    saved.push(readFund(i));
+  }
+  document.getElementById('fund-inputs').innerHTML = '';
+  funds = [];
+  document.getElementById('add-btn').style.display = '';
+  saved.forEach(function(d) { addFund(d); });
+}
+
+function readFund(i) {
+  return {
+    name: (document.getElementById('fn-'+i)||{}).value || '',
+    nav: parseFloat((document.getElementById('fv-'+i)||{}).value) || 0,
+    ret1: parseFloat((document.getElementById('f1-'+i)||{}).value) || 0,
+    ret3: parseFloat((document.getElementById('f3-'+i)||{}).value) || 0,
+    ret5: parseFloat((document.getElementById('f5-'+i)||{}).value) || 0,
+    expense: parseFloat((document.getElementById('fe-'+i)||{}).value) || 0,
+    aum: parseFloat((document.getElementById('fa-'+i)||{}).value) || 0,
+    risk: (document.getElementById('fr-'+i)||{}).value || 'Moderate'
+  };
+}
+
+function loadPreset(key) {
+  document.getElementById('fund-inputs').innerHTML = '';
+  funds = [];
+  document.getElementById('add-btn').style.display = '';
+  PRESETS[key].forEach(function(d) { addFund(d); });
+}
+
+function compare() {
+  var data = [];
+  for (var i = 0; i < funds.length; i++) data.push(readFund(i));
+  data = data.filter(function(d) { return d.name; });
+  if (data.length < 2) { alert('Enter at least 2 funds to compare'); return; }
+
+  var table = document.getElementById('compare-table');
+  var thead = table.querySelector('thead tr');
+  thead.innerHTML = '<th>Metric</th>';
+  data.forEach(function(d) { thead.innerHTML += '<th>' + d.name + '</th>'; });
+
+  var metrics = [
+    {label:'NAV (₹)',key:'nav',fmt:function(v){return '₹'+v.toFixed(2)},best:'none'},
+    {label:'1-Year Return',key:'ret1',fmt:function(v){return v.toFixed(1)+'%'},best:'max'},
+    {label:'3-Year Return (CAGR)',key:'ret3',fmt:function(v){return v.toFixed(1)+'%'},best:'max'},
+    {label:'5-Year Return (CAGR)',key:'ret5',fmt:function(v){return v.toFixed(1)+'%'},best:'max'},
+    {label:'Expense Ratio',key:'expense',fmt:function(v){return v.toFixed(2)+'%'},best:'min'},
+    {label:'AUM (₹ Cr)',key:'aum',fmt:function(v){return '₹'+v.toLocaleString()},best:'none'},
+    {label:'Risk Level',key:'risk',fmt:function(v){return v},best:'none'}
+  ];
+
+  var tbody = table.querySelector('tbody');
+  tbody.innerHTML = '';
+  metrics.forEach(function(m) {
+    var vals = data.map(function(d) { return typeof d[m.key] === 'number' ? d[m.key] : 0; });
+    var bestVal = m.best === 'max' ? Math.max.apply(null,vals) : m.best === 'min' ? Math.min.apply(null,vals) : null;
+    var tr = '<tr><td style="font-weight:600;color:#fff">' + m.label + '</td>';
+    data.forEach(function(d,idx) {
+      var v = d[m.key];
+      var isBest = bestVal !== null && typeof v === 'number' && v === bestVal;
+      tr += '<td class="num" style="' + (isBest ? 'color:var(--green);font-weight:700' : '') + '">' + m.fmt(v) + (isBest ? ' ★' : '') + '</td>';
+    });
+    tbody.innerHTML += tr + '</tr>';
+  });
+
+  document.getElementById('results').style.display = '';
+
+  // Chart
+  var colors = ['#F0B429','#22C55E','#3B82F6','#EF4444'];
+  var labels = ['1-Year','3-Year','5-Year'];
+  var datasets = data.map(function(d,i) {
+    return {label:d.name, data:[d.ret1,d.ret3,d.ret5], backgroundColor:colors[i%4]+'33', borderColor:colors[i%4], borderWidth:2, pointRadius:4};
+  });
+  document.getElementById('chart-wrap').style.display = '';
+  if (chartInstance) chartInstance.destroy();
+  chartInstance = new Chart(document.getElementById('returns-chart'), {
+    type:'bar',
+    data:{labels:labels,datasets:datasets},
+    options:{responsive:true,plugins:{legend:{labels:{color:'#E4E4E7'}}},scales:{x:{ticks:{color:'#71717A'}},y:{ticks:{color:'#71717A',callback:function(v){return v+'%'}},grid:{color:'rgba(255,255,255,0.06)'}}}}
+  });
+}
+
+addFund();
+addFund();
+</script>
+{% endblock %}

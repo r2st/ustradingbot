@@ -1,0 +1,149 @@
+{% extends "viral/base.html" %}
+{% block title %}SIP Calculator — Monthly Investment Returns with Step-Up | DoAide Trade{% endblock %}
+{% block description %}Free SIP returns calculator with annual step-up, lump sum comparison, and year-by-year growth table. Calculate how your monthly SIP investment grows over time.{% endblock %}
+{% block og_title %}SIP Calculator — With Step-Up &amp; Lump Sum Comparison{% endblock %}
+{% block og_url %}/tools/sip-calculator{% endblock %}
+{% block json_ld %}
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"SIP Returns Calculator","url":"https://trade.doaide.com/tools/sip-calculator","description":"Calculate SIP returns with annual step-up, inflation adjustment, and lump sum comparison.","applicationCategory":"FinanceApplication","operatingSystem":"Web","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}}</script>
+{% endblock %}
+{% block content %}
+<h1>SIP Returns Calculator</h1>
+<p class="v-subtitle">Calculate how your monthly SIP grows over time — with annual step-up, inflation adjustment, and lump sum comparison.</p>
+
+<div class="v-card">
+  <div class="v-grid v-grid-2">
+    <div class="v-form-group">
+      <label class="v-label">Monthly SIP (₹)</label>
+      <input type="number" id="sip" class="v-input" value="10000" min="500" step="500" oninput="calc()">
+    </div>
+    <div class="v-form-group">
+      <label class="v-label">Expected Return (% p.a.)</label>
+      <input type="number" id="rate" class="v-input" value="12" min="1" max="50" step="0.5" oninput="calc()">
+    </div>
+    <div class="v-form-group">
+      <label class="v-label">Time Period (years)</label>
+      <input type="number" id="years" class="v-input" value="10" min="1" max="40" step="1" oninput="calc()">
+    </div>
+    <div class="v-form-group">
+      <label class="v-label">Annual Step-Up (%)</label>
+      <input type="number" id="stepup" class="v-input" value="10" min="0" max="50" step="1" oninput="calc()">
+    </div>
+    <div class="v-form-group">
+      <label class="v-label">Inflation Rate (% p.a.)</label>
+      <input type="number" id="inflation" class="v-input" value="6" min="0" max="20" step="0.5" oninput="calc()">
+    </div>
+    <div class="v-form-group">
+      <label class="v-label">Lump Sum (₹, optional)</label>
+      <input type="number" id="lumpsum" class="v-input" value="0" min="0" step="10000" oninput="calc()">
+    </div>
+  </div>
+</div>
+
+<div id="results" class="v-card" style="display:none">
+  <h2 style="margin-top:0">Results</h2>
+  <div class="v-grid v-grid-4 v-grid-stats">
+    <div class="v-result"><div class="v-result-label">Total Invested</div><div class="v-result-value" id="r-invested"></div></div>
+    <div class="v-result"><div class="v-result-label">SIP Wealth</div><div class="v-result-value gold" id="r-wealth"></div></div>
+    <div class="v-result"><div class="v-result-label">Total Returns</div><div class="v-result-value green" id="r-returns"></div></div>
+    <div class="v-result"><div class="v-result-label">Inflation-Adjusted</div><div class="v-result-value" id="r-real"></div></div>
+  </div>
+
+  <div id="lumpsum-compare" style="display:none;margin-top:16px">
+    <h3>SIP vs Lump Sum</h3>
+    <div class="v-grid v-grid-2">
+      <div class="v-result"><div class="v-result-label">Lump Sum Wealth</div><div class="v-result-value" id="r-ls-wealth"></div></div>
+      <div class="v-result"><div class="v-result-label" id="r-winner-label">Winner</div><div class="v-result-value gold" id="r-winner"></div></div>
+    </div>
+  </div>
+
+  <div style="margin-top:16px">
+    <h3>Year-by-Year Growth</h3>
+    <canvas id="growth-chart" height="250"></canvas>
+  </div>
+
+  <div class="v-table-wrap" style="margin-top:16px">
+    <table class="v-table" id="yearly-table">
+      <thead><tr><th>Year</th><th class="num">Monthly SIP</th><th class="num">Invested (Cum.)</th><th class="num">Wealth</th><th class="num">Returns</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="v-share">
+  <span class="v-share-label">Share</span>
+  <a href="https://wa.me/?text=Free%20SIP%20Calculator%20with%20Step-Up%20https://trade.doaide.com/tools/sip-calculator" target="_blank" rel="noopener" class="v-share-btn">WhatsApp</a>
+  <a href="https://twitter.com/intent/tweet?text=Free%20SIP%20Calculator&url=https://trade.doaide.com/tools/sip-calculator" target="_blank" rel="noopener" class="v-share-btn">Twitter/X</a>
+  <button class="v-share-btn" id="copy-btn" onclick="copyLink('https://trade.doaide.com/tools/sip-calculator')">Copy Link</button>
+</div>
+{% endblock %}
+{% block extra_script %}
+<script src="/static/chart.umd.min.js"></script>
+<script>
+var chartInstance = null;
+function fmt(n) { return '₹' + Math.round(n).toLocaleString('en-IN'); }
+
+function calc() {
+  var sip = parseFloat(document.getElementById('sip').value) || 0;
+  var rate = parseFloat(document.getElementById('rate').value) || 0;
+  var years = parseInt(document.getElementById('years').value) || 0;
+  var stepup = parseFloat(document.getElementById('stepup').value) || 0;
+  var inflation = parseFloat(document.getElementById('inflation').value) || 0;
+  var lumpsum = parseFloat(document.getElementById('lumpsum').value) || 0;
+  if (sip <= 0 || years <= 0) { document.getElementById('results').style.display='none'; return; }
+
+  var monthlyRate = rate / 100 / 12;
+  var totalInvested = 0;
+  var wealth = 0;
+  var currentSip = sip;
+  var yearData = [];
+
+  for (var y = 1; y <= years; y++) {
+    for (var m = 0; m < 12; m++) {
+      wealth = (wealth + currentSip) * (1 + monthlyRate);
+      totalInvested += currentSip;
+    }
+    yearData.push({year:y,sip:currentSip,invested:totalInvested,wealth:wealth,returns:wealth-totalInvested});
+    currentSip = Math.round(currentSip * (1 + stepup / 100));
+  }
+
+  var realWealth = wealth / Math.pow(1 + inflation / 100, years);
+
+  document.getElementById('r-invested').textContent = fmt(totalInvested);
+  document.getElementById('r-wealth').textContent = fmt(wealth);
+  document.getElementById('r-returns').textContent = fmt(wealth - totalInvested);
+  document.getElementById('r-real').textContent = fmt(realWealth);
+
+  if (lumpsum > 0) {
+    var lsWealth = lumpsum * Math.pow(1 + rate / 100, years);
+    document.getElementById('r-ls-wealth').textContent = fmt(lsWealth);
+    var winner = wealth > lsWealth ? 'SIP wins by ' + fmt(wealth - lsWealth) : 'Lump Sum wins by ' + fmt(lsWealth - wealth);
+    document.getElementById('r-winner').textContent = winner;
+    document.getElementById('lumpsum-compare').style.display = '';
+  } else {
+    document.getElementById('lumpsum-compare').style.display = 'none';
+  }
+
+  var tbody = document.getElementById('yearly-table').querySelector('tbody');
+  tbody.innerHTML = '';
+  yearData.forEach(function(d) {
+    tbody.innerHTML += '<tr><td>'+d.year+'</td><td class="num">'+fmt(d.sip)+'</td><td class="num">'+fmt(d.invested)+'</td><td class="num" style="color:var(--accent)">'+fmt(d.wealth)+'</td><td class="num" style="color:var(--green)">'+fmt(d.returns)+'</td></tr>';
+  });
+
+  if (chartInstance) chartInstance.destroy();
+  chartInstance = new Chart(document.getElementById('growth-chart'), {
+    type:'bar',
+    data:{
+      labels:yearData.map(function(d){return 'Y'+d.year}),
+      datasets:[
+        {label:'Invested',data:yearData.map(function(d){return Math.round(d.invested)}),backgroundColor:'rgba(113,113,122,0.5)',borderRadius:4},
+        {label:'Returns',data:yearData.map(function(d){return Math.round(d.returns)}),backgroundColor:'rgba(34,197,94,0.5)',borderRadius:4}
+      ]
+    },
+    options:{responsive:true,plugins:{legend:{labels:{color:'#E4E4E7'}}},scales:{x:{stacked:true,ticks:{color:'#71717A'}},y:{stacked:true,ticks:{color:'#71717A',callback:function(v){return '₹'+Math.round(v/100000)+'L'}},grid:{color:'rgba(255,255,255,0.06)'}}}}
+  });
+
+  document.getElementById('results').style.display = '';
+}
+calc();
+</script>
+{% endblock %}
