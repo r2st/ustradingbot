@@ -127,3 +127,50 @@ class TestPublicPages:
         r = client.get("/")
         assert 'href="/screener"' in r.text
         assert 'href="/market"' in r.text
+
+
+class TestStockPage:
+    @pytest.fixture(autouse=True)
+    def _no_gemini(self, monkeypatch: pytest.MonkeyPatch):
+        from dashboard import stock_insight
+
+        stock_insight.clear_cache()
+        monkeypatch.setattr(stock_insight, "_call_gemini", lambda settings, prompt: "AI take.")
+        yield
+        stock_insight.clear_cache()
+
+    def test_page_renders_without_login_or_waiting_on_ai(self, monkeypatch):
+        from dashboard import stock_insight
+
+        monkeypatch.setattr(stock_insight, "_call_gemini", pytest.fail)
+        r = client.get("/stock/aapl")
+        assert r.status_code == 200
+        assert "AAPL technical snapshot" in r.text
+        assert "above its 50-day moving average" in r.text
+        assert '<link rel="canonical" href="https://trade.doaide.com/stock/AAPL">' in r.text
+        assert "/api/public/stock/AAPL" in r.text  # the page fetches the AI take itself
+
+    def test_api_includes_ai_summary(self):
+        r = client.get("/api/public/stock/NVDA")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["row"]["symbol"] == "NVDA"
+        assert body["ai_summary"] == "AI take."
+        assert any("below its 50-day" in s for s in body["summary"])
+        assert "NVDA" not in body["peers"]
+
+    def test_cached_ai_is_rendered_inline(self):
+        client.get("/api/public/stock/AAPL")
+        r = client.get("/stock/AAPL")
+        assert "AI take." in r.text
+        assert "/api/public/stock/AAPL" not in r.text
+
+    def test_unknown_symbol_is_404(self):
+        assert client.get("/stock/NOTREAL").status_code == 404
+        assert client.get("/api/public/stock/NOTREAL").status_code == 404
+
+    def test_screener_links_to_stock_pages(self):
+        assert 'href="/stock/AAPL"' in client.get("/screener").text
+
+    def test_stock_pages_are_in_the_sitemap(self):
+        assert "https://trade.doaide.com/stock/AAPL" in client.get("/sitemap.xml").text

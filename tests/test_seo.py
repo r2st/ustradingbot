@@ -46,9 +46,26 @@ def test_sitemap_lists_every_article_and_public_page():
     assert "/dashboard" not in paths
 
 
-def test_every_sitemap_url_resolves():
-    for path in _sitemap_paths():
-        assert client.get(path).status_code == 200, path
+def test_every_sitemap_url_resolves(monkeypatch):
+    # The /stock pages answer 503 when market data is unreachable, as it is
+    # here; give them bars so this asserts the route exists, not the network.
+    import numpy as np
+    import pandas as pd
+
+    from dashboard import public_market_router, stock_insight
+
+    close = np.linspace(100.0, 130.0, 60)
+    bars = pd.DataFrame({"Close": close, "Volume": 1_000_000},
+                        index=pd.date_range("2026-01-01", periods=60, freq="B"))
+    monkeypatch.setattr(public_market_router, "_fetch_ohlcv", lambda symbol: bars)
+    monkeypatch.setattr(stock_insight, "_call_gemini", lambda settings, prompt: None)
+    public_market_router.clear_cache()
+    try:
+        for path in _sitemap_paths():
+            assert client.get(path).status_code == 200, path
+    finally:
+        public_market_router.clear_cache()
+        stock_insight.clear_cache()
 
 
 def test_sitemap_is_valid_xml_with_lastmod():

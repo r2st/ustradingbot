@@ -20,12 +20,13 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
 import structlog
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse
 
 from config.etf_universe import BROAD_MARKET_ETFS, SECTOR_ETFS
 from config.universe import US_WATCHLIST, get_sector
+from dashboard import stock_insight
 
 log = structlog.get_logger(__name__)
 
@@ -206,3 +207,57 @@ async def market_api():
 async def screener_api():
     """Login-free screener rows for the core US watchlist (cached ~10 minutes)."""
     return await run_in_threadpool(build_screener)
+
+
+def _watchlist_symbol(symbol: str) -> str:
+    """Normalise *symbol*; 404 unless it is one the public pages cover."""
+    sym = symbol.strip().upper()
+    if sym not in US_WATCHLIST:
+        raise HTTPException(status_code=404, detail="Unknown symbol")
+    return sym
+
+
+def build_stock(symbol: str, *, with_ai: bool = True) -> Optional[Dict[str, Any]]:
+    """One stock's screener row plus its plain-English read, or ``None``.
+
+    ``with_ai=False`` only reads the AI summary cache, so the HTML page renders
+    without waiting on Gemini; the page's script then fetches the JSON twin,
+    which makes the call.
+    """
+    screener = build_screener()
+    row = next((r for r in screener["rows"] if r["symbol"] == symbol), None)
+    if row is None:
+        return None
+    if with_ai:
+        from dashboard.auth import get_settings
+
+        ai = stock_insight.ai_summary(row, get_settings())
+    else:
+        ai = stock_insight.cached_ai_summary(symbol)
+    return {
+        "as_of": screener["as_of"],
+        "row": row,
+        "summary": stock_insight.technical_summary(row),
+        "ai_summary": ai,
+        "peers": [s for s in US_WATCHLIST if s != symbol and get_sector(s) == row["sector"]][:6],
+    }
+
+
+@router.get("/stock/{symbol}", response_class=HTMLResponse, include_in_schema=False)
+async def stock_page(request: Request, symbol: str):
+    sym = _watchlist_symbol(symbol)
+    data = await run_in_threadpool(lambda: build_stock(sym, with_ai=False))
+    return _templates().TemplateResponse(
+        request, "viral/stock.html", context={"symbol": sym, "data": data},
+        status_code=200 if data else 503,
+    )
+
+
+@router.get("/api/public/stock/{symbol}")
+async def stock_api(symbol: str):
+    """Login-free technical read of one watchlist stock, with an AI summary when available."""
+    sym = _watchlist_symbol(symbol)
+    data = await run_in_threadpool(build_stock, sym)
+    if data is None:
+        raise HTTPException(status_code=503, detail="Market data temporarily unavailable")
+    return data

@@ -1375,6 +1375,13 @@ def build_sitemap_xml() -> str:
         f"<priority>{prio}</priority></url>"
         for path, freq, prio in _STATIC_PAGES
     ]
+    from config.universe import US_WATCHLIST
+
+    for symbol in US_WATCHLIST:
+        urls.append(
+            f"  <url><loc>{SITE_URL}/stock/{symbol}</loc>"
+            "<changefreq>daily</changefreq><priority>0.7</priority></url>"
+        )
     for article in ARTICLES:
         lastmod = f"<lastmod>{article['iso_date']}</lastmod>" if article.get("iso_date") else ""
         urls.append(

@@ -60,7 +60,7 @@
     </tr></thead>
     <tbody id="screener-rows">
     {% for r in data.rows %}
-      <tr><td>{{ r.symbol }}</td><td class="v-hide-sm">{{ r.sector }}</td><td class="num">${{ '%.2f'|format(r.price) }}</td>
+      <tr><td><a href="/stock/{{ r.symbol }}">{{ r.symbol }}</a></td><td class="v-hide-sm">{{ r.sector }}</td><td class="num">${{ '%.2f'|format(r.price) }}</td>
         <td class="num">{{ r.change_pct if r.change_pct is not none else '—' }}%</td>
         <td class="num">{{ r.month_pct if r.month_pct is not none else '—' }}%</td>
         <td class="num">{{ r.rsi if r.rsi is not none else '—' }}</td>
@@ -129,7 +129,7 @@
     var rows = filtered();
     $('match-count').textContent = rows.length;
     $('screener-rows').innerHTML = rows.length ? rows.map(function (r) {
-      return '<tr><td><strong>' + esc(r.symbol) + '</strong></td><td class="v-hide-sm">' + esc(r.sector) +
+      return '<tr><td><a href="/stock/' + esc(r.symbol) + '"><strong>' + esc(r.symbol) + '</strong></a></td><td class="v-hide-sm">' + esc(r.sector) +
         '</td><td class="num">$' + r.price.toFixed(2) + '</td><td class="num">' + pct(r.change_pct) +
         '</td><td class="num">' + pct(r.month_pct) + '</td><td class="num">' + rsi(r.rsi) +
         '</td><td class="num v-hide-sm">' + pct(r.off_high_pct) + '</td></tr>';
