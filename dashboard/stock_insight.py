@@ -89,13 +89,13 @@ def _prompt(row: Dict[str, Any]) -> str:
     )
 
 
-def _call_gemini(settings, prompt: str) -> Optional[str]:
-    key = str(getattr(settings, "GEMINI_API_KEY", "") or "").strip()
-    if not key:
-        return None
-    base = str(getattr(settings, "GEMINI_BASE_URL", "") or "").rstrip("/")
-    model = str(getattr(settings, "GEMINI_MODEL", "") or "gemini-flash-latest")
-    resp = httpx.post(
+#: Tried after the configured model when it answers 429 or 5xx — Flash returns
+#: 503 "high demand" for long spells, and Flash-Lite usually still answers.
+_FALLBACK_MODEL = "gemini-flash-lite-latest"
+
+
+def _post_gemini(base: str, key: str, model: str, prompt: str) -> httpx.Response:
+    return httpx.post(
         f"{base}/chat/completions",
         headers={"Authorization": f"Bearer {key}"},
         json={
@@ -107,6 +107,18 @@ def _call_gemini(settings, prompt: str) -> Optional[str]:
         },
         timeout=_AI_TIMEOUT,
     )
+
+
+def _call_gemini(settings, prompt: str) -> Optional[str]:
+    key = str(getattr(settings, "GEMINI_API_KEY", "") or "").strip()
+    if not key:
+        return None
+    base = str(getattr(settings, "GEMINI_BASE_URL", "") or "").rstrip("/")
+    model = str(getattr(settings, "GEMINI_MODEL", "") or "gemini-flash-latest")
+    resp = _post_gemini(base, key, model, prompt)
+    if (resp.status_code == 429 or resp.status_code >= 500) and model != _FALLBACK_MODEL:
+        log.info("stock_insight.ai_fallback", model=model, status=resp.status_code)
+        resp = _post_gemini(base, key, _FALLBACK_MODEL, prompt)
     resp.raise_for_status()
     text = resp.json()["choices"][0]["message"]["content"]
     text = " ".join(str(text or "").split())

@@ -89,6 +89,17 @@ class TestAiSummary:
         assert "200.00" in body["messages"][0]["content"]
         assert stock_insight.cached_ai_summary("AAPL") == "A calm read."
 
+    def test_overloaded_model_falls_back_to_lite(self, monkeypatch):
+        models = []
+
+        def fake_post(url, headers, json, timeout):
+            models.append(json["model"])
+            return _Resp(status=503) if json["model"] == "gemini-flash-latest" else _Resp("Lite.")
+
+        monkeypatch.setattr(stock_insight.httpx, "post", fake_post)
+        assert stock_insight.ai_summary(ROW, SETTINGS) == "Lite."
+        assert models == ["gemini-flash-latest", "gemini-flash-lite-latest"]
+
     def test_no_key_means_no_call(self, monkeypatch):
         monkeypatch.setattr(stock_insight.httpx, "post", pytest.fail)
         settings = SimpleNamespace(GEMINI_API_KEY="", GEMINI_BASE_URL="", GEMINI_MODEL="")
@@ -99,7 +110,7 @@ class TestAiSummary:
 
         def failing(*a, **k):
             calls.append(1)
-            return _Resp(status=503)
+            return _Resp(status=400)
 
         monkeypatch.setattr(stock_insight.httpx, "post", failing)
         assert stock_insight.ai_summary(ROW, SETTINGS) is None
