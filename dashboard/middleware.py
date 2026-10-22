@@ -157,14 +157,16 @@ def install_request_logging(app: FastAPI) -> None:
 #: JSON API + the same-origin WebSocket (``ws:``/``wss:``).  ``'unsafe-inline'``
 #: is allowed for styles and scripts because the templates carry inline
 #: ``<style>``/bootstrap ``<script>`` blocks; keeping the origin locked to
-#: ``'self'`` is the meaningful control here.
+#: ``'self'`` is the meaningful control here.  The one third-party origin is
+#: our own Umami instance, which every template loads for page analytics.
+_ANALYTICS_ORIGIN = "https://analytics.doaide.com"
 _CSP = (
     "default-src 'self'; "
-    "script-src 'self' 'unsafe-inline'; "
+    f"script-src 'self' 'unsafe-inline' {_ANALYTICS_ORIGIN}; "
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
     "img-src 'self' data:; "
     "font-src 'self' data: https://fonts.gstatic.com; "
-    "connect-src 'self' ws: wss:; "
+    f"connect-src 'self' ws: wss: {_ANALYTICS_ORIGIN}; "
     "frame-ancestors 'none'; "
     "base-uri 'self'; "
     "form-action 'self'"
